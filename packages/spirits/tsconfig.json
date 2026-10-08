@@ -1,0 +1,10 @@
+{
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"types": ["bun"],
+		"paths": {
+			"@earendil-works/pi-coding-agent": ["./src/types/pi-coding-agent.d.ts"]
+		}
+	},
+	"include": ["src/**/*.ts", "test/**/*.ts", "bin/**/*.ts"]
+}

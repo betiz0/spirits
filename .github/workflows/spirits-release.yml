@@ -1,0 +1,72 @@
+name: Spirits Release
+
+on:
+  push:
+    tags:
+      - 'spirits-v*'
+
+concurrency:
+  group: spirits-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+
+      - name: Install root dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Test spirits
+        run: |
+          set -euo pipefail
+          cd packages/spirits
+          bun install --frozen-lockfile
+          bun test
+
+      - name: Build binary
+        run: |
+          set -euo pipefail
+          bun scripts/build-binaries.ts --version "${GITHUB_REF_NAME#spirits-v}"
+
+      - name: Verify artifacts
+        run: |
+          set -euo pipefail
+          test -x dist/spirits-linux-x64
+          test -f dist/spirits-linux-x64.sha256
+
+      - name: Smoke test
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum -c spirits-linux-x64.sha256)
+          dist/spirits-linux-x64 --version
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#spirits-v}"
+          prerelease_args=()
+          if [[ "$version" == *-* ]]; then
+            prerelease_args+=(--prerelease)
+          fi
+          bun_version="$(bun --version)"
+          gh release create "$GITHUB_REF_NAME" \
+            dist/spirits-linux-x64 \
+            dist/spirits-linux-x64.sha256 \
+            --title "spirits ${version}" \
+            --notes "Embedded Bun: ${bun_version}" \
+            "${prerelease_args[@]}"
