@@ -29,6 +29,11 @@ jobs:
       - name: Install root dependencies
         run: bun install --frozen-lockfile
 
+      - name: Hydrate model data
+        run: |
+          set -euo pipefail
+          bun packages/ai/scripts/generate-models.ts --strict --data-only
+
       - name: Test spirits
         run: |
           set -euo pipefail
