@@ -11,7 +11,7 @@ import type { AgentToolResult, ExtensionAPI, ToolDefinition } from "@earendil-wo
 import { Repl } from "./repl/cell.ts";
 import type { ResultDetails } from "./repl/format.ts";
 import { createBuiltinHostFns } from "./repl/hostfns.ts";
-import { HostFnRegistry } from "./repl/registry.ts";
+import { HostFnRegistry, type HostFnEntry } from "./repl/registry.ts";
 
 export const TSREPL_DESCRIPTION = [
 	"永続 TypeScript REPL のセルを実行します。",
@@ -59,17 +59,34 @@ export function createDevLogger(options: DevLogOptions = {}): DevLogger | undefi
 
 export interface CreateTsreplToolOptions {
 	dev?: DevLogOptions;
+	/** Additional host functions exposed to cells, registered after the built-ins. */
+	hostFns?: readonly HostFnEntry[];
+}
+
+/**
+ * Compose the tool description: the M1 description plus each extra host function's description,
+ * separated by a blank line. Without extra host functions the result is `TSREPL_DESCRIPTION`.
+ */
+function buildToolDescription(hostFns: readonly HostFnEntry[] | undefined): string {
+	const extras = (hostFns ?? []).map((entry) => entry.description).filter((text) => text !== "");
+	if (extras.length === 0) {
+		return TSREPL_DESCRIPTION;
+	}
+	return [TSREPL_DESCRIPTION, ...extras].join("\n\n");
 }
 
 export function createTsreplTool(options: CreateTsreplToolOptions = {}): ToolDefinition<TsreplParameters, TsreplDetails> {
 	const registry = new HostFnRegistry(createBuiltinHostFns());
+	for (const entry of options.hostFns ?? []) {
+		registry.register(entry);
+	}
 	const repl = new Repl(registry);
 	const devLog = createDevLogger(options.dev);
 
 	return {
 		name: "tsrepl",
 		label: "TypeScript REPL",
-		description: TSREPL_DESCRIPTION,
+		description: buildToolDescription(options.hostFns),
 		parameters,
 		exposure: "direct",
 		executionMode: "sequential",

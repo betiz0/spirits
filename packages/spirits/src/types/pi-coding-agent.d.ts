@@ -4,14 +4,26 @@
  * The real types live in `packages/coding-agent/src/core/extensions/types.ts`. Spirits
  * does not compile against them directly: doing so pulls the whole pi source tree into
  * the type check, where `@types/bun` globals conflict with pi's Node-targeted types
- * (`ReadableStream`, `path.PlatformPath`). At runtime the extension loader injects the
- * real module (see `core/extensions/virtual-modules.ts`), so only type-only imports
- * appear in spirits source and this file is never loaded.
+ * (`ReadableStream`, `path.PlatformPath`). The `paths` entry in
+ * `packages/spirits/tsconfig.json` points type-only imports at this file, which the
+ * runtime does not load.
+ *
+ * `src/rlm/spawn.ts` is the exception: it imports pi values at runtime (the SDK). Bun
+ * resolves those with the nearest `tsconfig.json`, `src/rlm/tsconfig.json`, whose
+ * `paths` extend the root config and point at the pi sources (design Decision 12).
  *
  * Keep this in sync with the upstream definitions when spirits adopts new API fields.
  */
 
 import type { Static, TSchema } from "typebox";
+
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+/** Minimal view of a pi-ai model. Spirits only reads `provider` and `id`. */
+export interface PiModel {
+	provider: string;
+	id: string;
+}
 
 export type ToolExecutionMode = "sequential" | "parallel";
 
@@ -64,6 +76,10 @@ export interface ExecuteToolOptions {
 export interface ExtensionContext {
 	/** Current working directory. */
 	cwd: string;
+	/** Current model, or undefined when no model is selected. */
+	model: PiModel | undefined;
+	/** Current thinking level, when the session runtime provides one. */
+	thinkingLevel?: ThinkingLevel;
 	/** The current abort signal, or undefined when the agent is not streaming. */
 	signal: AbortSignal | undefined;
 }
@@ -103,7 +119,97 @@ export interface ExtensionAPI {
 	registerTool<TParams extends TSchema = TSchema, TDetails = unknown, TState = any>(
 		tool: ToolDefinition<TParams, TDetails, TState>,
 	): void;
+	/** Append a custom entry to the session for state persistence (not sent to the LLM). */
+	appendEntry<T = unknown>(customType: string, data?: T): void;
 }
+
+// ============================================================================
+// SDK surface used by the rlm host function
+// ============================================================================
+
+/** Session statistics returned by `AgentSession.getSessionStats()`. */
+export interface SessionStats {
+	tokens: {
+		input: number;
+		output: number;
+		cacheRead: number;
+		cacheWrite: number;
+		total: number;
+	};
+	cost: number;
+}
+
+/** Message shape spirits reads from `AgentSession.messages`. */
+export interface AgentMessage {
+	role: string;
+	stopReason?: string;
+	errorMessage?: string;
+}
+
+/** Session event shape spirits reads from `AgentSession.subscribe()`. */
+export interface AgentSessionEvent {
+	type: string;
+	toolCallId?: string;
+	toolName?: string;
+	args?: unknown;
+	parentToolCallId?: string;
+}
+
+/** Child agent session created by `createAgentSession()`. Only the fields spirits calls are mirrored. */
+export interface AgentSession {
+	prompt(text: string, options?: { expandPromptTemplates?: boolean }): Promise<void>;
+	abort(): Promise<void>;
+	getLastAssistantText(): string | undefined;
+	getSessionStats(): SessionStats;
+	subscribe(listener: (event: AgentSessionEvent) => void): () => void;
+	dispose(): void;
+	readonly sessionId: string;
+	readonly messages: readonly AgentMessage[];
+}
+
+/** In-memory session manager. Spirits only uses the `inMemory` factory. */
+export class SessionManager {
+	static inMemory(cwd?: string): SessionManager;
+}
+
+/** Options for `DefaultResourceLoader`. Only the fields spirits sets are mirrored. */
+export interface DefaultResourceLoaderOptions {
+	cwd: string;
+	agentDir: string;
+	noExtensions?: boolean;
+	noSkills?: boolean;
+	noPromptTemplates?: boolean;
+	noContextFiles?: boolean;
+}
+
+/** Resource loader. Spirits constructs one with the restricted options and reloads it. */
+export class DefaultResourceLoader {
+	constructor(options: DefaultResourceLoaderOptions);
+	reload(): Promise<void>;
+}
+
+/** Options for `createAgentSession()`. Only the fields spirits sets are mirrored. */
+export interface CreateAgentSessionOptions {
+	cwd?: string;
+	agentDir?: string;
+	model?: PiModel;
+	thinkingLevel?: ThinkingLevel;
+	tools?: string[];
+	customTools?: readonly ToolDefinition[];
+	sessionManager?: SessionManager;
+	resourceLoader?: DefaultResourceLoader;
+}
+
+/** Result of `createAgentSession()`. Only the fields spirits reads are mirrored. */
+export interface CreateAgentSessionResult {
+	session: AgentSession;
+}
+
+/** Create an AgentSession with the specified options. */
+export function createAgentSession(options?: CreateAgentSessionOptions): Promise<CreateAgentSessionResult>;
+
+/** Get the agent config directory (e.g. `~/.pi/agent/`). */
+export function getAgentDir(): string;
 
 /** Extension factory function type. Supports both sync and async initialization. */
 export type ExtensionFactory = (pi: ExtensionAPI) => void | Promise<void>;
