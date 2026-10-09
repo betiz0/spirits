@@ -1,0 +1,42 @@
+# openspec/config.yaml — spirits
+schema: spec-driven
+
+# 全OpenSpecリクエストに注入される。簡潔に保つこと
+context: |
+  spirits: Pi(earendil-works/pi)のフォーク上に構築するエージェント型コーディングツール。
+  Tech stack: TypeScript / Bun専用(>=1.4.0、CI基準1.4.2) / bun.lock / bun test。
+  Node.jsは実行対象外。配布は bun build --compile 単一バイナリ + install.sh(Linux x86_64のみ)。
+
+  Architecture:
+  - 全実装は packages/spirits/(Pi拡張)に集約。Piコアの既存コードは原則変更禁止。
+  - 中核は永続TypeScript REPLツール tsrepl(Bun.Transpiler + node:vm)。
+  - ホスト関数は HostFnRegistry 経由で登録。REPLコアは後段機能を知らない。
+
+  Hard rules(全変更に適用):
+  - 後段非依存: 各フェーズは前段の成果物にのみ依存し、後段フェーズの機能/APIを import・参照してはならない。
+  - Pi上流コアへの変更が不可避なら1変更=1コミットで分離し "[spirits]" プレフィックスを付ける。
+  - 依存追加は bun install --save-exact(完全ピン留め)。
+  - モデル生成コードはユーザ権限で実行され、vmはセキュリティ境界ではない(仕様)。
+
+  Roadmap(M1→M5、各フェーズ=1 change):
+  - M1 tsrepl(REPL本体) / M2 binary-distribution(コンパイル配布) / M3 rlm(同期再帰) /
+    M4 continual-harness(memory/skill) / M5 phase2-enhancements(判断ゲート付き)
+  - 全体設計書: docs/design.md、フェーズ別設計書: docs/phases/(m1-repl.md 等)。
+    M2以降はフェーズ到達まで propose しない。
+
+rules:
+  proposal:
+    - capabilitiesは上記Roadmapのcapability名(tsrepl 等)をそのまま使い、変更単位は1フェーズ=1 changeとする
+    - "change-idは verb-led kebab-case(例: add-tsrepl)"
+    - Impactには「Pi上流コアへの差分の有無」を必ず記載する
+  specs:
+    - 要件文はSHALL/MUSTで書き、各要件に最低1つのWHEN/THENシナリオを付ける
+    - REPLコア関連の要件には「後段フェーズ機能への非依存」を要件として明示する
+    - 外部から観測可能な振る舞いのみ書き、内部関数名やライブラリ選定はdesignへ任せる
+  design:
+    - Decisionsは「選択肢と理由」の形式で書く(代替案を必ず1つ併記)
+    - Risksは [Risk] → Mitigation 形式
+    - 設計の一次根拠は docs/design.md と対応する docs/phases/*.md を参照し、重複記述を避ける
+  tasks:
+    - 各タスクに検証方法(bun test のケース名または確認コマンド)を明記する
+    - 依存順に並べ、1タスクは1セッションで完了できる粒度にする
