@@ -52,6 +52,16 @@ spirits -v          # 同じ出力
 
 `install.sh` をもう一度実行する。`spirits update` は pi の更新案内を表示するだけで、spirits の更新は行わない。
 
+## アンインストール
+
+削除に使うコマンドを案内する(ファイルは自動削除しない):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/main/scripts/install.sh | sh -s -- --uninstall
+```
+
+出力される `rm` コマンドでバイナリとデータディレクトリ `~/.spirits/agent/` を削除する。データディレクトリには設定・セッション・外部拡張が含まれるため、必要ならバックアップしてから削除する。`~/.spirits/bin` を `PATH` に追加した行は shell rc から手動で消す。
+
 ## 設定ディレクトリ
 
 `~/.spirits/agent/` を使う(環境変数 `PI_CODING_AGENT_DIR` を設定している場合はそちらを優先)。セッション・認証・設定のほか、外部拡張は `~/.spirits/agent/extensions/` に置く。インストール先 `~/.spirits/bin/` とは別のディレクトリ。

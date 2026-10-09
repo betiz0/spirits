@@ -148,6 +148,19 @@ echo "9.9.9-test"
 EOF
 chmod +x "$STUB_DIR/bun"
 
+# Minimal PATH for cases that must not see curl/sha256sum: `sh` plus a Linux `uname` stub.
+MIN_PATH_DIR="$TEST_ROOT/stub-min-path"
+mkdir -p "$MIN_PATH_DIR"
+ln -s /bin/sh "$MIN_PATH_DIR/sh"
+cat >"$MIN_PATH_DIR/uname" <<'EOF'
+#!/bin/sh
+case "$1" in
+	-m) echo "x86_64" ;;
+	*) echo "Linux" ;;
+esac
+EOF
+chmod +x "$MIN_PATH_DIR/uname"
+
 # --- Fixture server -------------------------------------------------------------------------
 
 PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
@@ -184,6 +197,13 @@ run_install() { # home version path
 		sh "$INSTALL_SH" >"$RUN_OUT" 2>"$RUN_ERR" || RUN_RC=$?
 }
 
+run_uninstall() { # home path
+	: >"$RUN_OUT"
+	: >"$RUN_ERR"
+	RUN_RC=0
+	HOME="$1" PATH="$2" sh "$INSTALL_SH" --uninstall >"$RUN_OUT" 2>"$RUN_ERR" || RUN_RC=$?
+}
+
 # --- Cases ----------------------------------------------------------------------------------
 
 write_releases <<'EOF'
@@ -198,6 +218,15 @@ assert_eq "unsupported platform exits 1" "1" "$RUN_RC"
 assert_contains "unsupported platform reports Linux x86_64" "$(cat "$RUN_ERR")" "Linux x86_64"
 assert_not_contains "unsupported platform error not on stdout" "$(cat "$RUN_OUT")" "Error:"
 assert_file_absent "unsupported platform installs nothing" "$home/.spirits/bin/spirits"
+
+# 1b. Unsupported platform wins over missing helper commands (check_platform runs first).
+home="$WORK/home-platform-order"
+mkdir -p "$home"
+run_install "$home" "" "$DARWIN_STUB_DIR:$MIN_PATH_DIR"
+assert_eq "platform check runs before helper checks" "1" "$RUN_RC"
+assert_contains "platform check still reports Linux x86_64" "$(cat "$RUN_ERR")" "Linux x86_64"
+assert_not_contains "platform check does not report sha256sum" "$(cat "$RUN_ERR")" "sha256sum"
+assert_file_absent "platform check with missing helpers installs nothing" "$home/.spirits/bin/spirits"
 
 # 2. VERSION install: downloads the tagged artifact, installs with the exec bit, reports Bun.
 make_release 0.1.0 "fake spirits 0.1.0"
@@ -246,11 +275,13 @@ spirits-v0.4.0 true false
 spirits-v0.3.0-rc.1 false true
 EOF
 home="$WORK/home-none"
-mkdir -p "$home"
+mkdir -p "$home/.spirits/bin"
+printf 'existing install\n' >"$home/.spirits/bin/spirits"
+chmod 755 "$home/.spirits/bin/spirits"
 run_install "$home" "" "$STUB_DIR:$PATH"
 assert_eq "no spirits release exits 1" "1" "$RUN_RC"
 assert_contains "no spirits release reports the failure" "$(cat "$RUN_ERR")" "No stable spirits"
-assert_file_absent "no spirits release installs nothing" "$home/.spirits/bin/spirits"
+assert_content_eq "no spirits release keeps the existing install" "$home/.spirits/bin/spirits" "existing install"
 
 # 6. Re-run the same version, then a different version.
 home="$WORK/home-version"
@@ -283,6 +314,27 @@ assert_eq "PATH guidance install exits 0" "0" "$RUN_RC"
 assert_contains "PATH guidance prints the export line" "$(cat "$RUN_OUT")" "export PATH="
 assert_contains "PATH guidance names the install dir" "$(cat "$RUN_OUT")" "$home/.spirits/bin"
 assert_content_eq "PATH guidance leaves the shell rc unchanged" "$home/.bashrc" "original rc"
+
+# 9. Uninstall guidance: prints removal commands, changes nothing, needs no curl/sha256sum.
+home="$WORK/home-uninstall"
+mkdir -p "$home/.spirits/agent"
+printf 'settings\n' >"$home/.spirits/agent/settings.json"
+run_install "$home" "0.1.0" "$STUB_DIR:$PATH"
+assert_eq "uninstall setup install exits 0" "0" "$RUN_RC"
+run_uninstall "$home" "$MIN_PATH_DIR"
+assert_eq "uninstall exits 0" "0" "$RUN_RC"
+assert_contains "uninstall names the binary path" "$(cat "$RUN_OUT")" "$home/.spirits/bin/spirits"
+assert_contains "uninstall names the data directory" "$(cat "$RUN_OUT")" "$home/.spirits/agent"
+assert_contains "uninstall prints a remove command" "$(cat "$RUN_OUT")" "rm"
+assert_file_exists "uninstall keeps the installed binary" "$home/.spirits/bin/spirits"
+assert_content_eq "uninstall keeps the data directory" "$home/.spirits/agent/settings.json" "settings"
+
+# 10. Uninstall without an installation: still exits 0 with guidance.
+home="$WORK/home-uninstall-none"
+mkdir -p "$home"
+run_uninstall "$home" "$MIN_PATH_DIR"
+assert_eq "uninstall without an install exits 0" "0" "$RUN_RC"
+assert_contains "uninstall without an install still prints guidance" "$(cat "$RUN_OUT")" "$home/.spirits/agent"
 
 # --- Summary --------------------------------------------------------------------------------
 

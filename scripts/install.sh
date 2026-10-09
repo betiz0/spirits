@@ -4,6 +4,7 @@
 #
 #   curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/main/scripts/install.sh | sh
 #   VERSION=0.1.0 sh scripts/install.sh
+#   curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/main/scripts/install.sh | sh -s -- --uninstall
 #
 # POSIX sh only: no `local`, no `pipefail`. Progress and errors go to stderr; the success
 # summary goes to stdout. The shell rc is never edited.
@@ -25,6 +26,9 @@ TAG_PREFIX="spirits-v"
 # Install location: $HOME/.spirits/bin/spirits. Never requires root.
 INSTALL_DIR="$HOME/.spirits/bin"
 INSTALLED_BINARY="$INSTALL_DIR/spirits"
+
+# Data directory applied through PI_CODING_AGENT_DIR by the compiled binary (bin/env-defaults.ts).
+AGENT_DIR="$HOME/.spirits/agent"
 
 # Base URLs. Overridable for tests (fixture server).
 API_BASE_URL="${SPIRITS_API_BASE_URL:-https://api.github.com}"
@@ -120,9 +124,18 @@ check_platform() {
 
 # --- Main -----------------------------------------------------------------------------------
 
+# Fail on an unsupported platform before reporting missing helper commands.
+check_platform
+
+if [ "${1:-}" = "--uninstall" ]; then
+	printf 'To remove the spirits binary:\n  rm -f %s\n' "$INSTALLED_BINARY"
+	printf 'To remove the data directory (settings, sessions, extensions):\n  rm -rf %s\n' "$AGENT_DIR"
+	printf 'If you added %s to your PATH, remove that line from your shell rc.\n' "$INSTALL_DIR"
+	exit 0
+fi
+
 command -v curl >/dev/null 2>&1 || fail "curl is required."
 command -v sha256sum >/dev/null 2>&1 || fail "sha256sum is required."
-check_platform
 
 tag=$(resolve_tag)
 binary_url="$RELEASE_BASE_URL/$OWNER/$REPO/releases/download/$tag/$ARTIFACT"
