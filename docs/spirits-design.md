@@ -62,9 +62,8 @@ spirits は、エージェント型コーディングツール **Pi**(`earendil-
 │  packages/spirits (拡張パッケージ, 本プロジェクトの中核)│
 │  ├─ repl/   永続 TS REPL(Bun.Transpiler + node:vm)   │
 │  ├─ rlm/    子エージェント起動(SDK createAgentSession)│
-│  ├─ harness/ goal / memory / skill CRUD              │
-│  └─ prompts/ code-mode 用システムプロンプト            │
-│                                                      │
+│  └─ harness/ goal / memory / skill CRUD / code-mode  │
+│      (code-mode プロンプトも同梱)                            │
 │  配布: bun build --compile → 単一バイナリ `spirits`    │
 │        (Linux x86_64 のみ)                            │
 └──────────────────────────────────────────────────────┘
@@ -125,10 +124,12 @@ import 許可範囲:
 
 ### 4.4 Continual Harness 相当
 
-「エージェントが自分のプロンプト / スキルを改善できる」機構を、Pi の既存機構の組合せで実装する:
+「エージェントが自分のプロンプト / スキル / メモリを改善できる」機構を、Pi の既存機構の組合せで実装する(M4 で確定。詳細は `spirits-m4-harness.md`):
 
-- **スキル / プロンプトテンプレート**: `~/.spirits/agent/skills/`, `prompts/` ディレクトリを用意し、codemode 公開のファイル操作ツール経由でエージェント自身が CRUD 可能にする
-- **メモリ**: セッション横断で残したい事実は `pi.appendEntry()` によるカスタムエントリで JSONL に永続化し、セッション開始時に要約注入
+- **メモリ**: セッション横断で残したい事実は `note(text)` で `~/.spirits/agent/memory/notes.md` へ追記し、`spirits_memory` カスタムエントリでも記録する。エージェント開始ごと(プロンプトごと)に `memory/` 直下の `*.md` の要約をシステムプロンプトの `spirits_memory` セクションへ注入する(`notes.md` は末尾、ほかは先頭。本文全体を文字数上限以内に収め、超えるときは整理候補、`notes.md`、ほかのファイルの順に残し、`notes.md` は古い行から省く。上限は `SPIRITS_MEMORY_CHAR_LIMIT` などで設定)
+- **スキル**: `~/.spirits/agent/skills/` 配下の `SKILL.md` を codemode ツールで CRUD する。モデルには宣言せず、`tool(name, args)` と `goal` / `note` のツール説明の案内で伝える
+- **プロンプト**: 既定の code-mode プロンプトを TS 定数として同梱し、`before_agent_start` の `systemPromptOptions.sections` に `spirits` として追加する。上書きは `~/.spirits/agent/prompts/spirits/code-mode.md`(変更前は `.bak`)
+- **子セッション**: メモリ・スキル・プロンプトは自動配線しない。子へ渡す情報は親が `rlm` の prompt に含める
 - **既存参考実装**: `pi-agenticoding`(spawn / notebook / handoff の文脈管理プリミティブ)を設計参照とする。必要になれば依存として取り込む
 
 ### 4.5 コマンド・配布構成(確定)
@@ -228,12 +229,17 @@ import 許可範囲:
 │     │  │  ├─ spawn.ts        createAgentSession ラッパ(同期)
 │     │  │  └─ depth.ts        深度制限伝播
 │     │  ├─ harness/
-│     │  │  ├─ memory.ts       appendEntry / 注入
-│     │  │  └─ skills.ts       skill/prompt CRUD
+│     │  │  ├─ install.ts      配線(registerTool / before_agent_start)
+│     │  │  ├─ memory.ts       note / メモリ要約
+│     │  │  ├─ goal.ts         goal() ホスト関数
+│     │  │  ├─ skills.ts       skill CRUD
+│     │  │  ├─ prompt.ts       code-mode プロンプト(既定 + 上書き解決)
+│     │  │  ├─ guidance.ts     ホスト関数・ツールの案内
+│     │  │  ├─ paths.ts        エージェントディレクトリ配下のパス
+│     │  │  └─ tools.ts        codemode ツール定義
 │     │  └─ tools.ts           REPL ツール登録
 │     ├─ bin/                  コンパイル用エントリ
 │     └─ test/
-├─ prompts/spirits/            code-mode システムプロンプト
 ├─ scripts/
 │  ├─ build-binaries.ts        コンパイル・チェックサム生成
 │  └─ install.sh               配布用インストーラ(Linux x86_64 専用, SHA256 検証付き)

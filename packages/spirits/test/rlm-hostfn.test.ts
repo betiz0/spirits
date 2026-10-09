@@ -262,8 +262,12 @@ test("child host fn names", async () => {
 	const entry = createRlmHostFn({ pi: new FakePi(), depth: 0, maxDepth: DEFAULT_MAX_DEPTH, spawn: capturing.spawn });
 	await callRlm(entry, rlmScope(), "x");
 
-	const child = await runCell(capturing.params[0].childTool, "return [typeof out, typeof print, typeof use, typeof tool, typeof rlm].join(',')");
-	expect(child.value).toContain("function,function,function,function,function");
+	// The continual-harness host fns must never be wired into the child's tsrepl (M4 policy).
+	const child = await runCell(
+		capturing.params[0].childTool,
+		"return [typeof out, typeof print, typeof use, typeof tool, typeof rlm, typeof goal, typeof note].join(',')",
+	);
+	expect(child.value).toContain("function,function,function,function,function,undefined,undefined");
 });
 
 test("nested depth 0-1-2", async () => {

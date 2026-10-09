@@ -76,6 +76,8 @@ export interface ExecuteToolOptions {
 export interface ExtensionContext {
 	/** Current working directory. */
 	cwd: string;
+	/** Session manager (read-only). */
+	sessionManager: ReadonlySessionManager;
 	/** Current model, or undefined when no model is selected. */
 	model: PiModel | undefined;
 	/** Current thinking level, when the session runtime provides one. */
@@ -121,6 +123,69 @@ export interface ExtensionAPI {
 	): void;
 	/** Append a custom entry to the session for state persistence (not sent to the LLM). */
 	appendEntry<T = unknown>(customType: string, data?: T): void;
+	/** Subscribe to a session event. Returns an unsubscribe function. */
+	on(
+		event: "before_agent_start",
+		handler: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>,
+	): () => void;
+}
+
+/** Extension event handler. Return a result to influence the session, or void to observe only. */
+export type ExtensionHandler<E, R = undefined> = (
+	event: E,
+	ctx: ExtensionContext,
+) => Promise<R | void> | R | void;
+
+/**
+ * Subset of pi's `NormalizedBuildSystemPromptOptions` that spirits reads or mutates.
+ * `sections` is mutable: later handlers observe changes made by earlier handlers.
+ */
+export interface SystemPromptOptions {
+	/** Named prompt sections, wrapped in a tag of the same name when rendered. */
+	sections: Record<string, string>;
+	/** Complete system prompt override set by an earlier handler. Spirits never sets this. */
+	forceSystemPrompt?: string;
+}
+
+/** Fired before an agent loop starts. Spirits adds its prompt sections here. */
+export interface BeforeAgentStartEvent {
+	type: "before_agent_start";
+	/** The raw user prompt text (after expansion). */
+	prompt: string;
+	/** Mutable prompt options. Later handlers observe mutations made by earlier handlers. */
+	systemPromptOptions: SystemPromptOptions;
+}
+
+/** Result of a `before_agent_start` handler. Only the fields spirits reads are mirrored. */
+export interface BeforeAgentStartEventResult {
+	/** Replace the complete system prompt for this turn. */
+	systemPrompt?: string;
+}
+
+// ============================================================================
+// Session state read by the continual harness
+// ============================================================================
+
+/** A user/assistant/tool message entry on the session branch. */
+export interface SessionMessageEntry {
+	type: "message";
+	message: AgentMessage;
+}
+
+/** An extension-defined entry that is not sent to the LLM. */
+export interface CustomEntry<T = unknown> {
+	type: "custom";
+	customType: string;
+	data?: T;
+}
+
+/** Session entry shapes spirits walks on the current branch. */
+export type SessionEntry = SessionMessageEntry | CustomEntry;
+
+/** Read-only session manager. Spirits only resolves the current branch. */
+export interface ReadonlySessionManager {
+	/** Entries from the root to the current leaf, in order. */
+	getBranch(): readonly SessionEntry[];
 }
 
 // ============================================================================
@@ -139,9 +204,11 @@ export interface SessionStats {
 	cost: number;
 }
 
-/** Message shape spirits reads from `AgentSession.messages`. */
+/** Message shape spirits reads from `AgentSession.messages` and session entries. */
 export interface AgentMessage {
 	role: string;
+	/** Text or content parts as produced by providers. */
+	content?: string | readonly (TextContent | ImageContent)[];
 	stopReason?: string;
 	errorMessage?: string;
 }
@@ -210,6 +277,17 @@ export function createAgentSession(options?: CreateAgentSessionOptions): Promise
 
 /** Get the agent config directory (e.g. `~/.pi/agent/`). */
 export function getAgentDir(): string;
+
+/** Parsed YAML frontmatter and the remaining body. */
+export interface ParsedFrontmatter<T extends Record<string, unknown> = Record<string, unknown>> {
+	frontmatter: T;
+	body: string;
+}
+
+/** Parse the `---` frontmatter block of a Markdown document (public pi API). */
+export function parseFrontmatter<T extends Record<string, unknown> = Record<string, unknown>>(
+	content: string,
+): ParsedFrontmatter<T>;
 
 /** Extension factory function type. Supports both sync and async initialization. */
 export type ExtensionFactory = (pi: ExtensionAPI) => void | Promise<void>;

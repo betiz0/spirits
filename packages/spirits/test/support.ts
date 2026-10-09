@@ -1,5 +1,7 @@
-import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext, ReadonlySessionManager } from "@earendil-works/pi-coding-agent";
 import type { HostFnScope } from "../src/repl/registry.ts";
+
+const EMPTY_SESSION_MANAGER: ReadonlySessionManager = { getBranch: () => [] };
 
 /** Build an `ExtensionToolContext` good enough for REPL tests. */
 export function makeToolContext(
@@ -9,6 +11,7 @@ export function makeToolContext(
 		model?: ExtensionToolContext["model"];
 		thinkingLevel?: ExtensionToolContext["thinkingLevel"];
 		executeTool?: ExtensionToolContext["executeTool"];
+		sessionManager?: ReadonlySessionManager;
 	} = {},
 ): ExtensionToolContext {
 	return {
@@ -16,6 +19,7 @@ export function makeToolContext(
 		signal: options.signal,
 		model: options.model,
 		thinkingLevel: options.thinkingLevel,
+		sessionManager: options.sessionManager ?? EMPTY_SESSION_MANAGER,
 		tools: [],
 		executeTool:
 			options.executeTool ??
@@ -37,6 +41,7 @@ export function makeScope(
 		finished?: boolean;
 		model?: ExtensionToolContext["model"];
 		thinkingLevel?: ExtensionToolContext["thinkingLevel"];
+		sessionManager?: ReadonlySessionManager;
 	} = {},
 ): CapturedScope {
 	const printed: string[] = [];
@@ -47,6 +52,7 @@ export function makeScope(
 			cwd: options.cwd,
 			model: options.model,
 			thinkingLevel: options.thinkingLevel,
+			sessionManager: options.sessionManager,
 		}),
 		print: (text) => {
 			if (!scope.finished) {
