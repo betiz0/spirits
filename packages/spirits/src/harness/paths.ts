@@ -29,7 +29,7 @@ const CODE_MODE_FILE_NAME = "code-mode.md";
 /** Suffix of the single pre-change backup. */
 const BACKUP_SUFFIX = ".bak";
 
-/** Resolve pi's agent directory (honors `PI_CODING_AGENT_DIR`). */
+/** Resolve pi's agent directory (honors `SPIRITS_CODING_AGENT_DIR`). */
 export { piGetAgentDir as getAgentDir };
 
 /** `<agentDir>/memory/`. */

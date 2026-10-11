@@ -37,7 +37,7 @@ export function registerContinualHarness(
 	options: ContinualHarnessOptions,
 ): HostFnEntry[] {
 	const config = loadConfig(options.env ?? process.env);
-	// Resolve before any module builds paths: a relative PI_CODING_AGENT_DIR still
+	// Resolve before any module builds paths: a relative SPIRITS_CODING_AGENT_DIR still
 	// yields absolute heading paths, note return values, and entry `file` fields.
 	const agentDir = path.resolve(options.agentDir);
 

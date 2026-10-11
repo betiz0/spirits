@@ -72,8 +72,62 @@ export interface ExecuteToolOptions {
 	onUpdate?: AgentToolUpdateCallback;
 }
 
+/** Run mode of the current pi process. */
+export type ExtensionMode = "tui" | "rpc" | "json" | "print";
+
+/** Theme colors used by the spirits header. */
+export type ThemeColor = "accent" | "dim" | "muted";
+
+/** Theme façade passed to extension UI factories. Only `fg` is mirrored. */
+export interface Theme {
+	fg(color: ThemeColor, text: string): string;
+}
+
+/** Minimal pi-tui component contract for extension UI factories. */
+export interface Component {
+	render(width: number): string[];
+	invalidate(): void;
+}
+
+/** Header factory argument; the spirits header does not use the TUI handle. */
+export type TUI = unknown;
+
+/** Effective settings subset the spirits extension reads. */
+export interface ExtensionSettings {
+	quietStartup?: boolean | "header";
+}
+
+/** UI façade passed to extension event handlers. Only `setHeader` is mirrored. */
+export interface ExtensionUIContext {
+	/** Set a custom header component, or undefined to restore the built-in header. */
+	setHeader(factory: ((tui: TUI, theme: Theme) => Component & { dispose?(): void }) | undefined): void;
+}
+
+/** Fired when a session is started, loaded, or reloaded. */
+export interface SessionStartEvent {
+	type: "session_start";
+	reason: "startup" | "reload" | "new" | "resume" | "fork";
+	previousSessionFile?: string;
+}
+
+/** Keybinding identifier accepted by keyHint/keyText. */
+export type AppKeybinding = string;
+
+/** Render a keybinding's keys. */
+export function keyText(keybinding: AppKeybinding): string;
+
+/** Render a dim keybinding hint with a muted description. */
+export function keyHint(keybinding: AppKeybinding, description: string): string;
+
+/** Render a literal key as a dim hint with a muted description. */
+export function rawKeyHint(key: string, description: string): string;
+
 /** Context shared by all extension entry points. Only the fields spirits reads are mirrored. */
 export interface ExtensionContext {
+	/** UI methods for user interaction. */
+	ui: ExtensionUIContext;
+	/** Current run mode. Use `"tui"` to guard terminal-only UI. */
+	mode: ExtensionMode;
 	/** Current working directory. */
 	cwd: string;
 	/** Session manager (read-only). */
@@ -123,11 +177,14 @@ export interface ExtensionAPI {
 	): void;
 	/** Append a custom entry to the session for state persistence (not sent to the LLM). */
 	appendEntry<T = unknown>(customType: string, data?: T): void;
+	/** A copy of the effective settings (global and project merged, with overrides). */
+	getSettings(): ExtensionSettings;
 	/** Subscribe to a session event. Returns an unsubscribe function. */
 	on(
 		event: "before_agent_start",
 		handler: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>,
 	): () => void;
+	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): () => void;
 }
 
 /** Extension event handler. Return a result to influence the session, or void to observe only. */

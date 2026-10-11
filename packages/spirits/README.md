@@ -50,7 +50,7 @@ spirits -v          # 同じ出力
 
 ## 更新
 
-`install.sh` をもう一度実行する。`spirits update` は pi の更新案内を表示するだけで、spirits の更新は行わない。
+`install.sh` をもう一度実行する。`spirits update` は pi のリリースではなく、この installer の再実行を案内する。
 
 ## アンインストール
 
@@ -64,7 +64,13 @@ curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/main/scripts/install
 
 ## 設定ディレクトリ
 
-`~/.spirits/agent/` を使う(環境変数 `PI_CODING_AGENT_DIR` を設定している場合はそちらを優先)。セッション・認証・設定のほか、外部拡張は `~/.spirits/agent/extensions/` に置く。インストール先 `~/.spirits/bin/` とは別のディレクトリ。
+`~/.spirits/agent/` を使う(環境変数 `SPIRITS_CODING_AGENT_DIR` を設定している場合はそちらを優先)。セッション・認証・設定のほか、外部拡張は `~/.spirits/agent/extensions/` に置く。インストール先 `~/.spirits/bin/` とは別のディレクトリ。
+
+**BREAKING**: 旧名 `PI_CODING_AGENT_DIR` は保存先の指定として読まない。既定パス `~/.spirits/agent/` は変わらないため、既存データはそのまま使われる。
+
+## テレメトリ
+
+install レポートの送信と pi 名義の provider attribution ヘッダは既定で無効。有効化は環境変数 `PI_TELEMETRY=1` の明示指定のみで、`settings.json` の `enableInstallTelemetry` で有効にしても既定の無効化に上書きされて効かない。
 
 ## rlm(子エージェント呼び出し)
 
@@ -76,7 +82,7 @@ tsrepl のセルから `await rlm(prompt, opts?)` で子エージェントを同
 - ツール呼び出し上限: 1 回の `rlm` 呼び出しあたり、子のモデル発行ツール呼び出しは既定 50 回まで。51 回目で子を打ち切り、上限超過の旨と部分テキストを途中結果サマリとして返す。
 - 直列化: 同じ REPL からの `rlm` は 1 つずつ実行される(`Promise.all` でも直列)。待ち時間は合計される。
 - 中断: セルの timeout と呼び出し元の中断は子にも伝播する。セルの timeout は子の実行時間にも適用されるため、長い処理では `timeout` を大きく指定する(最大 120000ms)。
-- 認証: 子の認証は親と同じエージェントディレクトリ(`PI_CODING_AGENT_DIR` 指定時はそちら)の認証情報・モデル定義と環境変数に限る。`--api-key` で与えた認証と、拡張が登録したプロバイダは子に継承されない。
+- 認証: 子の認証は親と同じエージェントディレクトリ(`SPIRITS_CODING_AGENT_DIR` 指定時はそちら)の認証情報・モデル定義と環境変数に限る。`--api-key` で与えた認証と、拡張が登録したプロバイダは子に継承されない。
 - 子のリソース: 子は cwd を親と共有し、モデル(親に thinking level があればそれも)を継承する。子の有効ツールは `tsrepl` だけで、親の REPL 変数は見えない。拡張・skill・プロンプトテンプレートは読み込まず、AGENTS.md などのコンテキストファイルは読み込む。
 - `rlm` の利用には親セッションのモデルが必要。未設定の場合、子は生成せず例外になる。
 

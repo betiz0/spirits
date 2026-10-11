@@ -55,9 +55,11 @@ return await rlm("行を要約して JSON で返して。");
 
 - `await` の後に始まる同期ループは中断できず、timeout も効かずプロセス全体が応答しなくなります(再起動が必要)。
 - 対応は Linux x86_64 のみ。theme / assets / HTML エクスポート / native prebuilds は同梱しません。
-- 自動アップデートはありません。更新はインストーラの再実行です。`spirits update` は Pi の更新通知を表示するだけです。
+- 自動アップデートはありません。更新はインストーラの再実行です。`spirits update` は Pi のリリース URL ではなくインストーラの再実行を案内します。
 - `rlm` は同期・直列です。非同期 fan-out は M5 で採否判断します。
-- 設定・セッション・認証は `~/.spirits/agent/`(`PI_CODING_AGENT_DIR` 指定時はそちら)。外部拡張は `~/.spirits/agent/extensions/` に置きます。
+- 設定・セッション・認証は `~/.spirits/agent/`(`SPIRITS_CODING_AGENT_DIR` 指定時はそちら)。外部拡張は `~/.spirits/agent/extensions/` に置きます。
+- **BREAKING**: 旧 `PI_CODING_AGENT_DIR` は読まれません。既定パス `~/.spirits/agent/` は変わらないため、既存データはそのまま使えます。
+- install テレメトリと Pi 名義の provider ヘッダは既定で無効です。`settings.json` では有効化できず、`PI_TELEMETRY=1` で opt-in します。
 
 ## セキュリティ
 

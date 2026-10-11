@@ -26,7 +26,7 @@ function withAgentDir(dir: string, run: () => void): void {
 	}
 }
 
-test("paths follow PI_CODING_AGENT_DIR", () => {
+test("paths follow SPIRITS_CODING_AGENT_DIR", () => {
 	withAgentDir(AGENT_DIR, () => {
 		expect(getAgentDir()).toBe(AGENT_DIR);
 		expect(memoryDir(getAgentDir())).toBe(path.join(AGENT_DIR, "memory"));

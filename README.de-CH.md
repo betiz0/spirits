@@ -55,9 +55,11 @@ Details, Grenzen und Einschränkungen stehen in [`packages/spirits/README.md`](p
 
 - Eine synchrone Schleife, die nach einem `await` startet, lässt sich nicht unterbrechen: Der Timeout greift nicht, und der ganze Prozess reagiert nicht mehr (Neustart nötig).
 - Nur Linux x86_64; Themes, Assets, HTML-Export und native Prebuilds sind nicht enthalten.
-- Keine automatischen Updates. Zum Aktualisieren den Installer erneut ausführen; `spirits update` zeigt nur den Update-Hinweis von Pi.
+- Keine automatischen Updates. Zum Aktualisieren den Installer erneut ausführen; `spirits update` verweist auf den Installer statt auf Pi's Release-URL.
 - `rlm` ist synchron und serialisiert. Asynchrones Fan-out wird in M5 beurteilt.
-- Konfiguration, Sitzungen und Authentifizierung liegen in `~/.spirits/agent/` (oder in `PI_CODING_AGENT_DIR`). Externe Erweiterungen gehören nach `~/.spirits/agent/extensions/`.
+- Konfiguration, Sitzungen und Authentifizierung liegen in `~/.spirits/agent/` (oder in `SPIRITS_CODING_AGENT_DIR`). Externe Erweiterungen gehören nach `~/.spirits/agent/extensions/`.
+- **BREAKING**: Die alte Variable `PI_CODING_AGENT_DIR` wird nicht mehr gelesen. Der Standardpfad `~/.spirits/agent/` bleibt gleich, bestehende Daten funktionieren weiter.
+- Install-Telemetrie und Pi-attribuierte Provider-Header sind standardmässig aus. Sie lassen sich nicht über `settings.json` aktivieren; dafür `PI_TELEMETRY=1` setzen.
 
 ## Sicherheit
 

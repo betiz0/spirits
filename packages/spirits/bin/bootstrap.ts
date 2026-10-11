@@ -7,11 +7,15 @@
  */
 
 import { homedir } from "node:os";
+import { SPIRITS_APP_NAME } from "../src/constants.ts";
 import { checkBunVersion } from "./bun-gate.ts";
 import { computeEnvDefaults } from "./env-defaults.ts";
 import { VERSION_FLAGS, formatVersionLine, isCompiledRun, resolveSpiritsVersion } from "./version.ts";
 
 function applyEnvDefaults(): void {
+	// Must run before pi resolves APP_NAME so `SPIRITS_CODING_AGENT_DIR` and the other derived names
+	// match the env defaults computed below.
+	process.env.PI_APP_NAME = SPIRITS_APP_NAME;
 	const defaults = computeEnvDefaults(process.env, homedir());
 	for (const [name, value] of Object.entries(defaults)) {
 		process.env[name] = value;

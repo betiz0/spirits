@@ -2,8 +2,8 @@
 
 - プロジェクト名: **spirits**
 - コマンド名: `spirits`
-- 版: v0.3
-- 更新日: 2026-10-07
+- 版: v0.4
+- 更新日: 2026-10-11
 - ライセンス: MIT
 - ステータス: 設計確定(M1 着手可)
 
@@ -173,7 +173,21 @@ import 許可範囲:
 
 #### ユーザ拡張のロード
 
-コンパイルバイナリ利用者も `~/.spirits/agent/extensions/` 配下の拡張を利用可能とする(`PI_CODING_AGENT_DIR=~/.spirits/agent` により、pi の拡張探索先をインストール先 `~/.spirits/bin/` と分離する)。実行基盤が Bun のままなので TS 拡張はネイティブ import でロードできる。配布バイナリではパッケージマネージャを内包しないため、拡張の依存解決が必要な場合は Bun インストールを案内する。依存不足の外部拡張があると、起動時に拡張パス付きのエラーを stderr に出して非ゼロで終了する(上流の Bun 環境における拡張インストール問題と同種の制約として README に明記)。
+コンパイルバイナリ利用者も `~/.spirits/agent/extensions/` 配下の拡張を利用可能とする(`SPIRITS_CODING_AGENT_DIR=~/.spirits/agent` により、pi の拡張探索先をインストール先 `~/.spirits/bin/` と分離する)。実行基盤が Bun のままなので TS 拡張はネイティブ import でロードできる。配布バイナリではパッケージマネージャを内包しないため、拡張の依存解決が必要な場合は Bun インストールを案内する。依存不足の外部拡張があると、起動時に拡張パス付きのエラーを stderr に出して非ゼロで終了する(上流の Bun 環境における拡張インストール問題と同種の制約として README に明記)。
+
+### 4.6 製品 identity
+
+製品名・実行環境識別・送信名義を spirits に揃える。対象は CLI 表示、TUI ヘッダ、agent dir、テレメトリ。実装の詳細と代替案は `openspec/changes/add-product-identity/design.md` を参照。
+
+- **env override**: Pi コア `config.ts` は `PI_APP_NAME` / `PI_CONFIG_DIR` を読んでから `APP_NAME` / `APP_TITLE` / `CONFIG_DIR_NAME` を解決する。未設定時は従来どおり `package.json` の `piConfig` → フォールバック。`bin/bootstrap.ts` が pi を import する前に `PI_APP_NAME=spirits` を設定するため、コンパイルバイナリでもソース実行でも同じ identity になる
+- **設定ディレクトリ**: `CONFIG_DIR_NAME` は `.pi` のまま維持する。project 設定・skills・prompts・extensions は `.pi` から読み、リポジトリの `.pi/` 開発リソースと上流エコシステムの互換を保つ
+- **agent dir**: `ENV_AGENT_DIR` は `APP_NAME` から派生し `SPIRITS_CODING_AGENT_DIR` になる(**BREAKING**: 旧 `PI_CODING_AGENT_DIR` は読まない)。既定は `~/.spirits/agent/` で、env-defaults が未設定時に設定する。設定・認証・セッション・拡張の保存先は変わらない
+- **TUI ヘッダ**: spirits 拡張が `session_start` で `ctx.ui.setHeader` を呼び、ワードマーク・`resolveSpiritsVersion()` のバージョン・キーヒント・オンボーディング文を表示する。`quietStartup` 時は設定せず、起動ヘルプの展開キーに `setExpanded` で追従する。色はテーマトークン(`accent` / `dim` / `muted`)を使う
+- **テレメトリ**: env-defaults が `PI_TELEMETRY=0` を既定にし、pi.dev への install レポートと pi 名義の attribution ヘッダを送らない。有効化は `PI_TELEMETRY=1` の明示指定のみで、settings.json の opt-in は既定の無効化に上書きされて効かない
+- **provider 名義**: コア `provider-attribution.ts` の `x-opencode-client` ヘッダは、非 pi ディストリビューション(`APP_NAME !== "pi"`)では `isInstallTelemetryEnabled` が真のときのみ付与する(`x-opencode-session` は維持)。spirits はテレメトリを収集しない
+- **CLI 表示**: help のバナー説明文・agent dir 表示・再開/クラッシュ案内・update 行は非 pi ディストリビューションで spirits を表示する。agent dir 表示は `getAgentDir()` の解決値を使い、`spirits update` は pi のリリースではなく install.sh の再実行を案内する
+
+コア差分は §5 の規律に従い `[spirits]` プレフィックスの独立コミットに分離する。
 
 ## 5. フォーク運用方針
 
@@ -243,9 +257,9 @@ import 許可範囲:
 ├─ scripts/
 │  ├─ build-binaries.ts        コンパイル・チェックサム生成
 │  └─ install.sh               配布用インストーラ(Linux x86_64 専用, SHA256 検証付き)
-└─ docs/
-   ├─ design.md(本書)
-   └─ fork-policy.md           §5 の運用詳細
+├─ docs/
+│  ├─ spirits-design.md(本書)
+│  └─ fork-policy.md           §5 の運用詳細
 ```
 
 ## 10. 開発フェーズ

@@ -55,9 +55,11 @@ Details, limits, and constraints are in [`packages/spirits/README.md`](packages/
 
 - A synchronous loop that starts after an `await` cannot be interrupted: timeout does not fire and the whole process stops responding (restart required).
 - Linux x86_64 only; themes, assets, HTML export, and native prebuilds are not bundled.
-- No automatic updates. Re-run the installer to upgrade; `spirits update` only shows Pi's update notice.
+- No automatic updates. Re-run the installer to upgrade; `spirits update` points at the installer instead of Pi's release URL.
 - `rlm` is synchronous and serialized. Async fan-out is evaluated in M5.
-- Configuration, sessions, and auth live in `~/.spirits/agent/` (or `PI_CODING_AGENT_DIR`). External extensions go to `~/.spirits/agent/extensions/`.
+- Configuration, sessions, and auth live in `~/.spirits/agent/` (or `SPIRITS_CODING_AGENT_DIR`). External extensions go to `~/.spirits/agent/extensions/`.
+- **BREAKING**: the old `PI_CODING_AGENT_DIR` variable is no longer read. The default `~/.spirits/agent/` is unchanged, so existing data keeps working.
+- Install telemetry and Pi-attributed provider headers are off by default. `settings.json` cannot enable them; use `PI_TELEMETRY=1` to opt in.
 
 ## Security
 

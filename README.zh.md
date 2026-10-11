@@ -55,9 +55,11 @@ return await rlm("汇总这些行并以 JSON 返回。");
 
 - 在 `await` 之后开始的同步循环无法中断：timeout 不会触发，整个进程会失去响应（需要重启）。
 - 仅支持 Linux x86_64；不内置主题、资源、HTML 导出和 native prebuilds。
-- 没有自动更新。升级需要重新运行安装器；`spirits update` 只显示 Pi 的更新提示。
+- 没有自动更新。升级需要重新运行安装器；`spirits update` 会提示重新运行安装器，而不是 Pi 的发布页面。
 - `rlm` 是同步且串行的。异步 fan-out 将在 M5 评估。
-- 配置、会话与认证位于 `~/.spirits/agent/`（若设置了 `PI_CODING_AGENT_DIR` 则以该变量为准）。外部扩展放在 `~/.spirits/agent/extensions/`。
+- 配置、会话与认证位于 `~/.spirits/agent/`（若设置了 `SPIRITS_CODING_AGENT_DIR` 则以该变量为准）。外部扩展放在 `~/.spirits/agent/extensions/`。
+- **BREAKING**：不再读取旧的 `PI_CODING_AGENT_DIR`。默认路径 `~/.spirits/agent/` 不变，现有数据可继续使用。
+- install 遥测与 Pi 名义的 provider 请求头默认关闭。无法通过 `settings.json` 开启；请使用 `PI_TELEMETRY=1` 显式启用。
 
 ## 安全
 
