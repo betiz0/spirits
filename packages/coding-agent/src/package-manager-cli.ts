@@ -23,6 +23,7 @@ import {
 	getSelfUpdateCommand,
 	getSelfUpdateUnavailableInstruction,
 	getSettingsPath,
+	type InstallMethod,
 	PACKAGE_NAME,
 	type SelfUpdateCommand,
 	type SelfUpdatePackageTarget,
@@ -263,6 +264,10 @@ function reportSettingsErrors(settingsManager: SettingsManager, context: string)
 	}
 }
 
+function getUpdateTargetList(): string {
+	return APP_NAME === "pi" ? "[source|self|pi]" : "[source|self]";
+}
+
 function getPackageCommandUsage(command: PackageCommand): string {
 	switch (command) {
 		case "install":
@@ -270,7 +275,7 @@ function getPackageCommandUsage(command: PackageCommand): string {
 		case "remove":
 			return `${APP_NAME} remove <source> [-l] [--approve|--no-approve]`;
 		case "update":
-			return `${APP_NAME} update [source|self|pi] [--self|--extensions|--models|--all] [--extension <source>] [--approve|--no-approve] [--force]`;
+			return `${APP_NAME} update ${getUpdateTargetList()} [--self|--extensions|--models|--all] [--extension <source>] [--approve|--no-approve] [--force]`;
 		case "list":
 			return `${APP_NAME} list [--approve|--no-approve]`;
 	}
@@ -334,30 +339,35 @@ Examples:
 `);
 			return;
 
-		case "update":
+		case "update": {
+			const selfUpdateExample =
+				APP_NAME === "pi"
+					? `  ${APP_NAME} update pi             Update pi only (self works as alias to pi)`
+					: `  ${APP_NAME} update self           Update ${APP_NAME} only`;
 			console.log(`${chalk.bold("Usage:")}
   ${getPackageCommandUsage("update")}
 
-Update pi, installed packages, or model catalogs.
+Update ${APP_NAME}, installed packages, or model catalogs.
 
 Options:
-  --self                  Update pi only (default when no target is given)
+  --self                  Update ${APP_NAME} only (default when no target is given)
   --extensions            Update installed packages only
   --models                Refresh model catalogs only
-  --all                   Update pi and installed packages
+  --all                   Update ${APP_NAME} and installed packages
   --extension <source>    Update one package only
   -a, --approve           Trust project-local files for this command
   -na, --no-approve       Ignore project-local files for this command
-  --force                 Reinstall pi even if the current version is latest
+  --force                 Reinstall ${APP_NAME} even if the current version is latest
 
 Short forms:
-  ${APP_NAME} update                Update pi only
-  ${APP_NAME} update --all          Update pi and all extensions
+  ${APP_NAME} update                Update ${APP_NAME} only
+  ${APP_NAME} update --all          Update ${APP_NAME} and all extensions
   ${APP_NAME} update --models       Refresh model catalogs only
   ${APP_NAME} update <source>       Update one package
-  ${APP_NAME} update pi             Update pi only (self works as alias to pi)
+${selfUpdateExample}
 `);
 			return;
+		}
 
 		case "list":
 			console.log(`${chalk.bold("Usage:")}
@@ -612,9 +622,10 @@ async function refreshModelCatalogs(agentDir: string): Promise<void> {
 function printSelfUpdateUnavailable(
 	npmCommand?: string[],
 	updatePackageTarget: SelfUpdatePackageTarget = PACKAGE_NAME,
+	method?: InstallMethod,
 ): void {
 	console.error(`error: ${APP_NAME} cannot self-update this installation.`);
-	console.error(getSelfUpdateUnavailableInstruction(PACKAGE_NAME, npmCommand, updatePackageTarget));
+	console.error(getSelfUpdateUnavailableInstruction(PACKAGE_NAME, npmCommand, updatePackageTarget, method));
 
 	const entrypoint = process.argv[1];
 	if (entrypoint) {
@@ -1025,6 +1036,11 @@ export async function handlePackageCommand(
 					}
 				}
 				if (updateTargetIncludesSelf(target)) {
+					if (APP_NAME !== "pi" && detectInstallMethod() === "bun-binary") {
+						printSelfUpdateUnavailable(selfUpdateNpmCommand, PACKAGE_NAME, "bun-binary");
+						process.exitCode = 1;
+						return true;
+					}
 					const managedInstallRoot = getActiveManagedInstallRoot();
 					if (managedInstallRoot && options.force) {
 						console.error(

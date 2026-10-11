@@ -346,8 +346,8 @@ export function getSelfUpdateUnavailableInstruction(
 	packageName: string,
 	npmCommand?: string[],
 	updatePackageTarget: SelfUpdatePackageTarget = packageName,
+	method: InstallMethod = detectInstallMethod(),
 ): string {
-	const method = detectInstallMethod();
 	const target = normalizeSelfUpdatePackageTarget(updatePackageTarget);
 	if (method === "bun-binary") {
 		return formatBunBinaryUpdateInstruction(APP_NAME);
