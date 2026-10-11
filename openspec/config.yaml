@@ -21,12 +21,15 @@ context: |
   Roadmap(M1→M5、各フェーズ=1 change):
   - M1 tsrepl(REPL本体) / M2 binary-distribution(コンパイル配布) / M3 rlm(同期再帰) /
     M4 continual-harness(memory/skill) / M5 phase2-enhancements(判断ゲート付き)
-  - 全体設計書: docs/design.md、フェーズ別設計書: docs/phases/(m1-repl.md 等)。
-    M2以降はフェーズ到達まで propose しない。
+  - フェーズ外の変更(製品 identity など)は、フェーズに紐づかない独立 capability として
+    別 change で propose する(例: add-product-identity)。フェーズ到達を待たない。
+  - 全体設計書: docs/spirits-design.md、フェーズ別設計書: docs/spirits-m*.md。
+    フェーズ本体(M2以降)はフェーズ到達まで propose しない。
 
 rules:
   proposal:
     - capabilitiesは上記Roadmapのcapability名(tsrepl 等)をそのまま使い、変更単位は1フェーズ=1 changeとする
+    - "フェーズ外の変更はRoadmapに無い独立 capability 名(例: product-identity)を使い、変更単位は1 change=1 capability 群とする"
     - "change-idは verb-led kebab-case(例: add-tsrepl)"
     - Impactには「Pi上流コアへの差分の有無」を必ず記載する
   specs:
@@ -36,7 +39,7 @@ rules:
   design:
     - Decisionsは「選択肢と理由」の形式で書く(代替案を必ず1つ併記)
     - Risksは [Risk] → Mitigation 形式
-    - 設計の一次根拠は docs/design.md と対応する docs/phases/*.md を参照し、重複記述を避ける
+    - 設計の一次根拠は docs/spirits-design.md と対応する docs/spirits-m*.md を参照し、重複記述を避ける
   tasks:
     - 各タスクに検証方法(bun test のケース名または確認コマンド)を明記する
     - 依存順に並べ、1タスクは1セッションで完了できる粒度にする
