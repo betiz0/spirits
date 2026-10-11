@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { formatBannerLine, formatUpdateCommandLine, normalizeSessionName, parseArgs } from "../src/cli/args.ts";
+import { formatAuthCommandHelp } from "../src/cli/auth-command.ts";
 
 describe("parseArgs", () => {
 	describe("--version flag", () => {
@@ -566,5 +567,24 @@ describe("formatUpdateCommandLine", () => {
 		expect(line).toContain("spirits update [source|self]");
 		expect(line).toContain("Update spirits, extensions, or model catalogs");
 		expect(line).not.toContain("Update pi");
+	});
+});
+
+describe("formatAuthCommandHelp", () => {
+	// 3.7: `spirits auth --help` must not present the pi command name.
+	test("keeps the pi command name for pi", () => {
+		const help = formatAuthCommandHelp("pi");
+
+		expect(help).toContain("pi auth print-api-key");
+		expect(help).toContain("pi auth check");
+	});
+
+	test("uses the running app name for non-pi distributions", () => {
+		const help = formatAuthCommandHelp("spirits");
+
+		expect(help).toContain("spirits auth print-api-key");
+		expect(help).toContain("spirits auth print-bearer-token");
+		expect(help).toContain("spirits auth check");
+		expect(help).not.toContain("pi auth");
 	});
 });

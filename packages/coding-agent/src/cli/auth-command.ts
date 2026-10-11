@@ -36,13 +36,17 @@ export function isAuthCommandHelp(args: string[]): boolean {
 	);
 }
 
-export function printAuthCommandHelp(): void {
-	console.log(`Usage:
-  pi auth print-api-key [--provider <provider>] [--model <model>]
-  pi auth print-bearer-token [--provider <provider>] [--model <model>] [--min-expiry <duration>]
-  pi auth check [--provider <provider>] [--model <model>] [--json] [--credentials] [--no-refresh]
+export function formatAuthCommandHelp(appName: string): string {
+	return `Usage:
+  ${appName} auth print-api-key [--provider <provider>] [--model <model>]
+  ${appName} auth print-bearer-token [--provider <provider>] [--model <model>] [--min-expiry <duration>]
+  ${appName} auth check [--provider <provider>] [--model <model>] [--json] [--credentials] [--no-refresh]
 
-Auth commands require at least one of --provider or --model. Checks refresh expired OAuth credentials by default; --no-refresh prevents this. --credentials emits the credential, or includes it in JSON output.`);
+Auth commands require at least one of --provider or --model. Checks refresh expired OAuth credentials by default; --no-refresh prevents this. --credentials emits the credential, or includes it in JSON output.`;
+}
+
+export function printAuthCommandHelp(): void {
+	console.log(formatAuthCommandHelp(APP_NAME));
 }
 
 export function parseAuthCommand(args: string[]): AuthCommand | undefined {
