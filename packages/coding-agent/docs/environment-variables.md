@@ -78,6 +78,8 @@ These variables are read by Pi itself:
 
 | Variable | Description |
 |----------|-------------|
+| `PI_APP_NAME` | Override the app name used in CLI/TUI display and as the prefix for derived environment variables such as `PI_CODING_AGENT_DIR`; default is `pi` (or the `piConfig.name` from `package.json`). `PI_APP_NAME` takes precedence over `piConfig.name` |
+| `PI_CONFIG_DIR` | Override the project config directory name; default is `.pi` (or the `piConfig.configDir` from `package.json`). `PI_CONFIG_DIR` takes precedence over `piConfig.configDir` |
 | `PI_CODING_AGENT_DIR` | Override the config directory; default is `~/.pi/agent` |
 | `PI_CODING_AGENT_SESSION_DIR` | Override session storage; overridden by `--session-dir` |
 | `PI_PACKAGE_DIR` | Override the package directory, useful for Nix/Guix store paths |

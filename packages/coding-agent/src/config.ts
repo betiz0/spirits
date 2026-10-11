@@ -535,11 +535,39 @@ try {
 	if (err.code !== "ENOENT") throw e;
 }
 
-const piConfigName: string | undefined = pkg.piConfig?.name;
+/** Resolved app identity. */
+export interface AppIdentity {
+	/** CLI/display name, also the basis for derived env var names. */
+	appName: string;
+	/** Title shown in the TUI header. */
+	appTitle: string;
+	/** Project config directory name (e.g. `.pi`). */
+	configDirName: string;
+}
+
+/**
+ * Resolve the app identity from environment overrides, `piConfig`, or built-in fallbacks.
+ *
+ * `PI_APP_NAME` / `PI_CONFIG_DIR` take precedence so compiled distributions without a sibling
+ * `package.json` can rebrand without changing the defaults for a plain pi run.
+ */
+export function resolveAppIdentity(
+	piConfig: PackageJson["piConfig"],
+	env: Readonly<Record<string, string | undefined>>,
+): AppIdentity {
+	const name = env.PI_APP_NAME || piConfig?.name;
+	return {
+		appName: name || "pi",
+		appTitle: name ? name : "π",
+		configDirName: env.PI_CONFIG_DIR || piConfig?.configDir || ".pi",
+	};
+}
+
+const appIdentity = resolveAppIdentity(pkg.piConfig, process.env);
 export const PACKAGE_NAME: string = pkg.name || "@earendil-works/pi-coding-agent";
-export const APP_NAME: string = piConfigName || "pi";
-export const APP_TITLE: string = piConfigName ? APP_NAME : "π";
-export const CONFIG_DIR_NAME: string = pkg.piConfig?.configDir || ".pi";
+export const APP_NAME: string = appIdentity.appName;
+export const APP_TITLE: string = appIdentity.appTitle;
+export const CONFIG_DIR_NAME: string = appIdentity.configDirName;
 export const VERSION: string = pkg.version || "0.0.0";
 
 // e.g., PI_CODING_AGENT_DIR or TAU_CODING_AGENT_DIR
