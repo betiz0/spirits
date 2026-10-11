@@ -1000,6 +1000,7 @@ export class InteractiveMode {
 		await this.themeController.waitForTerminalColors();
 
 		// Add header with keybindings from config (unless silenced)
+		let deferBuiltInHeaderMount = false;
 		if (this.shouldShowStartupHeader()) {
 			const showDetails = this.shouldShowStartupDetails();
 			// Built on demand so the header follows theme changes. The logo's first line carries the version,
@@ -1065,10 +1066,17 @@ export class InteractiveMode {
 			if (showLogo) header.onLogoClick = (column, row) => playPiLogo3d(this.renderer, column, row);
 			this.builtInHeader = header;
 
-			// Setup UI layout
-			this.headerContainer.addChild(new Spacer(1));
-			this.headerContainer.addChild(this.builtInHeader);
-			this.headerContainer.addChild(new Spacer(1));
+			if (APP_NAME === "pi") {
+				// Setup UI layout
+				this.headerContainer.addChild(new Spacer(1));
+				this.headerContainer.addChild(this.builtInHeader);
+				this.headerContainer.addChild(new Spacer(1));
+			} else {
+				// Forked distributions replace the header in session_start. Mounting the built-in
+				// header now would flash the pi branding while managed tools download, so mount it
+				// after session_start unless the distribution installed its own header.
+				deferBuiltInHeaderMount = true;
+			}
 		} else {
 			// Minimal header when silenced
 			this.builtInHeader = new Text("", 0, 0);
@@ -1092,6 +1100,15 @@ export class InteractiveMode {
 
 		// Initialize extensions first so resources are shown before messages
 		await this.rebindCurrentSession();
+
+		// Mount the built-in header once session_start handlers had a chance to replace it.
+		if (deferBuiltInHeaderMount && this.builtInHeader) {
+			this.headerContainer.clear();
+			this.headerContainer.addChild(new Spacer(1));
+			this.headerContainer.addChild(this.customHeader ?? this.builtInHeader);
+			this.headerContainer.addChild(new Spacer(1));
+			this.ui.requestRender();
+		}
 
 		// Render initial messages AFTER showing loaded resources
 		this.renderInitialMessages();
