@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { APP_NAME } from "../src/config.ts";
 import type { SessionManager } from "../src/core/session-manager.ts";
-import { formatResumeCommand } from "../src/modes/interactive/interactive-mode.ts";
+import { formatCrashReportInstructions, formatResumeCommand } from "../src/modes/interactive/interactive-mode.ts";
 
 const tempDirs: string[] = [];
 const originalStdoutIsTTY = Object.getOwnPropertyDescriptor(process.stdout, "isTTY");
@@ -131,5 +131,23 @@ describe("formatResumeCommand", () => {
 		const sessionManager = createSessionManager({ sessionFile: undefined });
 
 		expect(formatResumeCommand(sessionManager)).toBeUndefined();
+	});
+});
+
+describe("formatCrashReportInstructions", () => {
+	it("uses the app name when the next start is a new session", () => {
+		expect(formatCrashReportInstructions("spirits", undefined)).toBe(
+			"To report this crash: start spirits and run /bug. The crash details are attached automatically.",
+		);
+	});
+
+	it("uses the app name in the resume command when a session file exists", () => {
+		expect(formatCrashReportInstructions("spirits", "/tmp/session.jsonl")).toBe(
+			"To report this crash: run `spirits -r` to resume the session, then run /bug. The crash details are attached automatically.",
+		);
+	});
+
+	it("keeps the pi wording for pi", () => {
+		expect(formatCrashReportInstructions("pi", undefined)).toContain("start pi and");
 	});
 });

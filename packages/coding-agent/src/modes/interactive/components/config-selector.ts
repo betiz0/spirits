@@ -15,7 +15,7 @@ import {
 	truncateToWidth,
 	visibleWidth,
 } from "@earendil-works/pi-tui";
-import { CONFIG_DIR_NAME } from "../../../config.ts";
+import { CONFIG_DIR_NAME, getSettingsPath } from "../../../config.ts";
 import type { PathMetadata, ResolvedPaths, ResolvedResource } from "../../../core/package-manager.ts";
 import type { PackageSource, SettingsManager } from "../../../core/settings-manager.ts";
 import { BUILTIN_PATH_PREFIX } from "../../../core/source-info.ts";
@@ -216,7 +216,7 @@ class ConfigSelectorHeader implements Component {
 		const scopeHint =
 			this.writeScope === "project"
 				? theme.fg("muted", `${CONFIG_DIR_NAME}/settings.json · inherited global resources are dimmed`)
-				: theme.fg("muted", `~/${CONFIG_DIR_NAME}/agent/settings.json`);
+				: theme.fg("muted", getSettingsPath());
 
 		return [
 			truncateToWidth(`${title}${" ".repeat(spacing)}${hint}`, width, ""),

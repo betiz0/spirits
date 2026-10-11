@@ -12,6 +12,7 @@ import {
 } from "@earendil-works/pi-ai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { AuthStorage } from "../src/core/auth-storage.ts";
+import { getSessionHeaders } from "../src/core/provider-attribution.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
 import { SettingsManager } from "../src/core/settings-manager.ts";
@@ -259,5 +260,47 @@ describe("createAgentSession provider attribution headers", () => {
 
 		expect(headers?.["x-opencode-session"]).toBe("configured-session");
 		expect(headers?.["x-opencode-client"]).toBe("configured-client");
+	});
+
+	it("keeps the OpenCode client header for pi even when telemetry is disabled", () => {
+		const settingsManager = SettingsManager.create(cwd, agentDir);
+		settingsManager.setEnableInstallTelemetry(false);
+
+		const headers = getSessionHeaders(
+			createModel("opencode", "https://opencode.ai/zen/v1"),
+			"opencode-session",
+			settingsManager,
+			"pi",
+		);
+
+		expect(headers).toEqual({ "x-opencode-session": "opencode-session", "x-opencode-client": "pi" });
+	});
+
+	it("omits the OpenCode client header for a non-pi distribution when telemetry is disabled", () => {
+		const settingsManager = SettingsManager.create(cwd, agentDir);
+		settingsManager.setEnableInstallTelemetry(false);
+
+		const headers = getSessionHeaders(
+			createModel("opencode", "https://opencode.ai/zen/v1"),
+			"opencode-session",
+			settingsManager,
+			"spirits",
+		);
+
+		expect(headers).toEqual({ "x-opencode-session": "opencode-session" });
+	});
+
+	it("sends the OpenCode client header for a non-pi distribution when telemetry is explicitly enabled", () => {
+		const settingsManager = SettingsManager.create(cwd, agentDir);
+		settingsManager.setEnableInstallTelemetry(true);
+
+		const headers = getSessionHeaders(
+			createModel("opencode", "https://opencode.ai/zen/v1"),
+			"opencode-session",
+			settingsManager,
+			"spirits",
+		);
+
+		expect(headers).toEqual({ "x-opencode-session": "opencode-session", "x-opencode-client": "pi" });
 	});
 });

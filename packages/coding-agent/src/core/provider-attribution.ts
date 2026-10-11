@@ -1,4 +1,5 @@
 import type { Api, Model, ProviderHeaders } from "@earendil-works/pi-ai";
+import { APP_NAME } from "../config.ts";
 import type { SettingsManager } from "./settings-manager.ts";
 import { isInstallTelemetryEnabled } from "./telemetry.ts";
 
@@ -64,7 +65,12 @@ function getDefaultAttributionHeaders(
 	return undefined;
 }
 
-function getSessionHeaders(model: Model<Api>, sessionId: string | undefined): Record<string, string> | undefined {
+export function getSessionHeaders(
+	model: Model<Api>,
+	sessionId: string | undefined,
+	settingsManager: SettingsManager,
+	appName: string = APP_NAME,
+): Record<string, string> | undefined {
 	if (!sessionId) return undefined;
 	if (
 		model.provider !== "opencode" &&
@@ -73,7 +79,13 @@ function getSessionHeaders(model: Model<Api>, sessionId: string | undefined): Re
 	) {
 		return undefined;
 	}
-	return { "x-opencode-session": sessionId, "x-opencode-client": "pi" };
+	const headers: Record<string, string> = { "x-opencode-session": sessionId };
+	// `x-opencode-client` identifies the client to OpenCode. Keep pi's behavior unchanged and
+	// only send it from a non-pi distribution when the operator opted into telemetry.
+	if (appName === "pi" || isInstallTelemetryEnabled(settingsManager)) {
+		headers["x-opencode-client"] = "pi";
+	}
+	return headers;
 }
 
 export function mergeProviderAttributionHeaders(
@@ -83,7 +95,7 @@ export function mergeProviderAttributionHeaders(
 	...headerSources: Array<ProviderHeaders | undefined>
 ): ProviderHeaders | undefined {
 	const merged: ProviderHeaders = {
-		...getSessionHeaders(model, sessionId),
+		...getSessionHeaders(model, sessionId, settingsManager),
 		...getDefaultAttributionHeaders(model, settingsManager),
 	};
 

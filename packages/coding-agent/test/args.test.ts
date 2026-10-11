@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { normalizeSessionName, parseArgs } from "../src/cli/args.ts";
+import { formatBannerLine, formatUpdateCommandLine, normalizeSessionName, parseArgs } from "../src/cli/args.ts";
 
 describe("parseArgs", () => {
 	describe("--version flag", () => {
@@ -534,5 +534,37 @@ describe("parseArgs", () => {
 			expect(result.fileArgs).toEqual(["prompt.md"]);
 			expect(result.messages).toEqual(["Do the task"]);
 		});
+	});
+});
+
+describe("formatBannerLine", () => {
+	test("keeps the pi tool description for pi", () => {
+		const banner = formatBannerLine("pi");
+
+		expect(banner).toContain("pi");
+		expect(banner).toContain("AI coding assistant with read, bash, edit, write tools");
+	});
+
+	test("does not describe a non-pi distribution with pi's tool list", () => {
+		const banner = formatBannerLine("spirits");
+
+		expect(banner).toContain("spirits");
+		expect(banner).not.toContain("read, bash, edit, write tools");
+	});
+});
+
+describe("formatUpdateCommandLine", () => {
+	test("keeps the pi update targets and description for pi", () => {
+		expect(formatUpdateCommandLine("pi")).toBe(
+			"pi update [source|self|pi]   Update pi, extensions, or model catalogs",
+		);
+	});
+
+	test("does not advertise a pi self-update target for non-pi distributions", () => {
+		const line = formatUpdateCommandLine("spirits");
+
+		expect(line).toContain("spirits update [source|self]");
+		expect(line).toContain("Update spirits, extensions, or model catalogs");
+		expect(line).not.toContain("Update pi");
 	});
 });

@@ -334,6 +334,14 @@ export function getSelfUpdateCommand(
 	return command;
 }
 
+/** Update instruction for a Bun-compiled distribution. */
+export function formatBunBinaryUpdateInstruction(appName: string): string {
+	if (appName === "pi") {
+		return `Download from: https://github.com/earendil-works/pi/releases/latest`;
+	}
+	return `Update ${appName} by re-running the installer that provided this installation.`;
+}
+
 export function getSelfUpdateUnavailableInstruction(
 	packageName: string,
 	npmCommand?: string[],
@@ -342,7 +350,7 @@ export function getSelfUpdateUnavailableInstruction(
 	const method = detectInstallMethod();
 	const target = normalizeSelfUpdatePackageTarget(updatePackageTarget);
 	if (method === "bun-binary") {
-		return `Download from: https://github.com/earendil-works/pi/releases/latest`;
+		return formatBunBinaryUpdateInstruction(APP_NAME);
 	}
 	const command = getSelfUpdateCommandForMethod(method, packageName, target, npmCommand);
 	if (command) {

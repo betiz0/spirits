@@ -347,6 +347,12 @@ export function formatResumeCommand(sessionManager: SessionManager): string | un
 	return args.join(" ");
 }
 
+/** Crash-report hint. Uses the running app name so forks point at themselves. */
+export function formatCrashReportInstructions(appName: string, sessionFile: string | undefined): string {
+	const resume = sessionFile ? `run \`${appName} -r\` to resume the session, then` : `start ${appName} and`;
+	return `To report this crash: ${resume} run /bug. The crash details are attached automatically.`;
+}
+
 function hasDefaultModelProvider(providerId: string): providerId is keyof typeof defaultModelPerProvider {
 	return providerId in defaultModelPerProvider;
 }
@@ -2148,8 +2154,7 @@ export class InteractiveMode {
 	}
 
 	private crashReportInstructions(): string {
-		const resume = this.session.sessionFile ? `run \`${APP_NAME} -r\` to resume the session, then` : "start pi and";
-		return `To report this crash: ${resume} run /bug. The crash details are attached automatically.`;
+		return formatCrashReportInstructions(APP_NAME, this.session.sessionFile);
 	}
 
 	private suggestBugReport(): void {
@@ -4165,7 +4170,7 @@ export class InteractiveMode {
 				() =>
 					theme.fg(
 						"warning",
-						`This project is not trusted. Project ${CONFIG_DIR_NAME} resources and packages are ignored. Use /trust to save a trust decision, then restart pi.`,
+						`This project is not trusted. Project ${CONFIG_DIR_NAME} resources and packages are ignored. Use /trust to save a trust decision, then restart ${APP_NAME}.`,
 					),
 				1,
 				0,

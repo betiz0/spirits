@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test } from "vitest";
 import {
 	detectInstallMethod,
 	findNodePackageDir,
+	formatBunBinaryUpdateInstruction,
 	getSelfUpdateCommand,
 	getSelfUpdateUnavailableInstruction,
 	getUpdateInstruction,
@@ -447,5 +448,21 @@ describe("detectInstallMethod", () => {
 		expect(getSelfUpdateUnavailableInstruction("@earendil-works/pi-coding-agent")).toContain(
 			"the install path is not writable",
 		);
+	});
+});
+
+describe("formatBunBinaryUpdateInstruction", () => {
+	test("points pi at the pi releases download", () => {
+		expect(formatBunBinaryUpdateInstruction("pi")).toBe(
+			"Download from: https://github.com/earendil-works/pi/releases/latest",
+		);
+	});
+
+	test("points a non-pi distribution at its installer instead of pi releases", () => {
+		const instruction = formatBunBinaryUpdateInstruction("spirits");
+
+		expect(instruction).toContain("spirits");
+		expect(instruction).toContain("installer");
+		expect(instruction).not.toContain("github.com/earendil-works/pi/releases");
 	});
 });

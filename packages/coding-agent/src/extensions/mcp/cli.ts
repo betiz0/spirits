@@ -9,7 +9,7 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline/promises";
 import chalk from "chalk";
-import { APP_NAME, CONFIG_DIR_NAME } from "../../config.ts";
+import { APP_NAME, CONFIG_DIR_NAME, getAgentDir } from "../../config.ts";
 import { validateMcpServerConfig } from "../../core/mcp-servers.ts";
 import { ProjectTrustStore } from "../../core/trust-manager.ts";
 import { openBrowser } from "../../utils/open-browser.ts";
@@ -39,7 +39,7 @@ const HELP = `${chalk.bold("Usage:")}
   ${APP_NAME} mcp logout <server>
 
 Configure and check MCP servers and sign in to OAuth servers without starting a session.
-Reads ~/${CONFIG_DIR_NAME}/agent/mcp.json and, in trusted projects, ${CONFIG_DIR_NAME}/mcp.json.
+Reads ${join(getAgentDir(), "mcp.json")} and, in trusted projects, ${CONFIG_DIR_NAME}/mcp.json.
 
 Commands:
   add <server>            Add or replace a server in mcp.json
