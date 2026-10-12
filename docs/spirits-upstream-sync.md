@@ -69,9 +69,10 @@ bun packages/ai/scripts/generate-models.ts --strict --data-only
 ## 4. コミット構成
 
 1. **merge コミット**: 上流の変更、競合解決、lockfile の再生成。メッセージは既定の `Merge tag 'v1.1.0'` のまま変えない。
-2. **spirits 側の修正** (`scripts/build-binaries.ts`、`.github/workflows/spirits-ci.yml`、README、文書など): merge の後に 1 修正 = 1 コミット。`fix:` または `docs:` を使う。
+2. **spirits 側の修正** (`scripts/build-binaries.ts`、`.github/workflows/spirits-ci.yml`、README など): merge の後に 1 修正 = 1 コミット。`fix:` を使う。手順文書の修正は `docs:` を使う。
 3. **Pi コアへの適応** (`packages/spirits/` を除く `packages/` 配下): `[spirits]` プレフィックスを付けた独立コミット。上流 API への適応以外で新しいコア差分を増やさない。
-4. 検証で修正が必要になった場合も同じ規則でコミットを追加し、手順 5 の統合検証を最初からやり直す。
+4. **上流修正のバックポート**: 検証で上流 main の既知の修正が必要になった場合は、その commit を `git cherry-pick --no-commit <sha>` で取り込み、1 修正 = 1 コミットで分離する。メッセージは変更対象で使い分ける。`packages/` 配下 (Pi コア) なら `[spirits] fix(...): <上流の subject>`、それ以外 (`scripts/` など) なら `fix: <上流の subject>`。本文に `(cherry picked from commit <sha>)` を付ける。追跡される生成物 (`packages/ai/src/providers/*.models.ts`、`models.generated.ts`) は再生成せず、上流 commit と同じ内容にする。
+5. 検証で修正が必要になった場合も同じ規則でコミットを追加し、手順 5 の統合検証を最初からやり直す。
 
 ## 5. 検証 (push 前)
 
@@ -79,14 +80,18 @@ bun packages/ai/scripts/generate-models.ts --strict --data-only
 
 1. 型スタブ照合 (手順 2)。
 2. lockfile 検証とモデルデータ hydrate (手順 3)。
-3. root で `npm run check`。
-4. pi-env daemon のビルド。rustup が無ければ導入し、`packages/env/daemon/rust-toolchain.toml` が指定する toolchain (現状 1.96.0) を入れる (`rustup toolchain install 1.96.0`)。root で `npm run build:daemon --workspace packages/env` を実行し、`packages/env/daemon/target/debug/pi-env` が存在し、ビルド成果物が `git status --short packages/env` に出ないことを確認する。
-5. root で `./test.sh` (非 e2e テスト)。上流 `packages/env` のテストが daemon を要求するため、3 の後に行う。
-6. `packages/spirits` で `bun install --frozen-lockfile` → `bun test` → `bun run check`。
-7. spirits バイナリの build と version 注入。`env -u SPIRITS_VERSION bun scripts/build-binaries.ts` でビルドし、`dist/spirits-linux-x64 --version` が `git describe --tags --match 'spirits-v*'` から導出した値 (例: `0.2.0`) を表示し終了コード 0 で終わることを確認する。
-8. self-update smoke。旧版と新版のバイナリを作り、`sh scripts/self-update-smoke.sh <old> <new> <version>` を通す。
-9. binary-distribution の既存シナリオ (`--help` に `Update pi` を含まないこと、設定ディレクトリの作成先、旧環境変数名の無視、外部拡張のロード) をビルド済みバイナリで再実行する。
-10. 対話モード smoke。`.pi/skills/interactive-testing.md` の tmux 手順でビルド済みバイナリを起動し、ヘッダ表示、`/clear`、`tsrepl` の呼び出しを確認する。
+3. root で `npm run build:offline`。v1.1.0 以降の `npm test` は一部パッケージでビルド済み `dist/` を前提とするため、検証の前に build する。
+   - `npm run build` は使わない。`packages/ai` の `generate-models` (full) が live のモデルデータで追跡ファイル (`packages/ai/src/providers/*.models.ts`、`models.generated.ts`) を再生成し、取り込みと無関係な差分が混ざるため。`build:offline` は `check:model-data` で検証したデータを使い、`tsc` とデータのコピーだけを行う。
+   - AGENTS.md により build の実行には利用者の承認が必要。`check:model-data` が失敗した場合は `npm run build` に切り替えず、止めて利用者に報告する。
+   - 実行後は `git status --short --untracked-files=no` が空 (追跡ファイルが書き換わっていない) であることを確認する。
+4. root で `npm run check`。
+5. pi-env daemon のビルド。rustup が無ければ導入し、`packages/env/daemon/rust-toolchain.toml` が指定する toolchain (現状 1.96.0) を入れる (`rustup toolchain install 1.96.0`)。root で `npm run build:daemon --workspace packages/env` を実行し、`packages/env/daemon/target/debug/pi-env` が存在し、ビルド成果物が `git status --short packages/env` に出ないことを確認する。
+6. root で `./test.sh` (非 e2e テスト)。上流 `packages/env` のテストが daemon を要求するため、5 の後に行う。
+7. `packages/spirits` で `bun install --frozen-lockfile` → `bun test` → `bun run check`。
+8. spirits バイナリの build と version 注入。`env -u SPIRITS_VERSION bun scripts/build-binaries.ts` でビルドし、`dist/spirits-linux-x64 --version` が `git describe --tags --match 'spirits-v*'` から導出した値 (例: `0.2.0`) を表示し終了コード 0 で終わることを確認する。
+9. self-update smoke。旧版と新版のバイナリを作り、`sh scripts/self-update-smoke.sh <old> <new> <version>` を通す。
+10. binary-distribution の既存シナリオ (`--help` に `Update pi` を含まないこと、設定ディレクトリの作成先、旧環境変数名の無視、外部拡張のロード) をビルド済みバイナリで再実行する。
+11. 対話モード smoke。`.pi/skills/interactive-testing.md` の tmux 手順でビルド済みバイナリを起動し、ヘッダ表示、`/clear`、`tsrepl` の呼び出しを確認する。
 
 ## 6. push と上流タグの扱い
 
