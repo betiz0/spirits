@@ -3274,6 +3274,11 @@ export class InteractiveMode {
 				this.editor.setText("");
 				return;
 			}
+			if (text === "/clear") {
+				this.editor.setText("");
+				this.handleClearContextCommand();
+				return;
+			}
 			if (text === "/new") {
 				this.editor.setText("");
 				await this.handleClearCommand();
@@ -6868,6 +6873,24 @@ export class InteractiveMode {
 		this.chatContainer.addChild(new Spacer(1));
 		this.chatContainer.addChild(new Markdown(hotkeys.trim(), 1, 1, this.getMarkdownThemeWithSettings()));
 		this.chatContainer.addChild(new DynamicBorder());
+		this.ui.requestRender();
+	}
+
+	private handleClearContextCommand(): void {
+		const result = this.runtimeHost.clearConversation();
+		if (!result.cleared) {
+			// Same wording as the /reload refusals.
+			this.showWarning(
+				result.reason === "streaming"
+					? "Wait for the current response to finish before clearing."
+					: "Wait for compaction to finish before clearing.",
+			);
+			return;
+		}
+
+		this.chatContainer.clear();
+		this.chatContainer.addChild(new Spacer(1));
+		this.chatContainer.addChild(new ThemedText(() => theme.fg("accent", "✓ Conversation cleared"), 1, 1));
 		this.ui.requestRender();
 	}
 

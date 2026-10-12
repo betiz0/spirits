@@ -12,7 +12,7 @@ import type {
 import { emitSessionShutdownEvent } from "./extensions/runner.ts";
 import type { CreateAgentSessionResult } from "./sdk.ts";
 import { assertSessionCwdExists } from "./session-cwd.ts";
-import { SessionManager } from "./session-manager.ts";
+import { type CustomEntry, SessionManager } from "./session-manager.ts";
 
 /**
  * Result returned by runtime creation.
@@ -39,6 +39,12 @@ export type CreateAgentSessionRuntimeFactory = (options: {
 	sessionStartEvent?: SessionStartEvent;
 	projectTrustContext?: ProjectTrustContext;
 }) => Promise<CreateAgentSessionRuntimeResult>;
+
+/** Result of {@link AgentSessionRuntime.clearConversation}. */
+export interface ClearConversationResult {
+	cleared: boolean;
+	reason?: "streaming" | "compacting";
+}
 
 /**
  * Thrown when /import references a JSONL file path that does not exist.
@@ -399,6 +405,42 @@ export class AgentSessionRuntime {
 		);
 		await this.finishSessionReplacement();
 		return { cancelled: false };
+	}
+
+	/**
+	 * Clear the current conversation from the LLM context and rendering without
+	 * replacing the session.
+	 *
+	 * Resets the leaf so the next entries form a new root, then copies the
+	 * current model, thinking level, and every custom entry on the branch (in
+	 * order) onto that new root. Previous entries stay in the session file and
+	 * remain reachable through the session tree.
+	 *
+	 * @returns `{ cleared: false, reason }` while streaming or compacting; nothing is changed.
+	 */
+	clearConversation(): ClearConversationResult {
+		if (this.session.isStreaming) {
+			return { cleared: false, reason: "streaming" };
+		}
+		if (this.session.isCompacting) {
+			return { cleared: false, reason: "compacting" };
+		}
+
+		const sessionManager = this.session.sessionManager;
+		const customEntries = sessionManager.getBranch().filter((entry): entry is CustomEntry => entry.type === "custom");
+
+		sessionManager.resetLeaf();
+		const model = this.session.model;
+		if (model) {
+			sessionManager.appendModelChange(model.provider, model.id);
+		}
+		sessionManager.appendThinkingLevelChange(this.session.thinkingLevel);
+		for (const entry of customEntries) {
+			sessionManager.appendCustomEntry(entry.customType, entry.data);
+		}
+		this.session.refreshContext();
+
+		return { cleared: true };
 	}
 
 	async dispose(): Promise<void> {

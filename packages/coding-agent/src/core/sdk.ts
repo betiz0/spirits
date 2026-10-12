@@ -138,6 +138,20 @@ function getDefaultAgentDir(): string {
 }
 
 /**
+ * Whether the session branch carries state worth restoring on resume.
+ *
+ * A `/clear`ed session has no projected messages but keeps its model and
+ * thinking level entries, so those alone count as existing session data.
+ */
+export function hasExistingSessionData(sessionManager: SessionManager): boolean {
+	const branch = sessionManager.getBranch();
+	return (
+		sessionManager.buildSessionContext().messages.length > 0 ||
+		branch.some((entry) => entry.type === "model_change" || entry.type === "thinking_level_change")
+	);
+}
+
+/**
  * Create an AgentSession with the specified options.
  *
  * @example
@@ -190,9 +204,10 @@ export async function createAgentSession(options: CreateAgentSessionOptions = {}
 		time("resourceLoader.reload");
 	}
 
-	// Check if session has existing data to restore
+	// Check if session has existing data to restore. A cleared session has no
+	// projected messages but keeps model/thinking entries that must be restored.
 	const existingSession = sessionManager.buildSessionContext();
-	const hasExistingSession = existingSession.messages.length > 0;
+	const hasExistingSession = hasExistingSessionData(sessionManager);
 	const hasThinkingEntry = sessionManager.getBranch().some((entry) => entry.type === "thinking_level_change");
 
 	let model = options.model;
