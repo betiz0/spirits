@@ -32,7 +32,11 @@ export type KnownImageApi = "openrouter-images";
 
 export type ImageApi = KnownImageApi | (string & {});
 
-export type KnownClassifierApi = "typesafe-system-one" | "cloudflare-workers-ai-system-one" | "llama-cpp-classify";
+export type KnownClassifierApi =
+	| "typesafe-system-one"
+	| "cloudflare-workers-ai-system-one"
+	| "llama-cpp-classify"
+	| "openai-decisions";
 
 export type ClassifierApi = KnownClassifierApi | (string & {});
 
@@ -43,7 +47,7 @@ export type KnownProvider =
 	| "google"
 	| "google-vertex"
 	| "openai"
-	| "azure-openai-responses"
+	| "azure"
 	| "openai-codex"
 	| "radius"
 	| "typesafe"
@@ -85,6 +89,8 @@ export type ToolChoice = "auto" | "none";
 export type ThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type ModelThinkingLevel = "off" | ThinkingLevel;
 export type ThinkingLevelMap = Partial<Record<ModelThinkingLevel, string | null>>;
+export type SamplingParams = Record<string, unknown>;
+export type SamplingParamsByThinkingLevel = Partial<Record<ModelThinkingLevel, SamplingParams>>;
 export type ChatTemplateKwargValue =
 	| string
 	| number
@@ -204,7 +210,7 @@ export interface StreamOptions extends ProviderRequestOptions<Model<Api>> {
 	 * `repetition_penalty`. Merged over `Model.samplingParams` per key. Only applied by
 	 * OpenAI-compatible adapters (completions, responses, Azure responses); other APIs ignore it.
 	 */
-	samplingParams?: Record<string, unknown>;
+	samplingParams?: SamplingParams;
 	maxTokens?: number;
 	/**
 	 * Preferred transport for providers that support multiple transports.
@@ -566,7 +572,14 @@ export interface AssistantMessage {
 	 * Preserved for debugging and does not currently affect agent control flow.
 	 */
 	endTurn?: boolean;
-	timestamp: number; // Unix timestamp in milliseconds
+	/** Unix timestamp in milliseconds when the request started. */
+	timestamp: number;
+	/**
+	 * Milliseconds from `timestamp` until the response ended, measured with a monotonic clock. Set by
+	 * `AssistantMessageEventStream` on the final message of a response it saw start; absent for legacy messages and
+	 * for deferred results fetched later.
+	 */
+	durationMs?: number;
 }
 
 /** A tool call that another tool made while it ran, for example from a codemode script. */
@@ -603,7 +616,10 @@ export type ToolResultMessage<TDetails = JsonValue> = IsJsonCompatible<TDetails>
 			/** Calls this tool made to other tools. Kept for the session record; not sent to the model. */
 			nestedCalls?: NestedToolCalls;
 			isError: boolean;
-			timestamp: number; // Unix timestamp in milliseconds
+			/** Unix timestamp in milliseconds when the result was created. */
+			timestamp: number;
+			/** Milliseconds the tool's execution took, measured with a monotonic clock. Absent for legacy results. */
+			durationMs?: number;
 		}
 	: never;
 
@@ -652,6 +668,11 @@ export type ClassifierQuestion = ClassifierChoiceQuestion | ClassifierScoreQuest
 
 export interface ClassifierContext {
 	state: JsonObject;
+	/**
+	 * Images judged together with `state`. Only models whose `input` includes `"image"` accept them;
+	 * other models return an error result.
+	 */
+	images?: ImageContent[];
 	questions: Record<string, ClassifierQuestion>;
 }
 
@@ -1126,7 +1147,9 @@ export interface Model<TApi extends Api> extends BaseModel<TApi> {
 	contextWindow: number;
 	maxTokens: number;
 	/** Default sampling parameters for this model. See {@link StreamOptions.samplingParams}; per-request keys override these. */
-	samplingParams?: Record<string, unknown>;
+	samplingParams?: SamplingParams;
+	/** Sampling parameter overrides selected by the effective pi thinking level. */
+	samplingParamsByThinkingLevel?: SamplingParamsByThinkingLevel;
 	/** Compatibility overrides for OpenAI-compatible APIs. If not set, auto-detected from baseUrl. */
 	compat?: TApi extends "openai-completions"
 		? OpenAICompletionsCompat
