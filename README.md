@@ -72,7 +72,7 @@ Details, limits, and constraints are in [`packages/spirits/README.md`](packages/
 - `rlm` is synchronous and serialized. Async fan-out is evaluated in M5.
 - Configuration, sessions, and auth live in `~/.spirits/agent/` (or `SPIRITS_CODING_AGENT_DIR`). External extensions go to `~/.spirits/agent/extensions/`.
 - **BREAKING**: the old `PI_CODING_AGENT_DIR` variable is no longer read. The default `~/.spirits/agent/` is unchanged, so existing data keeps working.
-- **BREAKING**: the compiled binary no longer reads `.env`, `.env.local`, or `.env.<NODE_ENV>` files from the start directory. Set API keys and other variables in the shell (`export SPIRITS_...`) or inline before the command instead.
+- **BREAKING**: the compiled binary no longer reads `.env`, `.env.local`, or `.env.<NODE_ENV>` files from the start directory. Set API keys and other variables in the shell (`export ANTHROPIC_API_KEY=...` or `export SPIRITS_...`) or inline before the command instead.
 - Install telemetry and Pi-attributed provider headers are off by default. `settings.json` cannot enable them; use `PI_TELEMETRY=1` to opt in.
 
 ## Security
