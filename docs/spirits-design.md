@@ -195,7 +195,7 @@ import 許可範囲:
 
 1. **変更の置き場所**: 新規コードはすべて `packages/spirits/` 配下。既存 Pi コアへの変更は原則ゼロ。バイナリランタイムの都合に合わせ、M1 では `packages/spirits` をルートの npm workspaces / `tsconfig.json` / `biome.json` から除外し、`bun test` と `tsc --noEmit` で自己完結して検証する(除外の復帰と CI 組み込みは bun.lock 移行と合わせて別途行う)
 2. **やむを得ないコア変更**は 1 変更 = 1 コミットで分離し、先頭に `[spirits]` プレフィックスを付けて cherry-pick / rebase しやすく保つ
-3. **上流追従**: `upstream` リモートを登録し、main へ定期的に merge(頻度は月 1 回を目安)
+3. **上流追従**: `upstream` リモートを登録し、main へ定期的に merge(頻度は月 1 回を目安)。手順、コミット構成、検証コマンドは [`docs/spirits-upstream-sync.md`](spirits-upstream-sync.md) に従う
 4. **lockfile(段階移行)**: root に `bun.lock` を導入し、spirits の CI / リリースは `bun install --frozen-lockfile` で検証する。既存 npm workflow と `package-lock.json` は当面残し、完全移行(`package-lock.json` 削除、CI / vitest 置換)は別 change とする
 5. **jiti**: Bun は TS をネイティブ実行するため拡張ロードの jiti 依存は不要。上流コードは残し、Bun 実行時のみ native import にショートカットする最小パッチとする
 6. **パッケージマネージャ**: Bun 環境で npm 不在時に拡張インストールが壊れる上流の既知問題があるため、spirits ではパッケージマネージャ既定を bun に倒す
