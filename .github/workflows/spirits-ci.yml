@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - bun.lock
+      - packages/**
+      - package.json
+      - tsconfig.json
+      - tsconfig.base.json
       - packages/spirits/**
       - scripts/build-binaries.ts
       - scripts/replace-pi-version.ts
@@ -16,6 +20,10 @@ on:
     branches: [main]
     paths:
       - bun.lock
+      - packages/**
+      - package.json
+      - tsconfig.json
+      - tsconfig.base.json
       - packages/spirits/**
       - scripts/build-binaries.ts
       - scripts/replace-pi-version.ts
