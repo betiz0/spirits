@@ -13,6 +13,7 @@ spirits は、[Pi](https://github.com/earendil-works/pi) をフォークし、Pr
 - **永続 TypeScript REPL** — 主力ツールは `tsrepl`。セルは `Bun.Transpiler` で変換し `node:vm` コンテキストで実行、`globalThis` への代入はセルをまたいで永続します。`return` / `out()` で値を返し、`print()` の出力を捕捉。エラーは原因行と修正案付きで整形。`use()` は `node:` / `bun:` 組込と cwd 相対モジュールを import。`tool()` はホストのツール実行経路で他のツールを呼びます。
 - **再帰的な子エージェント** — `await rlm("prompt")` がプロセス内で子エージェントを実行し、最終回答を文字列で返します。深度上限(既定 2)、同一 REPL からの直列化、中断の子への伝播、呼び出しごとの `rlm_usage` 記録(トークン・コスト集計)を行います。
 - **Continual Harness** — `note()` でセッション横断メモリを追記、`goal()` でブランチのゴールを管理、codemode ツールでスキル管理(`spirits_skill_*`)、code-mode プロンプトの上書き(`spirits_prompt_set`)を行います。
+- **セッション TODO と非破壊クリア** — `manage_todos` が現在のセッションブランチに紐づく TODO を管理し、エディタとフッターの間にパネル表示します。`/clear` はモデル・思考レベル・拡張状態を保ったまま新しい会話ブランチを開始します。
 - **単一バイナリ** — `bun build --compile` でコンパイル。実行環境に Bun / Node は不要です。
 
 ## インストール

@@ -44,6 +44,16 @@ export const ENV_MEMORY_CHAR_LIMIT = "SPIRITS_MEMORY_CHAR_LIMIT";
 /** Environment variable overriding DEFAULT_MEMORY_FILE_LINE_LIMIT. */
 export const ENV_MEMORY_LINE_LIMIT = "SPIRITS_MEMORY_LINE_LIMIT";
 
+// ---------------------------------------------------------------------------
+// Session TODO panel
+// ---------------------------------------------------------------------------
+
+/** Default TODO lines shown in the interactive panel. Unit: lines. Set via ENV_TODO_MAX_LINES. */
+export const DEFAULT_TODO_MAX_LINES = 5;
+
+/** Environment variable overriding DEFAULT_TODO_MAX_LINES. */
+export const ENV_TODO_MAX_LINES = "SPIRITS_TODO_MAX_LINES";
+
 /** File `note()` appends to. Also the only file whose excerpt is taken from the tail. */
 export const MEMORY_NOTES_FILE_NAME = "notes.md";
 

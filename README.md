@@ -13,6 +13,7 @@ Instead of driving the model through a loop of individual tool calls, spirits gi
 - **Persistent TypeScript REPL** — `tsrepl` is the main tool. Cells are transpiled with `Bun.Transpiler` and executed in a `node:vm` context; assignments to `globalThis` persist across cells. `return` / `out()` set the cell value, `print()` output is captured, errors are formatted with the failing line and an actionable hint, `use()` imports `node:` / `bun:` builtins and cwd-relative modules, and `tool()` calls other tools through the host pipeline.
 - **Recursive child agents** — `await rlm("prompt")` runs a child agent in-process and returns its final answer as a string. Depth is capped (default 2), calls from one REPL are serialized, aborts propagate to the child, and every call records an `rlm_usage` entry for token and cost accounting.
 - **Continual harness** — `note()` appends cross-session memory, `goal()` tracks the goal of the current branch, codemode tools manage skills (`spirits_skill_*`), and the agent can override its own code-mode prompt (`spirits_prompt_set`).
+- **Session TODO and non-destructive clear** — `manage_todos` keeps a TODO list bound to the current session branch, shown as a panel between the editor and footer; `/clear` starts a fresh conversation branch while keeping the model, thinking level, and extension state.
 - **Single binary** — compiled with `bun build --compile`. The target machine needs neither Bun nor Node.
 
 ## Install

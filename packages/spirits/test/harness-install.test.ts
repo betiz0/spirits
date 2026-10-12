@@ -8,6 +8,7 @@ import type {
 	ExtensionAPI,
 	ExtensionHandler,
 	SessionStartEvent,
+	SessionTreeEvent,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
@@ -20,6 +21,7 @@ class FakePi implements ExtensionAPI {
 	readonly entries: Array<{ customType: string; data: unknown }> = [];
 	readonly handlers: Array<ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>> = [];
 	readonly sessionHandlers: Array<ExtensionHandler<SessionStartEvent>> = [];
+	readonly treeHandlers: Array<ExtensionHandler<SessionTreeEvent>> = [];
 
 	registerTool<TParams extends TSchema = TSchema, TDetails = unknown, TState = unknown>(
 		tool: ToolDefinition<TParams, TDetails, TState>,
@@ -40,14 +42,18 @@ class FakePi implements ExtensionAPI {
 		handler: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>,
 	): () => void;
 	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): () => void;
+	on(event: "session_tree", handler: ExtensionHandler<SessionTreeEvent>): () => void;
 	on(
 		event: string,
 		handler:
 			| ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>
-			| ExtensionHandler<SessionStartEvent>,
+			| ExtensionHandler<SessionStartEvent>
+			| ExtensionHandler<SessionTreeEvent>,
 	): () => void {
 		if (event === "session_start") {
 			this.sessionHandlers.push(handler as ExtensionHandler<SessionStartEvent>);
+		} else if (event === "session_tree") {
+			this.treeHandlers.push(handler as ExtensionHandler<SessionTreeEvent>);
 		} else {
 			this.handlers.push(handler as ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>);
 		}

@@ -97,10 +97,26 @@ export interface ExtensionSettings {
 	quietStartup?: boolean | "header";
 }
 
-/** UI façade passed to extension event handlers. Only `setHeader` is mirrored. */
+/** Placement for extension widgets. */
+export type WidgetPlacement = "aboveEditor" | "belowEditor";
+
+/** Options for extension widgets. */
+export interface ExtensionWidgetOptions {
+	/** Where the widget is rendered. Defaults to "aboveEditor". */
+	placement?: WidgetPlacement;
+}
+
+/** UI façade passed to extension event handlers. Only the fields spirits uses are mirrored. */
 export interface ExtensionUIContext {
 	/** Set a custom header component, or undefined to restore the built-in header. */
 	setHeader(factory: ((tui: TUI, theme: Theme) => Component & { dispose?(): void }) | undefined): void;
+	/** Set a widget to display above or below the editor. Accepts string array or component factory. */
+	setWidget(key: string, content: string[] | undefined, options?: ExtensionWidgetOptions): void;
+	setWidget(
+		key: string,
+		content: ((tui: TUI, theme: Theme) => Component & { dispose?(): void }) | undefined,
+		options?: ExtensionWidgetOptions,
+	): void;
 }
 
 /** Fired when a session is started, loaded, or reloaded. */
@@ -108,6 +124,15 @@ export interface SessionStartEvent {
 	type: "session_start";
 	reason: "startup" | "reload" | "new" | "resume" | "fork";
 	previousSessionFile?: string;
+}
+
+/** Fired after navigating in the session tree. */
+export interface SessionTreeEvent {
+	type: "session_tree";
+	newLeafId: string | null;
+	oldLeafId: string | null;
+	summaryEntry?: unknown;
+	fromExtension?: boolean;
 }
 
 /** Keybinding identifier accepted by keyHint/keyText. */
@@ -185,6 +210,7 @@ export interface ExtensionAPI {
 		handler: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>,
 	): () => void;
 	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): () => void;
+	on(event: "session_tree", handler: ExtensionHandler<SessionTreeEvent>): () => void;
 }
 
 /** Extension event handler. Return a result to influence the session, or void to observe only. */
@@ -291,9 +317,21 @@ export interface AgentSession {
 	readonly messages: readonly AgentMessage[];
 }
 
-/** In-memory session manager. Spirits only uses the `inMemory` factory. */
+/** Session manager. Spirits uses `inMemory`; pi-runtime tests also use the persisted factories. */
 export class SessionManager {
 	static inMemory(cwd?: string): SessionManager;
+	/** Create a persisted session in `sessionDir` (defaults to the pi session dir for `cwd`). */
+	static create(cwd: string, sessionDir?: string): SessionManager;
+	/** Open an existing session file. */
+	static open(path: string): SessionManager;
+	/** Session file path, or undefined for in-memory sessions. */
+	getSessionFile(): string | undefined;
+	/** Entries from the root to the current leaf, in order. */
+	getBranch(): readonly SessionEntry[];
+	/** Append a conversation message. The first one flushes the session file to disk. */
+	appendMessage(message: AgentMessage & { timestamp?: number }): string;
+	/** Append a custom extension entry as a child of the current leaf. */
+	appendCustomEntry(customType: string, data?: unknown): string;
 }
 
 /** Options for `DefaultResourceLoader`. Only the fields spirits sets are mirrored. */

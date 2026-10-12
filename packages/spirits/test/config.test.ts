@@ -3,9 +3,11 @@ import {
 	DEFAULT_MEMORY_FILE_LINE_LIMIT,
 	DEFAULT_MEMORY_INJECTION_CHAR_LIMIT,
 	DEFAULT_MEMORY_PREVIEW_LINES,
+	DEFAULT_TODO_MAX_LINES,
 	ENV_MEMORY_CHAR_LIMIT,
 	ENV_MEMORY_LINE_LIMIT,
 	ENV_MEMORY_PREVIEW_LINES,
+	ENV_TODO_MAX_LINES,
 } from "../src/constants.ts";
 import { loadConfig } from "../src/config.ts";
 
@@ -16,6 +18,7 @@ test("defaults when unset", () => {
 			injectionCharLimit: DEFAULT_MEMORY_INJECTION_CHAR_LIMIT,
 			fileLineLimit: DEFAULT_MEMORY_FILE_LINE_LIMIT,
 		},
+		todo: { maxLines: DEFAULT_TODO_MAX_LINES },
 	});
 });
 
@@ -48,4 +51,19 @@ test("limits resolve independently", () => {
 	expect(config.memory.injectionCharLimit).toBe(999);
 	expect(config.memory.previewLines).toBe(DEFAULT_MEMORY_PREVIEW_LINES);
 	expect(config.memory.fileLineLimit).toBe(DEFAULT_MEMORY_FILE_LINE_LIMIT);
+});
+
+test("todo max lines defaults to 5", () => {
+	expect(DEFAULT_TODO_MAX_LINES).toBe(5);
+	expect(loadConfig({}).todo.maxLines).toBe(5);
+});
+
+test("todo max lines reads SPIRITS_TODO_MAX_LINES", () => {
+	expect(loadConfig({ [ENV_TODO_MAX_LINES]: "3" }).todo.maxLines).toBe(3);
+});
+
+test("todo max lines falls back on 0, abc, -1", () => {
+	for (const value of ["0", "abc", "-1"]) {
+		expect(loadConfig({ [ENV_TODO_MAX_LINES]: value }).todo.maxLines).toBe(DEFAULT_TODO_MAX_LINES);
+	}
 });

@@ -15,7 +15,7 @@ export function makeToolContext(
 	} = {},
 ): ExtensionToolContext {
 	return {
-		ui: { setHeader: () => {} },
+		ui: { setHeader: () => {}, setWidget: () => {} },
 		mode: "tui",
 		cwd: options.cwd ?? process.cwd(),
 		signal: options.signal,

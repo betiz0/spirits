@@ -3,7 +3,8 @@
 	"compilerOptions": {
 		"types": ["bun"],
 		"paths": {
-			"@earendil-works/pi-coding-agent": ["./src/types/pi-coding-agent.d.ts"]
+			"@earendil-works/pi-coding-agent": ["./src/types/pi-coding-agent.d.ts"],
+			"@earendil-works/pi-tui": ["./src/types/pi-tui.d.ts"]
 		}
 	},
 	"include": ["src/**/*.ts", "test/**/*.ts", "bin/**/*.ts"]

@@ -9,9 +9,11 @@ import {
 	DEFAULT_MEMORY_FILE_LINE_LIMIT,
 	DEFAULT_MEMORY_INJECTION_CHAR_LIMIT,
 	DEFAULT_MEMORY_PREVIEW_LINES,
+	DEFAULT_TODO_MAX_LINES,
 	ENV_MEMORY_CHAR_LIMIT,
 	ENV_MEMORY_LINE_LIMIT,
 	ENV_MEMORY_PREVIEW_LINES,
+	ENV_TODO_MAX_LINES,
 } from "./constants.ts";
 
 /** Resolved memory limits. Unit: lines, JS string length, lines. */
@@ -24,9 +26,16 @@ export interface MemoryLimits {
 	fileLineLimit: number;
 }
 
+/** Resolved settings for the session TODO panel. */
+export interface TodoConfig {
+	/** TODO item lines shown before the counts line. Unit: lines. */
+	maxLines: number;
+}
+
 /** Resolved configuration for the continual harness. */
 export interface SpiritsConfig {
 	memory: MemoryLimits;
+	todo: TodoConfig;
 }
 
 /** Positive decimal integers only: rejects empty, signs, decimals, and leading zeros. */
@@ -54,6 +63,9 @@ export function loadConfig(env: EnvLike): SpiritsConfig {
 			previewLines: readLimit(env, ENV_MEMORY_PREVIEW_LINES, DEFAULT_MEMORY_PREVIEW_LINES),
 			injectionCharLimit: readLimit(env, ENV_MEMORY_CHAR_LIMIT, DEFAULT_MEMORY_INJECTION_CHAR_LIMIT),
 			fileLineLimit: readLimit(env, ENV_MEMORY_LINE_LIMIT, DEFAULT_MEMORY_FILE_LINE_LIMIT),
+		},
+		todo: {
+			maxLines: readLimit(env, ENV_TODO_MAX_LINES, DEFAULT_TODO_MAX_LINES),
 		},
 	};
 }

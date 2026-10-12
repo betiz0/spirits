@@ -13,6 +13,7 @@ spirits 不通过逐个工具调用的循环来驱动模型，而是把持久化
 - **持久化 TypeScript REPL** — 主要工具是 `tsrepl`。单元格经 `Bun.Transpiler` 转换后在 `node:vm` 上下文中执行；对 `globalThis` 的赋值跨单元格持久。`return` / `out()` 设置返回值，`print()` 的输出会被捕获，错误会附带出错行和修正提示；`use()` 可导入 `node:` / `bun:` 内置模块和相对于 cwd 的模块；`tool()` 通过宿主工具执行管线调用其他工具。
 - **递归子代理** — `await rlm("prompt")` 在进程内运行子代理并以字符串返回其最终回答。深度上限（默认 2）、同一 REPL 的调用串行化、中断向子代理传播，每次调用记录一条 `rlm_usage`（用于 token 与成本统计）。
 - **Continual Harness** — `note()` 追加跨会话记忆，`goal()` 管理当前分支的目标，codemode 工具管理技能（`spirits_skill_*`），并可覆盖 code-mode 提示词（`spirits_prompt_set`）。
+- **会话 TODO 与非破坏性清空** — `manage_todos` 管理与当前会话分支绑定的 TODO，并在编辑器和页脚之间显示面板；`/clear` 在保留模型、思考等级和扩展状态的同时开始新的对话分支。
 - **单文件二进制** — 使用 `bun build --compile` 编译。目标机器无需安装 Bun 或 Node。
 
 ## 安装
