@@ -60,6 +60,7 @@ return await rlm("行を要約して JSON で返して。");
 - `rlm` は同期・直列です。非同期 fan-out は M5 で採否判断します。
 - 設定・セッション・認証は `~/.spirits/agent/`(`SPIRITS_CODING_AGENT_DIR` 指定時はそちら)。外部拡張は `~/.spirits/agent/extensions/` に置きます。
 - **BREAKING**: 旧 `PI_CODING_AGENT_DIR` は読まれません。既定パス `~/.spirits/agent/` は変わらないため、既存データはそのまま使えます。
+- **BREAKING**: コンパイル済みバイナリは起動ディレクトリの `.env` / `.env.local` / `.env.<NODE_ENV>` を読みません。API キーなどの環境変数はシェルで `export` するか、起動コマンドの前に指定してください。
 - install テレメトリと Pi 名義の provider ヘッダは既定で無効です。`settings.json` では有効化できず、`PI_TELEMETRY=1` で opt-in します。
 
 ## セキュリティ

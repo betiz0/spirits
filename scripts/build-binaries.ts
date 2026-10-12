@@ -111,6 +111,7 @@ async function buildBinary(version: string, piVersion: string): Promise<void> {
 			target: COMPILE_TARGET,
 			outfile: OUTFILE,
 			autoloadBunfig: false,
+			autoloadDotenv: false,
 		},
 		throw: false,
 	});

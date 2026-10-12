@@ -60,6 +60,7 @@ return await rlm("汇总这些行并以 JSON 返回。");
 - `rlm` 是同步且串行的。异步 fan-out 将在 M5 评估。
 - 配置、会话与认证位于 `~/.spirits/agent/`（若设置了 `SPIRITS_CODING_AGENT_DIR` 则以该变量为准）。外部扩展放在 `~/.spirits/agent/extensions/`。
 - **BREAKING**：不再读取旧的 `PI_CODING_AGENT_DIR`。默认路径 `~/.spirits/agent/` 不变，现有数据可继续使用。
+- **BREAKING**：编译后的二进制文件不再读取启动目录中的 `.env`、`.env.local` 或 `.env.<NODE_ENV>` 文件。请在 shell 中用 `export` 设置 API 密钥等环境变量，或在启动命令前指定。
 - install 遥测与 Pi 名义的 provider 请求头默认关闭。无法通过 `settings.json` 开启；请使用 `PI_TELEMETRY=1` 显式启用。
 
 ## 安全

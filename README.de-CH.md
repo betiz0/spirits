@@ -60,6 +60,7 @@ Details, Grenzen und Einschränkungen stehen in [`packages/spirits/README.md`](p
 - `rlm` ist synchron und serialisiert. Asynchrones Fan-out wird in M5 beurteilt.
 - Konfiguration, Sitzungen und Authentifizierung liegen in `~/.spirits/agent/` (oder in `SPIRITS_CODING_AGENT_DIR`). Externe Erweiterungen gehören nach `~/.spirits/agent/extensions/`.
 - **BREAKING**: Die alte Variable `PI_CODING_AGENT_DIR` wird nicht mehr gelesen. Der Standardpfad `~/.spirits/agent/` bleibt gleich, bestehende Daten funktionieren weiter.
+- **BREAKING**: Die kompilierte Binärdatei liest die Dateien `.env`, `.env.local` und `.env.<NODE_ENV>` im Startverzeichnis nicht mehr. API-Schlüssel und andere Variablen im Shell mit `export` setzen oder vor dem Startbefehl angeben.
 - Install-Telemetrie und Pi-attribuierte Provider-Header sind standardmässig aus. Sie lassen sich nicht über `settings.json` aktivieren; dafür `PI_TELEMETRY=1` setzen.
 
 ## Sicherheit
