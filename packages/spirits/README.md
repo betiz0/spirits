@@ -50,7 +50,21 @@ spirits -v          # 同じ出力
 
 ## 更新
 
-`install.sh` をもう一度実行する。`spirits update` は pi のリリースではなく、この installer の再実行を案内する。
+インストール済みのバイナリは `spirits update` で最新の stable リリース(`spirits-v*`、draft / prerelease を除く)へ置き換えられる:
+
+```sh
+spirits update           # 最新 stable へ置き換える
+spirits update --all     # 置き換えの後、インストール済みの拡張も更新する
+spirits update --force   # インストール済みが最新でも再取得して置き換える
+```
+
+置き換えは SHA256 検証の後、インストール先と同じディレクトリ内の一時領域から rename で行う。同版なら `spirits <version> is already up to date` を表示して何もしない。インストール済みが最新 stable より新しい場合(prerelease など)も置き換えない。`PI_OFFLINE` が `1` / `true` / `yes`(大文字小文字を区別しない)のときはネットワークにアクセスせず拒否する。
+
+更新の HTTP 要求は無通信が 10 秒続くと失敗する。`SPIRITS_UPDATE_IDLE_TIMEOUT_SECONDS` に正の整数(秒)を設定すると上限を変更できる。未設定または正の整数でない値は 10 秒になる。
+
+`install.sh` の再実行も引き続き更新手段。最新解決時はインストール済みの `--version` を確認し、同版ならダウンロードを省略して `spirits <version> is already up to date` を表示する。判定できない場合と版が異なる場合は配置する。修復や意図的な再配置には `VERSION=x.y.z` を指定する(同版でも常に再ダウンロードする)。
+
+0.1.0 のバイナリは `spirits update` を持たないため、0.1.0 からは `install.sh` の再実行が 1 回必要。それ以降は `spirits update` が使える。
 
 ## アンインストール
 
@@ -222,7 +236,7 @@ LLM は `manage_todos` ツールで、現在のセッションの現在のブラ
 - theme / assets / export-html / native prebuilds を同梱しない。テーマは system テーマへフォールバックし、HTML エクスポートなどの一部機能が劣化する。
 - 実行ファイルはパッケージマネージャを内包しない。外部拡張が独自の node_modules 依存を必要とする場合、依存解決には別途 Bun が必要。依存不足の外部拡張があると、起動時に拡張パス付きのエラーを stderr に出して非ゼロで終了する。
 - 対象は Linux x86_64(glibc)のみ。macOS / Windows / musl(Alpine)は対象外。
-- 自動アップデートと `spirits update` コマンドは未対応。
+- 更新は `spirits update` による自己置換と `install.sh` の再実行の 2 経路。起動時チェックと自動アップデートは持たない。
 
 ## 開発
 

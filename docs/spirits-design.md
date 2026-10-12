@@ -156,7 +156,7 @@ import 許可範囲:
 
 - **開発時(Bun 直実行)**: 起動時に `Bun.version` を検査。`< 1.4.0` は起動拒否、`< 1.4.2` は警告
 - **コンパイルバイナリ**: ランタイムはビルド時に焼き込まれるため assert は不要。代わりに **CI のビルドジョブで Bun >= 1.4.2 を固定**し、リリースノートに内包 Bun バージョンを記載する
-- コンパイルバイナリは `PI_SKIP_VERSION_CHECK=1` を設定し、pi の最新版確認と更新通知を抑止する。`spirits --version` / `-v` は埋め込んだ spirits バージョンと内包 Bun バージョンを表示し、`spirits update` は提供しない(更新は install.sh の再実行)
+- コンパイルバイナリは `PI_SKIP_VERSION_CHECK=1` を設定し、pi の最新版確認と更新通知を抑止する。`spirits --version` / `-v` は埋め込んだ spirits バージョンと内包 Bun バージョンを表示する。`spirits update` は最新 stable `spirits-v*` の解決、SHA256 検証、インストール先と同一ディレクトリの一時領域からの rename による自身の置換を行う
 
 #### install.sh
 
@@ -169,7 +169,7 @@ import 許可範囲:
 5. 成功時に利用開始コマンドと、実行環境の `bun --version` を参考表示する(無ければ拡張の依存解決に別途 Bun が必要な旨)。`bun` の有無で成否は変えない
 6. `--uninstall` 相当はバイナリとデータディレクトリの削除案内を出力
 
-冪等性を持たせ、再実行でアップグレードとして動作させる。バージョン部に `-` を含むタグ(例: `spirits-v0.3.0-rc.1`)の Release は prerelease として公開し、latest 解決から除外する。初回は自動アップデート機構は持たない(更新は install.sh の再実行)。
+冪等性を持たせ、再実行でアップグレードとして動作させる。バージョン部に `-` を含むタグ(例: `spirits-v0.3.0-rc.1`)の Release は prerelease として公開し、latest 解決から除外する。ダウンロードと検証は `$INSTALL_DIR/.spirits-tmp-<pid>/` で行い、rename で配置する。失敗時と SIGINT / SIGTERM 時は一時ディレクトリを削除し、開始時には終了済み PID の残骸だけを削除する。`VERSION` を指定しない latest 解決ではインストール済みの `--version` を確認し、同版ならダウンロードを省略して up to date を表示する。修復や意図的な再配置には `VERSION=x.y.z` を指定する。起動時チェック・自動更新は持たず、更新は `spirits update` と install.sh の再実行の 2 経路。
 
 #### ユーザ拡張のロード
 
@@ -185,7 +185,7 @@ import 許可範囲:
 - **TUI ヘッダ**: spirits 拡張が `session_start` で `ctx.ui.setHeader` を呼び、ワードマーク・`resolveSpiritsVersion()` のバージョン・キーヒント・オンボーディング文を表示する。`quietStartup` 時は設定せず、起動ヘルプの展開キーに `setExpanded` で追従する。色はテーマトークン(`accent` / `dim` / `muted`)を使う
 - **テレメトリ**: env-defaults が `PI_TELEMETRY=0` を既定にし、pi.dev への install レポートと pi 名義の attribution ヘッダを送らない。有効化は `PI_TELEMETRY=1` の明示指定のみで、settings.json の opt-in は既定の無効化に上書きされて効かない
 - **provider 名義**: コア `provider-attribution.ts` の `x-opencode-client` ヘッダは、非 pi ディストリビューション(`APP_NAME !== "pi"`)では `isInstallTelemetryEnabled` が真のときのみ付与する(`x-opencode-session` は維持)。spirits はテレメトリを収集しない
-- **CLI 表示**: help のバナー説明文・agent dir 表示・再開/クラッシュ案内・update 行は非 pi ディストリビューションで spirits を表示する。agent dir 表示は `getAgentDir()` の解決値を使い、`spirits update` は pi のリリースではなく install.sh の再実行を案内する
+- **CLI 表示**: help のバナー説明文・agent dir 表示・再開/クラッシュ案内・update 行は非 pi ディストリビューションで spirits を表示する。agent dir 表示は `getAgentDir()` の解決値を使い、`spirits update` は pi のリリースではなく spirits 自身の最新 stable へ実行ファイルを置換する(自己更新できない環境ではインストーラ再実行の手段を表示する)
 
 コア差分は §5 の規律に従い `[spirits]` プレフィックスの独立コミットに分離する。
 

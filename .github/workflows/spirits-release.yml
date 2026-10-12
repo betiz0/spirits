@@ -41,6 +41,13 @@ jobs:
           bun install --frozen-lockfile
           bun test
 
+      - name: Build previous-version binary for the self-update smoke
+        run: |
+          set -euo pipefail
+          bun scripts/build-binaries.ts --version 0.0.0-0
+          mv dist/spirits-linux-x64 /tmp/spirits-old
+          rm -f dist/spirits-linux-x64.sha256
+
       - name: Build binary
         run: |
           set -euo pipefail
@@ -56,7 +63,16 @@ jobs:
         run: |
           set -euo pipefail
           (cd dist && sha256sum -c spirits-linux-x64.sha256)
-          dist/spirits-linux-x64 --version
+          version="${GITHUB_REF_NAME#spirits-v}"
+          first_line=$(dist/spirits-linux-x64 --version | head -n 1)
+          case "$first_line" in
+            "spirits $version "*) ;;
+            *)
+              echo "unexpected version line: $first_line" >&2
+              exit 1
+              ;;
+          esac
+          sh scripts/self-update-smoke.sh /tmp/spirits-old dist/spirits-linux-x64 "$version"
 
       - name: Create release
         env:

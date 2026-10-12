@@ -21,6 +21,7 @@ M1 の成果を含む spirits 全体を `bun build --compile` で単一バイナ
 やる:
 
 - `packages/spirits/bin/`: コンパイル用エントリ。pi CLI を spirits 拡張既定ロードで起動する薄いラッパ
+- `spirits update`: 最新 stable `spirits-v*` への自己更新(SHA256 検証 + 原子的置換。`--all` は置換後に拡張更新を実行)
 - `scripts/build-binaries.ts`: linux-x64 コンパイル(ソースから)+ SHA256 チェックサム生成 + バージョン埋め込み
 - `scripts/install.sh`: 下記仕様
 - GitHub Actions リリース workflow(`spirits-v*` タグ push → ビルド → Release へ添付)
@@ -29,7 +30,7 @@ M1 の成果を含む spirits 全体を `bun build --compile` で単一バイナ
 やらない:
 
 - macOS / Windows ターゲット(v0.3 で範囲外確定)
-- 自動アップデート機構 / `spirits update` コマンド(将来検討)
+- 起動時の更新通知・バックグラウンド自動更新・`--check`
 - npm 公開
 
 ## 4. bin エントリ設計

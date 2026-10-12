@@ -74,6 +74,11 @@ assert_content_eq() { # description path expected
 	assert_eq "$1" "$3" "$(cat "$2")"
 }
 
+assert_no_temp_dirs() { # description install_dir
+	found=$(find "$2" -maxdepth 1 -name '.spirits-tmp-*' 2>/dev/null | head -n 1)
+	if [ -n "$found" ]; then fail_test "$1 (found: $found)"; else pass "$1"; fi
+}
+
 # --- Fixtures -------------------------------------------------------------------------------
 
 # One release object in the GitHub pretty-printed shape (2-space object indent, 4-space fields).
@@ -170,6 +175,7 @@ BASE_URL="http://127.0.0.1:$PORT"
 
 cleanup() {
 	kill "$SERVER_PID" 2>/dev/null || true
+	if [ -n "${STALL_PID:-}" ]; then kill "$STALL_PID" 2>/dev/null || true; fi
 	rm -rf "$TEST_ROOT"
 }
 trap cleanup EXIT
@@ -240,7 +246,7 @@ assert_content_eq "VERSION install downloads spirits-v0.1.0" "$home/.spirits/bin
 assert_contains "VERSION install shows the start command" "$(cat "$RUN_OUT")" "spirits"
 assert_contains "VERSION install shows the PATH bun version" "$(cat "$RUN_OUT")" "9.9.9-test"
 
-# 3. Checksum mismatch: exit 1, existing install untouched.
+# 3. Checksum mismatch: exit 1, existing install untouched, no temp directory left.
 make_broken_release 0.9.9 "broken spirits 0.9.9"
 home="$WORK/home-broken"
 mkdir -p "$home/.spirits/bin"
@@ -251,6 +257,7 @@ assert_eq "checksum mismatch exits 1" "1" "$RUN_RC"
 assert_contains "checksum mismatch reports verification" "$(cat "$RUN_ERR")" "Checksum"
 assert_not_contains "checksum mismatch error not on stdout" "$(cat "$RUN_OUT")" "Error:"
 assert_content_eq "checksum mismatch keeps the existing install" "$home/.spirits/bin/spirits" "existing install"
+assert_no_temp_dirs "checksum mismatch leaves no temp directory" "$home/.spirits/bin"
 
 # 4. latest: pi `v*`, draft, and prerelease are ignored; first stable `spirits-v*` wins.
 make_release 0.2.0 "fake spirits 0.2.0"
@@ -335,6 +342,198 @@ mkdir -p "$home"
 run_uninstall "$home" "$MIN_PATH_DIR"
 assert_eq "uninstall without an install exits 0" "0" "$RUN_RC"
 assert_contains "uninstall without an install still prints guidance" "$(cat "$RUN_OUT")" "$home/.spirits/agent"
+
+# 11. Stale temp directory of an exited process is removed.
+write_releases <<'EOF'
+spirits-v0.1.0 false false
+EOF
+sh -c 'exit 0' &
+dead_pid=$!
+wait "$dead_pid" || true
+home="$WORK/home-stale"
+mkdir -p "$home/.spirits/bin/.spirits-tmp-$dead_pid"
+printf 'leftover\n' >"$home/.spirits/bin/.spirits-tmp-$dead_pid/junk"
+run_install "$home" "0.1.0" "$STUB_DIR:$PATH"
+assert_eq "stale temp cleanup install exits 0" "0" "$RUN_RC"
+assert_file_absent "stale temp dir of an exited process is removed" "$home/.spirits/bin/.spirits-tmp-$dead_pid"
+
+# 12. Temp directory of a running process is kept.
+sleep 30 &
+alive_pid=$!
+home="$WORK/home-alive"
+mkdir -p "$home/.spirits/bin/.spirits-tmp-$alive_pid"
+run_install "$home" "0.1.0" "$STUB_DIR:$PATH"
+assert_eq "running temp dir install exits 0" "0" "$RUN_RC"
+if [ -d "$home/.spirits/bin/.spirits-tmp-$alive_pid" ]; then
+	pass "temp dir of a running process is kept"
+else
+	fail_test "temp dir of a running process is kept (missing)"
+fi
+kill "$alive_pid" 2>/dev/null || true
+wait "$alive_pid" 2>/dev/null || true
+
+# 13. --uninstall does not clean stale temp directories.
+home="$WORK/home-uninstall-stale"
+mkdir -p "$home/.spirits/bin/.spirits-tmp-999999"
+run_uninstall "$home" "$PATH"
+assert_eq "uninstall with stale temp dir exits 0" "0" "$RUN_RC"
+if [ -d "$home/.spirits/bin/.spirits-tmp-999999" ]; then
+	pass "uninstall leaves stale temp dirs alone"
+else
+	fail_test "uninstall leaves stale temp dirs alone (removed)"
+fi
+
+# 14. SIGINT during the download keeps the existing install and removes the temp directory.
+STALL_DIR="$TEST_ROOT/stall"
+mkdir -p "$STALL_DIR"
+cat >"$STALL_DIR/server.py" <<'PYEOF'
+import http.server
+import json
+import sys
+import time
+
+port = int(sys.argv[1])
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path.endswith(".sha256"):
+            body = (("0" * 64) + "  spirits-linux-x64\n").encode()
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if self.path.startswith("/repos/"):
+            body = json.dumps([{"tag_name": "spirits-v0.5.0", "draft": False, "prerelease": False}]).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        self.send_response(200)
+        self.send_header("Content-Length", "1000000")
+        self.end_headers()
+        self.wfile.write(b"start")
+        self.wfile.flush()
+        time.sleep(60)
+
+    def log_message(self, format, *args):
+        pass
+
+http.server.ThreadingHTTPServer(("127.0.0.1", port), Handler).serve_forever()
+PYEOF
+STALL_PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
+python3 "$STALL_DIR/server.py" "$STALL_PORT" >"$STALL_DIR/server.log" 2>&1 &
+STALL_PID=$!
+STALL_BASE="http://127.0.0.1:$STALL_PORT"
+i=0
+while [ "$i" -lt 50 ]; do
+	if curl -fsS "$STALL_BASE/repos/betiz0/spirits/releases" >/dev/null 2>&1; then
+		break
+	fi
+	i=$((i + 1))
+	sleep 0.1
+done
+
+home="$WORK/home-signal"
+mkdir -p "$home/.spirits/bin"
+printf 'existing install\n' >"$home/.spirits/bin/spirits"
+chmod 755 "$home/.spirits/bin/spirits"
+
+HOME="$home" VERSION="" SPIRITS_API_BASE_URL="$STALL_BASE" SPIRITS_RELEASE_BASE_URL="$STALL_BASE" \
+	setsid sh "$INSTALL_SH" >"$WORK/signal.out" 2>"$WORK/signal.err" </dev/null &
+signal_pid=$!
+
+i=0
+while [ "$i" -lt 100 ]; do
+	if [ -d "$home/.spirits/bin/.spirits-tmp-$signal_pid" ]; then
+		break
+	fi
+	i=$((i + 1))
+	sleep 0.1
+done
+
+kill -INT "-$signal_pid" 2>/dev/null || true
+signal_rc=0
+wait "$signal_pid" || signal_rc=$?
+if [ "$signal_rc" -ne 0 ]; then
+	pass "SIGINT during the download exits non-zero"
+else
+	fail_test "SIGINT during the download exits non-zero (got 0)"
+fi
+assert_content_eq "SIGINT keeps the existing install" "$home/.spirits/bin/spirits" "existing install"
+assert_no_temp_dirs "SIGINT leaves no temporary directory" "$home/.spirits/bin"
+
+# 15. Latest resolution skips a same-version install without downloading.
+write_releases <<'EOF'
+spirits-v0.1.0 false false
+EOF
+TAG_PREFIX="spirits-v"
+make_script_release() { # version
+	dir="$SERVER_ROOT/betiz0/spirits/releases/download/"$TAG_PREFIX"$1"
+	mkdir -p "$dir"
+	printf '#!/bin/sh\necho "spirits %s (fake)"\n' "$1" >"$dir/spirits-linux-x64"
+	chmod 755 "$dir/spirits-linux-x64"
+	(cd "$dir" && sha256sum spirits-linux-x64 >spirits-linux-x64.sha256)
+}
+make_script_release 0.1.0
+home="$WORK/home-uptodate"
+mkdir -p "$home"
+run_install "$home" "0.1.0" "$STUB_DIR:$PATH"
+assert_eq "up-to-date setup exits 0" "0" "$RUN_RC"
+run_install "$home" "" "$STUB_DIR:$PATH"
+assert_eq "same-version latest run exits 0" "0" "$RUN_RC"
+assert_contains "same-version latest run reports up to date" "$(cat "$RUN_OUT")" "already up to date"
+make_broken_release 0.1.0 "tampered"
+run_install "$home" "" "$STUB_DIR:$PATH"
+assert_eq "same-version latest run skips the download" "0" "$RUN_RC"
+assert_contains "same-version latest run keeps the binary" "$("$home/.spirits/bin/spirits" --version)" "0.1.0"
+
+# 16. VERSION re-places even when the version matches.
+mkdir -p "$SERVER_ROOT/betiz0/spirits/releases/download/"$TAG_PREFIX"0.1.0"
+printf '#!/bin/sh\necho "spirits 0.1.0 (repaired)"\n' \
+	>"$SERVER_ROOT/betiz0/spirits/releases/download/"$TAG_PREFIX"0.1.0/spirits-linux-x64"
+chmod 755 "$SERVER_ROOT/betiz0/spirits/releases/download/"$TAG_PREFIX"0.1.0/spirits-linux-x64"
+(cd "$SERVER_ROOT/betiz0/spirits/releases/download/"$TAG_PREFIX"0.1.0" && sha256sum spirits-linux-x64 >spirits-linux-x64.sha256)
+run_install "$home" "0.1.0" "$STUB_DIR:$PATH"
+assert_eq "VERSION same-version run exits 0" "0" "$RUN_RC"
+assert_contains "VERSION same-version run re-places the binary" "$("$home/.spirits/bin/spirits" --version)" "repaired"
+assert_contains "VERSION same-version run reports the transition" "$(cat "$RUN_OUT")" "0.1.0 -> 0.1.0"
+
+# 17. A different latest version replaces the installed binary.
+write_releases <<'EOF'
+spirits-v0.2.0 false false
+spirits-v0.1.0 false false
+EOF
+make_script_release 0.2.0
+run_install "$home" "" "$STUB_DIR:$PATH"
+assert_eq "different latest version exits 0" "0" "$RUN_RC"
+assert_contains "different latest version reports the transition" "$(cat "$RUN_OUT")" "0.1.0 -> 0.2.0"
+assert_contains "different latest version replaces the binary" "$("$home/.spirits/bin/spirits" --version)" "0.2.0"
+
+# 18. A newer installed prerelease is replaced by the latest stable.
+write_releases <<'EOF'
+spirits-v0.1.0 false false
+EOF
+home="$WORK/home-prerelease"
+mkdir -p "$home/.spirits/bin"
+printf '#!/bin/sh\necho "spirits 0.4.0-rc.1 (fake)"\n' >"$home/.spirits/bin/spirits"
+chmod 755 "$home/.spirits/bin/spirits"
+run_install "$home" "" "$STUB_DIR:$PATH"
+assert_eq "prerelease replacement exits 0" "0" "$RUN_RC"
+assert_contains "prerelease replacement reports the transition" "$(cat "$RUN_OUT")" "0.4.0-rc.1 -> 0.1.0"
+assert_contains "prerelease replacement installs the stable version" "$("$home/.spirits/bin/spirits" --version)" "0.1.0"
+
+# 19. A failing --version falls through to the download.
+home="$WORK/home-versionfail"
+mkdir -p "$home/.spirits/bin"
+printf '#!/bin/sh\nexit 1\n' >"$home/.spirits/bin/spirits"
+chmod 755 "$home/.spirits/bin/spirits"
+run_install "$home" "" "$STUB_DIR:$PATH"
+assert_eq "unreadable --version exits 0" "0" "$RUN_RC"
+assert_not_contains "unreadable --version shows no transition" "$(cat "$RUN_OUT")" " -> "
+assert_contains "unreadable --version installs the latest" "$("$home/.spirits/bin/spirits" --version)" "0.1.0"
 
 # --- Summary --------------------------------------------------------------------------------
 

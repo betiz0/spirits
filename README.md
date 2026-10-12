@@ -32,6 +32,18 @@ export PATH="$HOME/.spirits/bin:$PATH"
 
 Pin a version with `VERSION=0.1.0 sh ...`, check it with `spirits --version` (prints the spirits version and the embedded Bun version), and uninstall with `... | sh -s -- --uninstall` (the installer prints the `rm` commands; nothing is deleted automatically).
 
+Update an installed binary with `spirits update`:
+
+```sh
+spirits update           # replace with the latest stable release
+spirits update --all     # also update installed extensions
+spirits update --force   # re-download even when already latest
+```
+
+`spirits update` verifies the SHA256 checksum and replaces `~/.spirits/bin/spirits` with an atomic rename. It prints `spirits <version> is already up to date` and does nothing when the installed version already matches the latest stable release (or is newer, e.g. a prerelease). `PI_OFFLINE=1` (also `true` / `yes`) makes it refuse without network access. Update requests fail after 10 seconds without received data; set `SPIRITS_UPDATE_IDLE_TIMEOUT_SECONDS` (positive integer seconds) to override.
+
+Re-running `install.sh` still works: with latest resolution it skips the download when the installed version matches, and prints `spirits <version> is already up to date`. Use `VERSION=x.y.z` to force a re-download and placement. The 0.1.0 binary predates self-update, so upgrading from 0.1.0 requires one `install.sh` run; after that, `spirits update` works.
+
 The installer resolves the newest `spirits-v*` release. If no release is published yet, build from source (see [Development](#development)).
 
 ## Quick start
@@ -56,7 +68,7 @@ Details, limits, and constraints are in [`packages/spirits/README.md`](packages/
 
 - A synchronous loop that starts after an `await` cannot be interrupted: timeout does not fire and the whole process stops responding (restart required).
 - Linux x86_64 only; themes, assets, HTML export, and native prebuilds are not bundled.
-- No automatic updates. Re-run the installer to upgrade; `spirits update` points at the installer instead of Pi's release URL.
+- Updates replace the binary in place (`spirits update`) or via the installer; there is no background or startup update check.
 - `rlm` is synchronous and serialized. Async fan-out is evaluated in M5.
 - Configuration, sessions, and auth live in `~/.spirits/agent/` (or `SPIRITS_CODING_AGENT_DIR`). External extensions go to `~/.spirits/agent/extensions/`.
 - **BREAKING**: the old `PI_CODING_AGENT_DIR` variable is no longer read. The default `~/.spirits/agent/` is unchanged, so existing data keeps working.
