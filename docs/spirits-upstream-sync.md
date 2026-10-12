@@ -90,7 +90,13 @@ bun packages/ai/scripts/generate-models.ts --strict --data-only
 7. `packages/spirits` で `bun install --frozen-lockfile` → `bun test` → `bun run check`。
 8. spirits バイナリの build と version 注入。`env -u SPIRITS_VERSION bun scripts/build-binaries.ts` でビルドし、`dist/spirits-linux-x64 --version` が `git describe --tags --match 'spirits-v*'` から導出した値 (例: `0.2.0`) を表示し終了コード 0 で終わることを確認する。
 9. self-update smoke。旧版と新版のバイナリを作り、`sh scripts/self-update-smoke.sh <old> <new> <version>` を通す。
-10. binary-distribution の既存シナリオ (`--help` に `Update pi` を含まないこと、設定ディレクトリの作成先、旧環境変数名の無視、外部拡張のロード) をビルド済みバイナリで再実行する。
+10. binary-distribution の既存シナリオ (`--help` に `Update pi` を含まないこと、設定ディレクトリの作成先、旧環境変数名の無視、外部拡張のロード) をビルド済みバイナリで再実行する。あわせて `.env` 禁止の回帰 smoke を実行する。
+
+    ```sh
+    bash scripts/test-dotenv-smoke.sh dist/spirits-linux-x64
+    ```
+
+    スクリプトは cwd の `.env` / `.env.local` / `.env.<NODE_ENV>` の値が記録に含まれないことと、シェルの環境変数が含まれることを検証する。
 11. 対話モード smoke。`.pi/skills/interactive-testing.md` の tmux 手順でビルド済みバイナリを起動し、ヘッダ表示、`/clear`、`tsrepl` の呼び出しを確認する。
 
 ## 6. push と上流タグの扱い
