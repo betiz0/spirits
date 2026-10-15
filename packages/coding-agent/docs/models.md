@@ -28,6 +28,10 @@ Keep `auth.json` and any credential commands private. Project settings and exten
 
 Run `/model` to search available models. The picker shows models whose providers have usable authentication. Press `Ctrl+S` on a model to save it as the default for new sessions.
 
+Run `/model <provider/model> <level>` to switch models and set the thinking level in one line, e.g. `/model anthropic/claude-sonnet-4-5 high`. The last word is treated as the thinking level only when it names one (`off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`, case-insensitive); anything else stays part of the model search term. A level the selected model does not support is rejected with an error and changes nothing.
+
+With `/model` or `/model <provider/model> <level>` typed in the input box, press `Ctrl+S` (the `app.models.save` keybinding) instead of `Enter` to apply the command and save the model — and the thinking level, when given — as the global defaults for new sessions. The same works for `/thinking <level>` with the `app.thinking.save` keybinding. Per-model thinking level settings take priority over the saved global default.
+
 Run `/thinking` to select the thinking level for the current model. Press `Ctrl+S` there to save the startup level. Pi limits the choices to levels supported by the selected model.
 
 `Ctrl+P` cycles through available models. Use `/scoped-models` to control that cycle and save the selection, or configure model patterns through [Settings](settings.md#model-cycling).

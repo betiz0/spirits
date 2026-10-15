@@ -22,6 +22,8 @@ export class CustomEditor extends Editor {
 	public onPasteImage?: () => void;
 	/** Handler for extension-registered shortcuts. Returns true if handled. */
 	public onExtensionShortcut?: (data: string) => boolean;
+	/** Handler for save keys while the editor is focused. Returns true if the key was consumed. */
+	public onSaveKey?: (data: string) => boolean;
 
 	constructor(tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager, options?: CustomEditorOptions) {
 		super(tui, theme, options);
@@ -88,6 +90,11 @@ export class CustomEditor extends Editor {
 	handleInput(data: string): void {
 		// Check extension-registered shortcuts first
 		if (this.onExtensionShortcut?.(data)) {
+			return;
+		}
+
+		// Check the save-key hook before any other handling
+		if (this.onSaveKey?.(data)) {
 			return;
 		}
 

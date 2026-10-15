@@ -11,6 +11,7 @@ import type { AgentMessage, ThinkingLevel } from "@earendil-works/pi-agent-core"
 import type { AuthEvent, AuthPrompt } from "@earendil-works/pi-ai";
 import {
 	type AssistantMessage,
+	getSupportedThinkingLevels,
 	type ImageContent,
 	isRetryableAssistantError,
 	type Message,
@@ -183,6 +184,7 @@ import { UserMessageComponent } from "./components/user-message.ts";
 import { UserMessageSelectorComponent } from "./components/user-message-selector.ts";
 import { editInExternalEditor } from "./external-editor.ts";
 import { refreshModelCatalogs } from "./model-catalog-refresh.ts";
+import { getThinkingLevelArgumentCompletions, parseModelCommandArgs } from "./model-command-args.ts";
 import { getModelSearchText } from "./model-search.ts";
 import { type BlockedStatus, ProgramStatusReporter } from "./program-status-reporter.ts";
 import { shareSession } from "./session-share.ts";
@@ -375,6 +377,14 @@ type LoginProviderCompletionOption = {
 };
 
 const RADIUS_LOGIN_INTRO = "Radius is a service crafted for Pi by the builders of Pi, Earendil Works";
+
+/**
+ * Whether a model supports a thinking level. Unlike AgentSession.setThinkingLevel,
+ * this never clamps: callers use it to reject unsupported levels before applying them.
+ */
+function modelSupportsThinkingLevel(model: Model<any>, level: ThinkingLevel): boolean {
+	return (getSupportedThinkingLevels(model) as ThinkingLevel[]).includes(level);
+}
 
 const AUTH_TYPE_ORDER = { oauth: 0, api_key: 1 } satisfies Record<AuthSelectorProvider["authType"], number>;
 
@@ -745,6 +755,11 @@ export class InteractiveMode {
 						: this.session.modelRuntime.getAvailableSnapshot();
 
 				if (models.length === 0) return null;
+
+				const levelCompletions = getThinkingLevelArgumentCompletions(prefix, models);
+				if (levelCompletions) {
+					return levelCompletions;
+				}
 
 				// Create items with provider/id format
 				const items = models.map((m) => ({
@@ -2946,6 +2961,9 @@ export class InteractiveMode {
 				if (!customEditor.onExtensionShortcut) {
 					customEditor.onExtensionShortcut = (data: string) => this.defaultEditor.onExtensionShortcut?.(data);
 				}
+				if (!customEditor.onSaveKey) {
+					customEditor.onSaveKey = (data: string) => this.defaultEditor.onSaveKey?.(data) ?? false;
+				}
 				// Copy action handlers (clear, suspend, model switching, etc.)
 				for (const [action, handler] of this.defaultEditor.actionHandlers) {
 					(customEditor.actionHandlers as Map<string, () => void>).set(action, handler);
@@ -3142,6 +3160,8 @@ export class InteractiveMode {
 		this.defaultEditor.onAction("app.session.fork", () => this.showUserMessageSelector());
 		this.defaultEditor.onAction("app.session.resume", () => this.showSessionSelector());
 
+		this.setupSaveKeyHook();
+
 		this.defaultEditor.onChange = (text: string) => {
 			const wasBashMode = this.isBashMode;
 			this.isBashMode = text.trimStart().startsWith("!");
@@ -3216,6 +3236,41 @@ export class InteractiveMode {
 	private handleStartupSubmit(text: string): void {
 		this.editor.setText(text);
 		this.showStatus("Startup is still in progress");
+	}
+
+	/**
+	 * Install the save-key hook on the default editor. When the input is a /model or
+	 * /thinking command and the matching save keybinding fires, the command is submitted
+	 * with persistence (as if sent with Enter while asking to save defaults). The hook
+	 * only reads the raw key data; it carries no command knowledge itself.
+	 *
+	 * Like Enter's /model handling, the input is not added to history.
+	 *
+	 * Uses this.editor for text access so it works even when an extension replaced
+	 * the editor (setCustomEditorComponent copies this hook).
+	 */
+	private setupSaveKeyHook(): void {
+		this.defaultEditor.onSaveKey = (data: string): boolean => {
+			if (this.keybindings.matches(data, "app.models.save")) {
+				const text = (this.editor.getExpandedText?.() ?? this.editor.getText()).trim();
+				if (text === "/model" || text.startsWith("/model ")) {
+					const searchTerm = text.startsWith("/model ") ? text.slice(7).trim() : undefined;
+					this.editor.setText("");
+					void this.handleModelCommand(searchTerm, true);
+					return true;
+				}
+			}
+			if (this.keybindings.matches(data, "app.thinking.save")) {
+				const text = (this.editor.getExpandedText?.() ?? this.editor.getText()).trim();
+				if (text === "/thinking" || text.startsWith("/thinking ")) {
+					const searchTerm = text.startsWith("/thinking ") ? text.slice(10).trim() : undefined;
+					this.editor.setText("");
+					this.handleThinkingCommand(searchTerm, true);
+					return true;
+				}
+			}
+			return false;
+		};
 	}
 
 	private setupEditorSubmitHandler(): void {
@@ -5169,10 +5224,10 @@ export class InteractiveMode {
 		});
 	}
 
-	private handleThinkingCommand(searchTerm?: string): void {
+	private handleThinkingCommand(searchTerm?: string, persist?: boolean): void {
 		const availableLevels = this.session.getAvailableThinkingLevels();
 		if (!searchTerm) {
-			this.showThinkingSelector();
+			this.showThinkingSelector(persist);
 			return;
 		}
 
@@ -5183,7 +5238,7 @@ export class InteractiveMode {
 			return;
 		}
 
-		this.selectThinkingLevel(level, false);
+		this.selectThinkingLevel(level, persist ?? false);
 	}
 
 	private selectThinkingLevel(level: ThinkingLevel, persist: boolean): void {
@@ -5197,10 +5252,10 @@ export class InteractiveMode {
 		}
 	}
 
-	private showThinkingSelector(): void {
+	private showThinkingSelector(persist?: boolean): void {
 		this.showSelector((done) => {
-			const selectLevel = (level: ThinkingLevel, persist: boolean) => {
-				this.selectThinkingLevel(level, persist);
+			const selectLevel = (level: ThinkingLevel, selectorPersist: boolean) => {
+				this.selectThinkingLevel(level, persist === true || selectorPersist);
 				done();
 			};
 			const selector = new ThinkingSelectorComponent(
@@ -5218,27 +5273,55 @@ export class InteractiveMode {
 		});
 	}
 
-	private async handleModelCommand(searchTerm?: string): Promise<void> {
-		if (!searchTerm) {
-			this.showModelSelector();
+	private async handleModelCommand(searchTerm?: string, persist?: boolean): Promise<void> {
+		const { searchTerm: modelTerm, thinkingLevel } = parseModelCommandArgs(searchTerm ?? "");
+		if (!modelTerm) {
+			this.showModelSelector(undefined, thinkingLevel, persist);
 			return;
 		}
 
-		const model = await this.findExactModelMatch(searchTerm);
+		const model = await this.findExactModelMatch(modelTerm);
 		if (model) {
-			try {
-				await this.session.setModel(model, { persist: false });
-				this.footer.invalidate();
-				this.updateEditorBorderColor();
-				this.showStatus(`Model: ${model.id}`);
-				void this.maybeWarnAboutAnthropicSubscriptionAuth(model);
-			} catch (error) {
-				this.showError(error instanceof Error ? error.message : String(error));
-			}
+			await this.applyModelSelection(model, thinkingLevel, persist ?? false);
 			return;
 		}
 
-		this.showModelSelector(searchTerm);
+		this.showModelSelector(modelTerm, thinkingLevel, persist);
+	}
+
+	/**
+	 * Apply a model selection with an optional thinking level. The level is validated
+	 * against the target model first; when the model does not support it, an error is
+	 * shown and neither the model nor the thinking level changes.
+	 */
+	private async applyModelSelection(
+		model: Model<any>,
+		thinkingLevel: ThinkingLevel | undefined,
+		persist: boolean,
+	): Promise<void> {
+		if (thinkingLevel && !modelSupportsThinkingLevel(model, thinkingLevel)) {
+			this.showError(`Thinking level "${thinkingLevel}" is not supported by ${model.provider}/${model.id}.`);
+			return;
+		}
+
+		try {
+			await this.session.setModel(model, { persist });
+			this.footer.invalidate();
+			this.updateEditorBorderColor();
+			if (thinkingLevel) {
+				this.session.setThinkingLevel(thinkingLevel, { persist });
+			}
+			this.showStatus(
+				persist
+					? thinkingLevel
+						? `Default model: ${model.provider}/${model.id} · Default thinking level: ${thinkingLevel}`
+						: `Default model: ${model.provider}/${model.id}`
+					: `Model: ${model.id}`,
+			);
+			void this.maybeWarnAboutAnthropicSubscriptionAuth(model);
+		} catch (error) {
+			this.showError(error instanceof Error ? error.message : String(error));
+		}
 	}
 
 	private async findExactModelMatch(searchTerm: string): Promise<Model<any> | undefined> {
@@ -5366,16 +5449,37 @@ export class InteractiveMode {
 		});
 	}
 
-	private showModelSelector(initialSearchInput?: string): void {
+	private showModelSelector(
+		initialSearchInput?: string,
+		pendingThinkingLevel?: ThinkingLevel,
+		persist?: boolean,
+	): void {
 		this.showSelector((done) => {
-			const selectModel = async (model: Model<any>, persist: boolean) => {
+			const selectModel = async (model: Model<any>, selectorPersist: boolean) => {
+				const persistRequest = persist === true || selectorPersist;
+				if (pendingThinkingLevel && !modelSupportsThinkingLevel(model, pendingThinkingLevel)) {
+					done();
+					this.showError(
+						`Thinking level "${pendingThinkingLevel}" is not supported by ${model.provider}/${model.id}.`,
+					);
+					return;
+				}
 				try {
-					await this.session.setModel(model, { persist });
+					await this.session.setModel(model, { persist: persistRequest });
 					this.updateAvailableProviderCount();
 					this.footer.invalidate();
 					this.updateEditorBorderColor();
+					if (pendingThinkingLevel) {
+						this.session.setThinkingLevel(pendingThinkingLevel, { persist: persistRequest });
+					}
 					done();
-					this.showStatus(persist ? `Default model: ${model.provider}/${model.id}` : `Model: ${model.id}`);
+					this.showStatus(
+						persistRequest
+							? pendingThinkingLevel
+								? `Default model: ${model.provider}/${model.id} · Default thinking level: ${pendingThinkingLevel}`
+								: `Default model: ${model.provider}/${model.id}`
+							: `Model: ${model.id}`,
+					);
 					void this.maybeWarnAboutAnthropicSubscriptionAuth(model);
 				} catch (error) {
 					done();

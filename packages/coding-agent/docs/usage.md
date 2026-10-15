@@ -45,7 +45,7 @@ Windows Terminal reserves some Alt shortcuts. See [Terminal Setup](terminal-setu
 
 Type `/` to search the available commands. The commands you will use most often are:
 
-- `/model` selects a model. Press `Ctrl+L` to open the same selector.
+- `/model` selects a model. Press `Ctrl+L` to open the same selector. `/model <provider/model> <level>` also sets the thinking level, and pressing `Ctrl+S` (`app.models.save`) with the command typed saves it as the global default. `/thinking <level>` sets the reasoning level; `Ctrl+S` (`app.thinking.save`) saves it as the global default.
 - `/thinking` selects how much reasoning the current model uses. Press `Shift+Tab` to cycle through supported levels.
 - `/login` and `/logout` manage provider access.
 - `/settings` changes common preferences.
