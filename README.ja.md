@@ -52,6 +52,16 @@ return await rlm("行を要約して JSON で返して。");
 
 詳細・制約は [`packages/spirits/README.md`](packages/spirits/README.md) を参照してください。
 
+## 同梱スキル
+
+spirits はインストール直後から使えるスキルを同梱します。起動時に `<agentDir>/bundled-skills/<spirits の版>/` へ書き出し、pi のスキル探索へ渡します。`<agentDir>/skills/` には置きません。
+
+- 同梱スキルは `/skill:architecture-guards` のように明示起動します。`disable-model-invocation: true` を持つため、モデルが自動選択することはありません。
+- `<agentDir>/skills/<名前>/` に同名の利用者スキルがある場合は、利用者版が常に優先されます。pi は利用者版を採用し、衝突警告を表示します。同梱版はスキップされます。
+- `SPIRITS_BUNDLED_SKILLS=0` で同梱スキル全体を無効化します(未設定・その他の値は有効)。無効時は書き出しも供給も行いません。
+- spirits を更新した後、新しい同梱内容を反映するには spirits を再起動してください。同梱内容は実行中のバイナリに埋め込まれているため、`/reload` は実行中の版のツリーを書き出し直すだけです。旧版ディレクトリは、7 日以上使われなかった場合にだけ書き出し時に削除されます。
+- `bundled-skills/` は spirits の管理領域です。そこのファイルを編集せず、自分のスキルは `<agentDir>/skills/` に置いてください。
+
 ## 既知の制約
 
 - `await` の後に始まる同期ループは中断できず、timeout も効かずプロセス全体が応答しなくなります(再起動が必要)。

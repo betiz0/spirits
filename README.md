@@ -64,6 +64,16 @@ return await rlm("Summarize the rows and return JSON.");
 
 Details, limits, and constraints are in [`packages/spirits/README.md`](packages/spirits/README.md).
 
+## Bundled skills
+
+spirits ships with skills that are available right after install. They are written at startup to `<agentDir>/bundled-skills/<spirits version>/` and handed to pi's skill search; they are never placed in `<agentDir>/skills/`.
+
+- Start a bundled skill explicitly, for example with `/skill:architecture-guards`. Bundled skills carry `disable-model-invocation: true`, so the model never selects them automatically.
+- A user skill with the same name in `<agentDir>/skills/<name>/` always wins. pi keeps the user version and prints a collision warning; the bundled copy is skipped.
+- Disable all bundled skills with `SPIRITS_BUNDLED_SKILLS=0` (unset or any other value keeps them enabled). Nothing is written and no skill path is supplied.
+- After a spirits update, start spirits again to get the new contents: the bundled contents are embedded in the running binary, so `/reload` only rewrites the tree of the version that is already running. A previous version directory is removed on write only after it has not been used for 7 days.
+- `bundled-skills/` is managed by spirits. Do not edit files there; keep your own skills in `<agentDir>/skills/`.
+
 ## Known limitations
 
 - A synchronous loop that starts after an `await` cannot be interrupted: timeout does not fire and the whole process stops responding (restart required).

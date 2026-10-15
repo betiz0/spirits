@@ -8,10 +8,10 @@
  * identifier, so hand-written skills with a mismatched frontmatter `name` stay addressable.
  */
 
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, realpath, rm, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { SKILL_DESCRIPTION_MAX_LENGTH, SKILL_NAME_MAX_LENGTH, SKILL_NAME_PATTERN } from "../constants.ts";
-import { skillsDir } from "./paths.ts";
+import { isPathWithin, bundledSkillsDir, skillsDir } from "./paths.ts";
 
 /** File name inside each skill directory. */
 const SKILL_FILE_NAME = "SKILL.md";
@@ -109,6 +109,7 @@ export async function saveSkill(agentDir: string, draft: SkillDraft): Promise<Sk
 	}
 	const dir = path.join(skillsDir(agentDir), name);
 	const file = path.join(dir, SKILL_FILE_NAME);
+	await assertNotBundledSkillsTarget(agentDir, name, dir, file);
 	const content = [
 		FRONTMATTER_DELIMITER,
 		`${FRONTMATTER_NAME_KEY}: ${name}`,
@@ -154,14 +155,23 @@ export async function listSkills(agentDir: string): Promise<SkillSummary[]> {
 export async function deleteSkill(agentDir: string, name: unknown): Promise<SkillLocation> {
 	const valid = validateSkillName(name);
 	const dir = path.join(skillsDir(agentDir), valid);
-	let exists = false;
+	let stats;
 	try {
-		exists = (await stat(dir)).isDirectory();
+		stats = await lstat(dir);
 	} catch {
-		exists = false;
-	}
-	if (!exists) {
 		throw new Error(`スキル "${valid}" は存在しません。`);
+	}
+	if (stats.isSymbolicLink()) {
+		// Remove only the link: the target may be a bundled skill that must stay untouched.
+		await unlink(dir);
+		return { name: valid, path: dir };
+	}
+	if (!stats.isDirectory()) {
+		throw new Error(`スキル "${valid}" は存在しません。`);
+	}
+	// A real directory can still resolve into the bundled tree when `skills/` itself is a symlink.
+	if (await resolvesIntoBundledSkills(agentDir, dir)) {
+		throw new Error(`スキル "${valid}" は同梱スキルを指すため削除できません。`);
 	}
 	await rm(dir, { recursive: true });
 	return { name: valid, path: dir };
@@ -170,6 +180,52 @@ export async function deleteSkill(agentDir: string, name: unknown): Promise<Skil
 async function isFile(target: string): Promise<boolean> {
 	try {
 		return (await stat(target)).isFile();
+	} catch {
+		return false;
+	}
+}
+
+/** Reject writes that would follow a symlink into the bundled skills tree. */
+async function assertNotBundledSkillsTarget(
+	agentDir: string,
+	name: string,
+	dir: string,
+	file: string,
+): Promise<void> {
+	const directoryTargetsBundled = await resolvesIntoBundledSkills(agentDir, dir);
+	const fileTargetsBundled = await resolvesIntoBundledSkills(agentDir, file);
+	if (directoryTargetsBundled || fileTargetsBundled) {
+		throw new Error(`スキル "${name}" は同梱スキルを指すため保存できません。`);
+	}
+}
+
+/** True when the real path of `target` is inside the real path of `<agentDir>/bundled-skills/`. */
+async function resolvesIntoBundledSkills(agentDir: string, target: string): Promise<boolean> {
+	const rootReal = await resolveRealPath(bundledSkillsDir(agentDir));
+	return isPathWithin(rootReal, await resolveRealPath(target));
+}
+
+/**
+ * Real path of `target`. A missing `target` resolves through its nearest existing ancestor,
+ * so `skills/<new>` under a `skills/` symlink into the bundled tree resolves into that tree.
+ * A dangling symlink exists, so it throws instead of resolving its own name in place.
+ */
+async function resolveRealPath(target: string): Promise<string> {
+	try {
+		return await realpath(target);
+	} catch (error) {
+		const parent = path.dirname(target);
+		const missing = (error as NodeJS.ErrnoException).code === "ENOENT";
+		if (!missing || parent === target || (await isSymbolicLink(target))) {
+			throw error;
+		}
+		return path.join(await resolveRealPath(parent), path.basename(target));
+	}
+}
+
+async function isSymbolicLink(target: string): Promise<boolean> {
+	try {
+		return (await lstat(target)).isSymbolicLink();
 	} catch {
 		return false;
 	}

@@ -52,6 +52,16 @@ return await rlm("汇总这些行并以 JSON 返回。");
 
 详细说明与限制见 [`packages/spirits/README.md`](packages/spirits/README.md)。
 
+## 内置技能
+
+spirits 内置了一组安装后即可使用的技能。启动时会写入 `<agentDir>/bundled-skills/<spirits 版本>/`，并交给 pi 的技能搜索；不会写入 `<agentDir>/skills/`。
+
+- 内置技能需要显式启动，例如 `/skill:architecture-guards`。内置技能带有 `disable-model-invocation: true`，模型不会自动选择。
+- 如果 `<agentDir>/skills/<名称>/` 中存在同名用户技能，则始终优先使用用户版本。pi 采用用户版本并显示冲突警告，内置副本会被跳过。
+- 使用 `SPIRITS_BUNDLED_SKILLS=0` 可禁用全部内置技能(未设置或其他值表示启用)。禁用时既不写入也不提供技能路径。
+- 更新 spirits 后，要获取新的内置内容需要重新启动 spirits。内置内容嵌在运行中的二进制文件里，因此 `/reload` 只会重新写入当前运行版本的目录树。旧版本目录只有在 7 天以上未被使用时，才会在写入时被删除。
+- `bundled-skills/` 由 spirits 管理。请勿编辑其中的文件；自己的技能请放在 `<agentDir>/skills/`。
+
 ## 已知限制
 
 - 在 `await` 之后开始的同步循环无法中断：timeout 不会触发，整个进程会失去响应（需要重启）。

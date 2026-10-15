@@ -7,6 +7,8 @@ import type {
 	BeforeAgentStartEventResult,
 	ExtensionAPI,
 	ExtensionHandler,
+	ResourcesDiscoverEvent,
+	ResourcesDiscoverResult,
 	SessionStartEvent,
 	SessionTreeEvent,
 	ToolDefinition,
@@ -44,17 +46,22 @@ class FakePi implements ExtensionAPI {
 	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): () => void;
 	on(event: "session_tree", handler: ExtensionHandler<SessionTreeEvent>): () => void;
 	on(
+		event: "resources_discover",
+		handler: ExtensionHandler<ResourcesDiscoverEvent, ResourcesDiscoverResult>,
+	): () => void;
+	on(
 		event: string,
 		handler:
 			| ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>
 			| ExtensionHandler<SessionStartEvent>
-			| ExtensionHandler<SessionTreeEvent>,
+			| ExtensionHandler<SessionTreeEvent>
+			| ExtensionHandler<ResourcesDiscoverEvent, ResourcesDiscoverResult>,
 	): () => void {
 		if (event === "session_start") {
 			this.sessionHandlers.push(handler as ExtensionHandler<SessionStartEvent>);
 		} else if (event === "session_tree") {
 			this.treeHandlers.push(handler as ExtensionHandler<SessionTreeEvent>);
-		} else {
+		} else if (event === "before_agent_start") {
 			this.handlers.push(handler as ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>);
 		}
 		return () => {};

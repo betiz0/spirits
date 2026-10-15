@@ -10,6 +10,7 @@ import {
 	DEFAULT_MEMORY_INJECTION_CHAR_LIMIT,
 	DEFAULT_MEMORY_PREVIEW_LINES,
 	DEFAULT_TODO_MAX_LINES,
+	ENV_BUNDLED_SKILLS,
 	ENV_MEMORY_CHAR_LIMIT,
 	ENV_MEMORY_LINE_LIMIT,
 	ENV_MEMORY_PREVIEW_LINES,
@@ -32,14 +33,24 @@ export interface TodoConfig {
 	maxLines: number;
 }
 
+/** Resolved settings for the bundled skills. */
+export interface BundledSkillsConfig {
+	/** False only when `SPIRITS_BUNDLED_SKILLS=0`; unset or any other value keeps them enabled. */
+	enabled: boolean;
+}
+
 /** Resolved configuration for the continual harness. */
 export interface SpiritsConfig {
 	memory: MemoryLimits;
 	todo: TodoConfig;
+	bundledSkills: BundledSkillsConfig;
 }
 
 /** Positive decimal integers only: rejects empty, signs, decimals, and leading zeros. */
 const POSITIVE_INTEGER_PATTERN = /^[1-9][0-9]*$/;
+
+/** The only value of a feature switch that disables the feature. */
+const DISABLED_FLAG_VALUE = "0";
 
 /** Environment shape accepted by `loadConfig`. */
 export type EnvLike = Readonly<Record<string, string | undefined>>;
@@ -56,6 +67,11 @@ function readLimit(env: EnvLike, name: string, fallback: number): number {
 	return value;
 }
 
+/** Read a feature switch where only `0` disables the feature (unset and other values enable it). */
+function readEnabled(env: EnvLike, name: string): boolean {
+	return env[name] !== DISABLED_FLAG_VALUE;
+}
+
 /** Resolve the harness configuration, falling back to defaults for absent or invalid values. */
 export function loadConfig(env: EnvLike): SpiritsConfig {
 	return {
@@ -66,6 +82,9 @@ export function loadConfig(env: EnvLike): SpiritsConfig {
 		},
 		todo: {
 			maxLines: readLimit(env, ENV_TODO_MAX_LINES, DEFAULT_TODO_MAX_LINES),
+		},
+		bundledSkills: {
+			enabled: readEnabled(env, ENV_BUNDLED_SKILLS),
 		},
 	};
 }

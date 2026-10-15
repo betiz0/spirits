@@ -6,6 +6,8 @@ import type {
 	ExtensionMode,
 	ExtensionToolContext,
 	ExtensionUIContext,
+	ResourcesDiscoverEvent,
+	ResourcesDiscoverResult,
 	SessionEntry,
 	SessionStartEvent,
 	SessionTreeEvent,
@@ -64,6 +66,10 @@ class FakePi {
 	): () => void;
 	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): () => void;
 	on(event: "session_tree", handler: ExtensionHandler<SessionTreeEvent>): () => void;
+	on(
+		event: "resources_discover",
+		handler: ExtensionHandler<ResourcesDiscoverEvent, ResourcesDiscoverResult>,
+	): () => void;
 	on(event: string, handler: unknown): () => void {
 		if (event === "session_start") {
 			this.sessionStartHandlers.push(handler as ExtensionHandler<SessionStartEvent>);

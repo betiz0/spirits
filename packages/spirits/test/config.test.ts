@@ -4,6 +4,7 @@ import {
 	DEFAULT_MEMORY_INJECTION_CHAR_LIMIT,
 	DEFAULT_MEMORY_PREVIEW_LINES,
 	DEFAULT_TODO_MAX_LINES,
+	ENV_BUNDLED_SKILLS,
 	ENV_MEMORY_CHAR_LIMIT,
 	ENV_MEMORY_LINE_LIMIT,
 	ENV_MEMORY_PREVIEW_LINES,
@@ -19,6 +20,7 @@ test("defaults when unset", () => {
 			fileLineLimit: DEFAULT_MEMORY_FILE_LINE_LIMIT,
 		},
 		todo: { maxLines: DEFAULT_TODO_MAX_LINES },
+		bundledSkills: { enabled: true },
 	});
 });
 
@@ -66,4 +68,12 @@ test("todo max lines falls back on 0, abc, -1", () => {
 	for (const value of ["0", "abc", "-1"]) {
 		expect(loadConfig({ [ENV_TODO_MAX_LINES]: value }).todo.maxLines).toBe(DEFAULT_TODO_MAX_LINES);
 	}
+});
+
+test("bundled skills are enabled unless SPIRITS_BUNDLED_SKILLS=0", () => {
+	expect(loadConfig({}).bundledSkills.enabled).toBe(true);
+	for (const value of ["1", "true", "yes", ""]) {
+		expect(loadConfig({ [ENV_BUNDLED_SKILLS]: value }).bundledSkills.enabled).toBe(true);
+	}
+	expect(loadConfig({ [ENV_BUNDLED_SKILLS]: "0" }).bundledSkills.enabled).toBe(false);
 });

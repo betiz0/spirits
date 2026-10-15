@@ -126,6 +126,20 @@ export interface SessionStartEvent {
 	previousSessionFile?: string;
 }
 
+/** Fired after session_start so extensions can provide additional resource paths. */
+export interface ResourcesDiscoverEvent {
+	type: "resources_discover";
+	cwd: string;
+	reason: "startup" | "reload";
+}
+
+/** Result of a `resources_discover` handler. */
+export interface ResourcesDiscoverResult {
+	skillPaths?: string[];
+	promptPaths?: string[];
+	themePaths?: string[];
+}
+
 /** Fired after navigating in the session tree. */
 export interface SessionTreeEvent {
 	type: "session_tree";
@@ -211,6 +225,10 @@ export interface ExtensionAPI {
 	): () => void;
 	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): () => void;
 	on(event: "session_tree", handler: ExtensionHandler<SessionTreeEvent>): () => void;
+	on(
+		event: "resources_discover",
+		handler: ExtensionHandler<ResourcesDiscoverEvent, ResourcesDiscoverResult>,
+	): () => void;
 }
 
 /** Extension event handler. Return a result to influence the session, or void to observe only. */
@@ -383,6 +401,58 @@ export interface ParsedFrontmatter<T extends Record<string, unknown> = Record<st
 export function parseFrontmatter<T extends Record<string, unknown> = Record<string, unknown>>(
 	content: string,
 ): ParsedFrontmatter<T>;
+
+// ============================================================================
+// Skill loading (priority contract pinned in test/pi-runtime/bundled-skills.test.ts)
+// ============================================================================
+
+/** Skill loaded from disk. Only the fields spirits checks are mirrored. */
+export interface Skill {
+	name: string;
+	description: string;
+	filePath: string;
+	baseDir: string;
+	disableModelInvocation: boolean;
+}
+
+/** Collision diagnostics carry the winner and the skipped file. */
+export interface SkillCollision {
+	resourceType: string;
+	name: string;
+	winnerPath: string;
+	loserPath: string;
+}
+
+/** Diagnostic emitted by pi's skill loader. */
+export interface SkillDiagnostic {
+	type: string;
+	message: string;
+	path?: string;
+	collision?: SkillCollision;
+}
+
+/** Options for `loadSkills()`. Only the fields spirits passes are mirrored. */
+export interface LoadSkillsOptions {
+	cwd: string;
+	agentDir: string;
+	skillPaths: string[];
+	includeDefaults: boolean;
+}
+
+/** Result of `loadSkills()`. */
+export interface LoadSkillsResult {
+	skills: Skill[];
+	diagnostics: SkillDiagnostic[];
+}
+
+/** Load skills from the default directories and the given extra paths (first name wins). */
+export function loadSkills(options: LoadSkillsOptions): LoadSkillsResult;
+
+/** Format the model-facing skill list; `disableModelInvocation` skills are omitted. */
+export function formatSkillsForPrompt(
+	skills: Skill[],
+	fileReadTool?: "read" | "bash" | "indirect",
+): string;
 
 /** Extension factory function type. Supports both sync and async initialization. */
 export type ExtensionFactory = (pi: ExtensionAPI) => void | Promise<void>;

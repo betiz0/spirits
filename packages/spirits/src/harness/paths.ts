@@ -1,7 +1,8 @@
 /**
  * Agent-directory layout for the continual harness.
  *
- * This is the only harness module that imports pi values (`getAgentDir`). The nested
+ * `getAgentDir` is imported here because this module owns the pi agent-directory
+ * lookup; other harness modules import the resolved paths from this one. The nested
  * `tsconfig.json` makes Bun resolve that import through the root `paths` at runtime
  * (same scheme as `src/rlm/`); the package type check resolves it through the local
  * type mirror.
@@ -19,6 +20,9 @@ const SKILLS_DIR_NAME = "skills";
 
 /** Directory pi scans for user prompt templates (non-recursive). */
 const PROMPTS_DIR_NAME = "prompts";
+
+/** Directory that holds the versioned bundled skill trees. */
+const BUNDLED_SKILLS_DIR_NAME = "bundled-skills";
 
 /** Subdirectory that keeps the override out of pi's prompt-template scan. */
 const PROMPTS_NAMESPACE = "spirits";
@@ -45,6 +49,22 @@ export function notesPath(agentDir: string): string {
 /** `<agentDir>/skills/`. */
 export function skillsDir(agentDir: string): string {
 	return path.join(agentDir, SKILLS_DIR_NAME);
+}
+
+/** `<agentDir>/bundled-skills/`. */
+export function bundledSkillsDir(agentDir: string): string {
+	return path.join(agentDir, BUNDLED_SKILLS_DIR_NAME);
+}
+
+/** `<agentDir>/bundled-skills/<version>/`. */
+export function bundledSkillsVersionDir(agentDir: string, version: string): string {
+	return path.join(bundledSkillsDir(agentDir), version);
+}
+
+/** True when `target` is `root` or a descendant (separator-aware). */
+export function isPathWithin(root: string, target: string): boolean {
+	const prefix = root.endsWith(path.sep) ? root : `${root}${path.sep}`;
+	return target === root || target.startsWith(prefix);
 }
 
 /** `<agentDir>/prompts/spirits/code-mode.md`. */

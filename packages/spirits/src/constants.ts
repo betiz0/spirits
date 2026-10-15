@@ -111,3 +111,13 @@ export const TOOL_NAME_SKILL_SAVE = "spirits_skill_save";
 export const TOOL_NAME_SKILL_LIST = "spirits_skill_list";
 export const TOOL_NAME_SKILL_DELETE = "spirits_skill_delete";
 export const TOOL_NAME_PROMPT_SET = "spirits_prompt_set";
+
+// ---------------------------------------------------------------------------
+// Bundled skills
+// ---------------------------------------------------------------------------
+
+/** Environment variable that disables the bundled skills. Set to `0` to disable; unset or any other value keeps them enabled. */
+export const ENV_BUNDLED_SKILLS = "SPIRITS_BUNDLED_SKILLS";
+
+/** Days a non-current bundled version directory is kept before cleanup. Unit: days. */
+export const BUNDLED_SKILLS_STALE_AFTER_DAYS = 7;

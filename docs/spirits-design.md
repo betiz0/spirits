@@ -128,6 +128,7 @@ import 許可範囲:
 
 - **メモリ**: セッション横断で残したい事実は `note(text)` で `~/.spirits/agent/memory/notes.md` へ追記し、`spirits_memory` カスタムエントリでも記録する。エージェント開始ごと(プロンプトごと)に `memory/` 直下の `*.md` の要約をシステムプロンプトの `spirits_memory` セクションへ注入する(`notes.md` は末尾、ほかは先頭。本文全体を文字数上限以内に収め、超えるときは整理候補、`notes.md`、ほかのファイルの順に残し、`notes.md` は古い行から省く。上限は `SPIRITS_MEMORY_CHAR_LIMIT` などで設定)
 - **スキル**: `~/.spirits/agent/skills/` 配下の `SKILL.md` を codemode ツールで CRUD する。モデルには宣言せず、`tool(name, args)` と `goal` / `note` のツール説明の案内で伝える
+- **同梱スキル**: バイナリに同梱したスキルは起動時と `/reload` 時に `~/.spirits/agent/bundled-skills/<spirits 版>/` へ書き出し、`resources_discover` の `skillPaths` で pi のスキル探索へ供給する。利用者の `skills/` に同名スキルがあれば利用者版が優先され、同梱版はスキップされる(衝突警告が出る)。`SPIRITS_BUNDLED_SKILLS=0` で書き出しと供給を無効化する。書き出しのたびに現行版ディレクトリの更新時刻を更新し、現行版以外のディレクトリは 7 日以上更新がない場合にだけ best-effort で削除する。書き出し失敗時はそのセッションで供給しない。`spirits_skill_save` / `spirits_skill_delete` は同梱領域を変更・削除しない。判定は書き込み先・削除対象の実体パス(`realpath`)と同梱 root の実体パスを比較して行い、`<agentDir>` が symlink を経由する場合や相対パスで与えられた場合、`skills/` 自体が同梱ディレクトリへの symlink である場合も同梱物を保護する(symlink はリンクだけを削除する)。同梱内容の反映には spirits の再起動が必要で、`/reload` は実行中の版のツリーを書き出し直すだけである
 - **プロンプト**: 既定の code-mode プロンプトを TS 定数として同梱し、`before_agent_start` の `systemPromptOptions.sections` に `spirits` として追加する。上書きは `~/.spirits/agent/prompts/spirits/code-mode.md`(変更前は `.bak`)
 - **子セッション**: メモリ・スキル・プロンプトは自動配線しない。子へ渡す情報は親が `rlm` の prompt に含める
 - **既存参考実装**: `pi-agenticoding`(spawn / notebook / handoff の文脈管理プリミティブ)を設計参照とする。必要になれば依存として取り込む
@@ -247,6 +248,10 @@ import 許可範囲:
 │     │  │  ├─ memory.ts       note / メモリ要約
 │     │  │  ├─ goal.ts         goal() ホスト関数
 │     │  │  ├─ skills.ts       skill CRUD
+│     │  │  ├─ bundled-skills/ 同梱スキル(assets + 供給)
+│     │  │  │  ├─ index.ts     定義・検証・書き出し・resources_discover 配線
+│     │  │  │  ├─ definition.ts コンパイル済みバンドル定義
+│     │  │  │  └─ architecture-guards/ SKILL.md と references/
 │     │  │  ├─ prompt.ts       code-mode プロンプト(既定 + 上書き解決)
 │     │  │  ├─ guidance.ts     ホスト関数・ツールの案内
 │     │  │  ├─ paths.ts        エージェントディレクトリ配下のパス

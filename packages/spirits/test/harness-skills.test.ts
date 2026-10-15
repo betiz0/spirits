@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { SKILL_DESCRIPTION_MAX_LENGTH, SKILL_NAME_MAX_LENGTH } from "../src/constants.ts";
@@ -15,6 +15,16 @@ async function makeAgentDir(): Promise<string> {
 async function exists(target: string): Promise<boolean> {
 	try {
 		await stat(target);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/** True when `target` itself exists, without following a final symlink. */
+async function linkExists(target: string): Promise<boolean> {
+	try {
+		await lstat(target);
 		return true;
 	} catch {
 		return false;
@@ -352,6 +362,162 @@ test("delete missing errors", async () => {
 	const agentDir = await makeAgentDir();
 	await expect(deleteSkill(agentDir, "no-such-skill")).rejects.toThrow();
 	expect(await tree(agentDir)).toEqual([]);
+});
+
+test("refuses to write through a symlink into bundled-skills", async () => {
+	const agentDir = await makeAgentDir();
+	const bundledDir = path.join(agentDir, "bundled-skills", "1.0.0", "architecture-guards");
+	await mkdir(bundledDir, { recursive: true });
+	const bundledFile = path.join(bundledDir, "SKILL.md");
+	await writeFile(bundledFile, "---\nname: architecture-guards\ndescription: bundled\n---\n\nbundled body\n");
+	const dir = skillsDir(agentDir);
+	await mkdir(dir, { recursive: true });
+	const link = path.join(dir, "architecture-guards");
+	await symlink(bundledDir, link);
+
+	await expect(
+		saveSkill(agentDir, { name: "architecture-guards", description: "user", body: "user body" }),
+	).rejects.toThrow();
+
+	expect(await readFile(bundledFile, "utf8")).toContain("bundled body");
+	expect((await lstat(link)).isSymbolicLink()).toBe(true);
+});
+
+test("deleting a symlink into bundled-skills removes only the link", async () => {
+	const agentDir = await makeAgentDir();
+	const bundledDir = path.join(agentDir, "bundled-skills", "1.0.0", "architecture-guards");
+	await mkdir(bundledDir, { recursive: true });
+	const bundledFile = path.join(bundledDir, "SKILL.md");
+	await writeFile(bundledFile, "---\nname: architecture-guards\ndescription: bundled\n---\n\nbundled body\n");
+	const dir = skillsDir(agentDir);
+	await mkdir(dir, { recursive: true });
+	const link = path.join(dir, "architecture-guards");
+	await symlink(bundledDir, link);
+
+	await deleteSkill(agentDir, "architecture-guards");
+
+	expect(await exists(link)).toBe(false);
+	expect(await readFile(bundledFile, "utf8")).toContain("bundled body");
+});
+
+test("deleting a dangling symlink removes only the link", async () => {
+	const agentDir = await makeAgentDir();
+	const dir = skillsDir(agentDir);
+	await mkdir(dir, { recursive: true });
+	const link = path.join(dir, "dangling");
+	await symlink(path.join(agentDir, "bundled-skills", "1.0.0", "missing"), link);
+
+	const deleted = await deleteSkill(agentDir, "dangling");
+
+	expect(deleted.path).toBe(link);
+	expect(await linkExists(link)).toBe(false);
+});
+
+test("refuses to write through a symlinked agent directory", async () => {
+	const realAgentDir = await makeAgentDir();
+	const bundledDir = path.join(realAgentDir, "bundled-skills", "1.0.0", "architecture-guards");
+	await mkdir(bundledDir, { recursive: true });
+	const bundledFile = path.join(bundledDir, "SKILL.md");
+	await writeFile(bundledFile, "---\nname: architecture-guards\ndescription: bundled\n---\n\nbundled body\n");
+	const linkParent = await mkdtemp(path.join(tmpdir(), "spirits-skills-link-"));
+	const agentLink = path.join(linkParent, "agent-link");
+	await symlink(realAgentDir, agentLink);
+	const dir = skillsDir(agentLink);
+	await mkdir(dir, { recursive: true });
+	const link = path.join(dir, "architecture-guards");
+	await symlink(bundledDir, link);
+
+	await expect(
+		saveSkill(agentLink, { name: "architecture-guards", description: "user", body: "user body" }),
+	).rejects.toThrow();
+
+	expect(await readFile(bundledFile, "utf8")).toContain("bundled body");
+	expect((await lstat(link)).isSymbolicLink()).toBe(true);
+});
+
+test("refuses to write through a relative agent directory", async () => {
+	const base = await mkdtemp(path.join(tmpdir(), "spirits-skills-rel-"));
+	const bundledDir = path.join(base, "agent", "bundled-skills", "1.0.0", "architecture-guards");
+	await mkdir(bundledDir, { recursive: true });
+	const bundledFile = path.join(bundledDir, "SKILL.md");
+	await writeFile(bundledFile, "---\nname: architecture-guards\ndescription: bundled\n---\n\nbundled body\n");
+	const dir = path.join(base, "agent", "skills");
+	await mkdir(dir, { recursive: true });
+	const link = path.join(dir, "architecture-guards");
+	await symlink(bundledDir, link);
+
+	const previous = process.cwd();
+	process.chdir(base);
+	try {
+		await expect(
+			saveSkill("agent", { name: "architecture-guards", description: "user", body: "user body" }),
+		).rejects.toThrow();
+	} finally {
+		process.chdir(previous);
+	}
+
+	expect(await readFile(bundledFile, "utf8")).toContain("bundled body");
+	expect((await lstat(link)).isSymbolicLink()).toBe(true);
+});
+
+test("refuses to save a new skill when skills is a symlink into bundled-skills", async () => {
+	const agentDir = await makeAgentDir();
+	const bundledVersion = path.join(agentDir, "bundled-skills", "1.0.0");
+	const bundledDir = path.join(bundledVersion, "architecture-guards");
+	await mkdir(bundledDir, { recursive: true });
+	await writeFile(
+		path.join(bundledDir, "SKILL.md"),
+		"---\nname: architecture-guards\ndescription: bundled\n---\n\nbundled body\n",
+	);
+	await symlink(bundledVersion, skillsDir(agentDir));
+
+	// The target `fresh-skill` does not exist yet, so only its resolved parent reveals the bundled tree.
+	await expect(saveSkill(agentDir, { ...DRAFT, name: "fresh-skill" })).rejects.toThrow();
+
+	expect(await tree(bundledVersion)).toEqual(["architecture-guards", "architecture-guards/SKILL.md"]);
+});
+
+test("refuses to delete when skills is a symlink into bundled-skills", async () => {
+	const agentDir = await makeAgentDir();
+	const bundledVersion = path.join(agentDir, "bundled-skills", "1.0.0");
+	const bundledDir = path.join(bundledVersion, "architecture-guards");
+	await mkdir(bundledDir, { recursive: true });
+	const bundledFile = path.join(bundledDir, "SKILL.md");
+	await writeFile(bundledFile, "---\nname: architecture-guards\ndescription: bundled\n---\n\nbundled body\n");
+	await symlink(bundledVersion, skillsDir(agentDir));
+
+	await expect(deleteSkill(agentDir, "architecture-guards")).rejects.toThrow();
+
+	expect(await readFile(bundledFile, "utf8")).toContain("bundled body");
+});
+
+test("save with a bundled name writes to the user skills directory and keeps the bundled file", async () => {
+	const agentDir = await makeAgentDir();
+	const bundledDir = path.join(agentDir, "bundled-skills", "1.0.0", "architecture-guards");
+	await mkdir(bundledDir, { recursive: true });
+	const bundledFile = path.join(bundledDir, "SKILL.md");
+	await writeFile(bundledFile, "---\nname: architecture-guards\ndescription: bundled\n---\n\nbundled body\n");
+
+	const saved = await saveSkill(agentDir, {
+		name: "architecture-guards",
+		description: "user",
+		body: "user body",
+	});
+
+	expect(saved.path).toBe(path.join(skillsDir(agentDir), "architecture-guards", "SKILL.md"));
+	expect(await readFile(saved.path, "utf8")).toContain("user body");
+	expect(await readFile(bundledFile, "utf8")).toContain("bundled body");
+});
+
+test("delete of a bundled-only name errors and keeps the bundled files", async () => {
+	const agentDir = await makeAgentDir();
+	const bundledFile = path.join(agentDir, "bundled-skills", "1.0.0", "architecture-guards", "SKILL.md");
+	await mkdir(path.dirname(bundledFile), { recursive: true });
+	await writeFile(bundledFile, "---\nname: architecture-guards\ndescription: bundled\n---\n\nbody\n");
+
+	await expect(deleteSkill(agentDir, "architecture-guards")).rejects.toThrow();
+
+	expect(await exists(bundledFile)).toBe(true);
 });
 
 test("delete symlinked skill removes only the link", async () => {

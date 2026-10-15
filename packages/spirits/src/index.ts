@@ -10,6 +10,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { installBrandingHeader } from "./branding/header.ts";
+import { registerBundledSkills } from "./harness/bundled-skills/index.ts";
 import { registerContinualHarness } from "./harness/install.ts";
 import { getAgentDir } from "./harness/paths.ts";
 import { DEFAULT_MAX_DEPTH } from "./rlm/depth.ts";
@@ -25,6 +26,7 @@ export default function spiritsExtension(pi: ExtensionAPI): void {
 	});
 	const rlm = createRlmHostFn({ pi, depth: 0, maxDepth: DEFAULT_MAX_DEPTH, spawn: spawnChildSession });
 	const harnessHostFns = registerContinualHarness(pi, { agentDir: getAgentDir() });
+	registerBundledSkills(pi, { agentDir: getAgentDir() });
 	registerTsrepl(pi, { hostFns: [rlm, ...harnessHostFns] });
 	registerManageTodos(pi);
 	registerTodoPanel(pi);
