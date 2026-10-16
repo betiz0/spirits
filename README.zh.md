@@ -56,7 +56,7 @@ return await rlm("汇总这些行并以 JSON 返回。");
 
 spirits 内置了一组安装后即可使用的技能。启动时会写入 `<agentDir>/bundled-skills/<spirits 版本>/`，并交给 pi 的技能搜索；不会写入 `<agentDir>/skills/`。
 
-- 内置技能需要显式启动，例如 `/skill:architecture-guards`。内置技能带有 `disable-model-invocation: true`，模型不会自动选择。
+- 内置技能需要显式启动，例如 `/skill:sprt-architecture-guards`。大多数内置技能带有 `disable-model-invocation: true`，模型不会自动选择；`sprt-opsx-review-change` 是例外，模型可以自动选择。
 - 如果 `<agentDir>/skills/<名称>/` 中存在同名用户技能，则始终优先使用用户版本。pi 采用用户版本并显示冲突警告，内置副本会被跳过。
 - 使用 `SPIRITS_BUNDLED_SKILLS=0` 可禁用全部内置技能(未设置或其他值表示启用)。禁用时既不写入也不提供技能路径。
 - 更新 spirits 后，要获取新的内置内容需要重新启动 spirits。内置内容嵌在运行中的二进制文件里，因此 `/reload` 只会重新写入当前运行版本的目录树。旧版本目录只有在 7 天以上未被使用时，才会在写入时被删除。

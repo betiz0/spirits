@@ -251,7 +251,9 @@ import 許可範囲:
 │     │  │  ├─ bundled-skills/ 同梱スキル(assets + 供給)
 │     │  │  │  ├─ index.ts     定義・検証・書き出し・resources_discover 配線
 │     │  │  │  ├─ definition.ts コンパイル済みバンドル定義
-│     │  │  │  └─ architecture-guards/ SKILL.md と references/
+│     │  │  │  ├─ sprt-architecture-guards/ SKILL.md と references/
+│     │  │  │  ├─ sprt-opsx-review-change/ SKILL.md
+│     │  │  │  └─ sprt-opsx-verify-deep/ SKILL.md
 │     │  │  ├─ prompt.ts       code-mode プロンプト(既定 + 上書き解決)
 │     │  │  ├─ guidance.ts     ホスト関数・ツールの案内
 │     │  │  ├─ paths.ts        エージェントディレクトリ配下のパス

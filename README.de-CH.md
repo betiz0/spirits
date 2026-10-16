@@ -56,7 +56,7 @@ Details, Grenzen und Einschränkungen stehen in [`packages/spirits/README.md`](p
 
 spirits enthält Skills, die direkt nach der Installation verfügbar sind. Sie werden beim Start nach `<agentDir>/bundled-skills/<spirits-Version>/` geschrieben und an die Skill-Suche von pi übergeben; sie landen nie in `<agentDir>/skills/`.
 
-- Mitgelieferte Skills werden explizit gestartet, zum Beispiel mit `/skill:architecture-guards`. Sie tragen `disable-model-invocation: true`, daher wählt das Modell sie nicht automatisch aus.
+- Mitgelieferte Skills werden explizit gestartet, zum Beispiel mit `/skill:sprt-architecture-guards`. Die meisten tragen `disable-model-invocation: true`, daher wählt das Modell sie nicht automatisch aus; `sprt-opsx-review-change` ist eine Ausnahme und kann vom Modell ausgewählt werden.
 - Existiert in `<agentDir>/skills/<Name>/` ein gleichnamiger Benutzer-Skill, gewinnt immer die Benutzerversion. pi übernimmt die Benutzerversion und zeigt eine Kollisionswarnung an; die mitgelieferte Kopie wird übersprungen.
 - Mit `SPIRITS_BUNDLED_SKILLS=0` werden alle mitgelieferten Skills deaktiviert (nicht gesetzt oder jeder andere Wert lässt sie aktiv). Deaktiviert wird weder geschrieben noch ein Skill-Pfad geliefert.
 - Nach einem Update spirits neu starten, um die neuen Inhalte zu erhalten: Die Inhalte sind in die laufende Binärdatei eingebettet, daher schreibt `/reload` nur den Baum der bereits laufenden Version neu. Ein Verzeichnis einer alten Version wird beim Schreiben erst entfernt, wenn es 7 Tage lang nicht benutzt wurde.

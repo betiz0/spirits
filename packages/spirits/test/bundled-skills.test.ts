@@ -59,7 +59,7 @@ function captureResourcesHandlers(
 
 /** Return the compiled definition files keyed by their skill-relative path. */
 function definitionFiles(): Map<string, string> {
-	const skill = createBundledSkills().find((candidate) => candidate.name === "architecture-guards");
+	const skill = createBundledSkills().find((candidate) => candidate.name === "sprt-architecture-guards");
 	expect(skill).toBeDefined();
 	return new Map((skill?.files ?? []).map((file) => [file.path, file.content]));
 }
@@ -238,7 +238,7 @@ test("keeps serving the current version when stale removal fails", async () => {
 	}
 });
 
-test("architecture-guards is hidden from the model-facing skill list", async () => {
+test("sprt-architecture-guards is hidden from the model-facing skill list", async () => {
 	const agentDir = await makeAgentDir();
 	await writeBundledSkills({ agentDir, version: "1.0.0", skills: createBundledSkills() });
 	const result = loadSkills({
@@ -247,10 +247,40 @@ test("architecture-guards is hidden from the model-facing skill list", async () 
 		skillPaths: [bundledSkillsVersionDir(agentDir, "1.0.0")],
 		includeDefaults: false,
 	});
-	const skill = result.skills.find((candidate) => candidate.name === "architecture-guards");
+	const skill = result.skills.find((candidate) => candidate.name === "sprt-architecture-guards");
 	expect(skill).toBeDefined();
 	expect(skill?.disableModelInvocation).toBe(true);
-	expect(formatSkillsForPrompt(result.skills)).not.toContain("architecture-guards");
+	expect(formatSkillsForPrompt(result.skills)).not.toContain("sprt-architecture-guards");
+});
+
+test("sprt-opsx-verify-deep is hidden from the model-facing skill list", async () => {
+	const agentDir = await makeAgentDir();
+	await writeBundledSkills({ agentDir, version: "1.0.0", skills: createBundledSkills() });
+	const result = loadSkills({
+		cwd: agentDir,
+		agentDir,
+		skillPaths: [bundledSkillsVersionDir(agentDir, "1.0.0")],
+		includeDefaults: false,
+	});
+	const skill = result.skills.find((candidate) => candidate.name === "sprt-opsx-verify-deep");
+	expect(skill).toBeDefined();
+	expect(skill?.disableModelInvocation).toBe(true);
+	expect(formatSkillsForPrompt(result.skills)).not.toContain("sprt-opsx-verify-deep");
+});
+
+test("sprt-opsx-review-change is visible in the model-facing skill list", async () => {
+	const agentDir = await makeAgentDir();
+	await writeBundledSkills({ agentDir, version: "1.0.0", skills: createBundledSkills() });
+	const result = loadSkills({
+		cwd: agentDir,
+		agentDir,
+		skillPaths: [bundledSkillsVersionDir(agentDir, "1.0.0")],
+		includeDefaults: false,
+	});
+	const skill = result.skills.find((candidate) => candidate.name === "sprt-opsx-review-change");
+	expect(skill).toBeDefined();
+	expect(skill?.disableModelInvocation).toBe(false);
+	expect(formatSkillsForPrompt(result.skills)).toContain("sprt-opsx-review-change");
 });
 
 test("references cover the four principles", () => {
@@ -308,7 +338,7 @@ test("dependency direction check includes type-only imports", () => {
 	expect(section).not.toContain("値の import が許可された向きだけ");
 });
 
-test("architecture-guards decides out-of-scope projects and asks when unsure", () => {
+test("sprt-architecture-guards decides out-of-scope projects and asks when unsure", () => {
 	const skill = definitionFiles().get("SKILL.md") ?? "";
 	expect(skill).toContain("TypeScript");
 	expect(skill).toContain("tsconfig.json");

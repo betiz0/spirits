@@ -68,7 +68,11 @@ Details, limits, and constraints are in [`packages/spirits/README.md`](packages/
 
 spirits ships with skills that are available right after install. They are written at startup to `<agentDir>/bundled-skills/<spirits version>/` and handed to pi's skill search; they are never placed in `<agentDir>/skills/`.
 
-- Start a bundled skill explicitly, for example with `/skill:architecture-guards`. Bundled skills carry `disable-model-invocation: true`, so the model never selects them automatically.
+- The bundled skills are:
+  - `sprt-architecture-guards` measures a TypeScript repository and generates the convention source of truth plus checks that run in that repository's test runner.
+  - `sprt-opsx-verify-deep` verifies an OpenSpec change deeply, independently of the default verification (verify2).
+  - `sprt-opsx-review-change` reviews an OpenSpec change before `/opsx-apply` and returns a YES/NO verdict on starting implementation.
+- Start a bundled skill explicitly, for example with `/skill:sprt-architecture-guards`. Most bundled skills carry `disable-model-invocation: true`, so the model never selects them automatically; `sprt-opsx-review-change` is an exception and may be selected by the model.
 - A user skill with the same name in `<agentDir>/skills/<name>/` always wins. pi keeps the user version and prints a collision warning; the bundled copy is skipped.
 - Disable all bundled skills with `SPIRITS_BUNDLED_SKILLS=0` (unset or any other value keeps them enabled). Nothing is written and no skill path is supplied.
 - After a spirits update, start spirits again to get the new contents: the bundled contents are embedded in the running binary, so `/reload` only rewrites the tree of the version that is already running. A previous version directory is removed on write only after it has not been used for 7 days.

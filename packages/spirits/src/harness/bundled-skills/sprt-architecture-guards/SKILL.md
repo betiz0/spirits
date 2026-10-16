@@ -1,12 +1,12 @@
 ---
-name: architecture-guards
-description: 対象の TypeScript リポジトリを実測し、アーキテクチャ規約の正本と、そのリポジトリのテストランナーで動く検査を、差分の承認を得てから生成する。`/skill:architecture-guards` で明示起動して使う。スタック検出、依存方向の許可表、重複と継承の計測、OpenSpec rules への追記案、承認後の書き込みまでを行う。
+name: sprt-architecture-guards
+description: 対象の TypeScript リポジトリを実測し、アーキテクチャ規約の正本と、そのリポジトリのテストランナーで動く検査を、差分の承認を得てから生成する。`/skill:sprt-architecture-guards` で明示起動して使う。スタック検出、依存方向の許可表、重複と継承の計測、OpenSpec rules への追記案、承認後の書き込みまでを行う。
 disable-model-invocation: true
 ---
 
-# architecture-guards
+# sprt-architecture-guards
 
-利用者が `/skill:architecture-guards` で明示起動したときだけ実行する。モデルの自動選択では使わない。
+利用者が `/skill:sprt-architecture-guards` で明示起動したときだけ実行する。モデルの自動選択では使わない。
 
 対象は TypeScript を使うリポジトリ。規約はリポジトリの実測から導き、一般論やパターン名を外部から持ち込まない。生成物はすべて差分として提示し、利用者が承認するまでファイルを書き込まない。
 
