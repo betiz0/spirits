@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "paths": {
+      "@earendil-works/pi-coding-agent": [
+        "./packages/pi-coding-agent/src/index.ts"
+      ],
+      "@earendil-works/pi-coding-agent/*": [
+        "./packages/pi-coding-agent/src/*"
+      ],
+      "@earendil-works/pi-lib": [
+        "./packages/lib/src/exact.ts"
+      ],
+      "@earendil-works/pi-lib/*": [
+        "./packages/lib/src/wild.ts"
+      ],
+      "@earendil-works/pi-multi/*": [
+        "./packages/first/src/*",
+        "./packages/second/src/*"
+      ],
+      "typebox": [
+        "./node_modules/typebox"
+      ]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*.ts"
+  ]
+}

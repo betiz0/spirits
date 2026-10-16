@@ -1,0 +1,10 @@
+{
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts",
+    "bin/**/*.ts"
+  ],
+  "exclude": [
+    "test/fixtures"
+  ]
+}

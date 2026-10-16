@@ -10,10 +10,13 @@ on:
       - tsconfig.json
       - tsconfig.base.json
       - packages/spirits/**
+      - docs/architecture/**
       - scripts/build-binaries.ts
       - scripts/replace-pi-version.ts
       - scripts/install.sh
       - scripts/install.test.sh
+      - scripts/tmux-verify.sh
+      - scripts/tmux-verify.test.sh
       - .github/workflows/spirits-ci.yml
       - .github/workflows/spirits-release.yml
   pull_request:
@@ -25,10 +28,13 @@ on:
       - tsconfig.json
       - tsconfig.base.json
       - packages/spirits/**
+      - docs/architecture/**
       - scripts/build-binaries.ts
       - scripts/replace-pi-version.ts
       - scripts/install.sh
       - scripts/install.test.sh
+      - scripts/tmux-verify.sh
+      - scripts/tmux-verify.test.sh
       - .github/workflows/spirits-ci.yml
       - .github/workflows/spirits-release.yml
 
@@ -72,3 +78,12 @@ jobs:
 
       - name: Test installer
         run: sh scripts/install.test.sh
+
+      - name: Install tmux and strace
+        run: sudo apt-get update && sudo apt-get install -y tmux strace
+
+      - name: Check tmux verification runner syntax
+        run: bash -n scripts/tmux-verify.sh
+
+      - name: Test tmux verification runner
+        run: bash scripts/tmux-verify.test.sh

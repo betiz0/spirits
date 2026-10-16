@@ -1,0 +1,12 @@
+import type { A } from "./a.ts";
+import type { B } from "./b.ts";
+export type { C } from "./c.ts";
+import { type D, type E } from "./d.ts";
+import { type F, g } from "./e.ts";
+import def from "./f.ts";
+import "./h.ts";
+const lazy = () => import("./i.ts");
+const template = () => import(`./j.ts`);
+const dynamic = (path: string) => import(path);
+const typeRef: typeof import("./k.ts") = null;
+export { A, B, C, D, E, F, g, def, lazy, template, dynamic, typeRef };

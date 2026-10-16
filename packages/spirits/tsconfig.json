@@ -9,5 +9,6 @@
 			"@earendil-works/pi-tui": ["./src/types/pi-tui.d.ts"]
 		}
 	},
-	"include": ["src/**/*.ts", "test/**/*.ts", "bin/**/*.ts"]
+	"include": ["src/**/*.ts", "test/**/*.ts", "bin/**/*.ts"],
+	"exclude": ["test/fixtures/architecture"]
 }

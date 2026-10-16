@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "paths": {
+      "@scope/pi-coding-agent": [
+        "./src/types/stub.ts"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts"
+  ]
+}

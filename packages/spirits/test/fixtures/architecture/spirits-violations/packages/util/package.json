@@ -1,0 +1,7 @@
+{
+  "name": "@scope/util",
+  "dependencies": {
+    "@scope/pi-core": "1.0.0",
+    "@earendil-works/pi-core": "1.0.0"
+  }
+}

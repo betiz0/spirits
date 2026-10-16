@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "paths": {
+      "@earendil-works/pi-core": [
+        "./packages/pi-core/src/index.ts"
+      ],
+      "@earendil-works/pi-core/*": [
+        "./packages/pi-core/src/*"
+      ],
+      "@earendil-works/pi-helper": [
+        "./packages/helper/src/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*",
+    "packages/*/test/**/*"
+  ]
+}

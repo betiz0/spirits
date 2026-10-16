@@ -36,6 +36,7 @@ rules:
     - 要件文はSHALL/MUSTで書き、各要件に最低1つのWHEN/THENシナリオを付ける
     - REPLコア関連の要件には「後段フェーズ機能への非依存」を要件として明示する
     - 外部から観測可能な振る舞いのみ書き、内部関数名やライブラリ選定はdesignへ任せる
+    - アーキテクチャ規約は正本 docs/architecture/convention-registry.md を正とし、検査が報告する規約 ID はすべて正本の節に存在しなければならない。規約を変更するときは正本と検査(packages/spirits/test/)を同一変更で更新する
   design:
     - Decisionsは「選択肢と理由」の形式で書く(代替案を必ず1つ併記)
     - Risksは [Risk] → Mitigation 形式

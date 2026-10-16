@@ -1,0 +1,6 @@
+{
+  "name": "@earendil-works/pi-one",
+  "dependencies": {
+    "@earendil-works/pi-two": "1.0.0"
+  }
+}

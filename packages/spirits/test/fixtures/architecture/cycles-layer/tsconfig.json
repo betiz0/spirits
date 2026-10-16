@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "paths": {
+      "@earendil-works/pi-one": [
+        "./packages/one/src/index.ts"
+      ],
+      "@earendil-works/pi-two": [
+        "./packages/two/src/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*.ts"
+  ]
+}
