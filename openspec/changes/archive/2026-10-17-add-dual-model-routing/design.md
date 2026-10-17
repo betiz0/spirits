@@ -48,7 +48,7 @@ Pi の virtual model 機構がすでに持つ素面だけを扱う。`docs/spiri
 
 **選択**: 実在しない provider id `spirits` に id `auto` を登録する。未知 provider 配下の virtual model は資格情報を要求されず、常に選択可能(virtual-models.md)。`thinkingLevels` は全レベルを宣言し、物理モデルへの clamping に任せる。`contextWindow` / `maxTokens` は宣言しない(初回応答までは unknown)。
 
-normal と strong の解決では virtual model を対象から外す。virtual model だけを持つ provider は configured として `getAvailable()` に入るため、外さないと次の経路で失敗する。利用者が `/model spirits/auto` を保存キーで既定にする → `defaultProvider=spirits` / `defaultModel=auto` が保存される → normal が `spirits/auto` 自身に解決される → `resolveModel` が「物理モデルではない」で throw し、すべてのリクエストがエラーになる。外した後は既定が virtual のとき「既定を解決できない」扱いになり、`request.previous` → エラーの順に進む。virtual の判定はミラーの `PiModel.api` と pi の api 値 `pi-virtual` で行う(pi は `isVirtualModel` をパッケージ外へ export していない)。値の上流変更は `test/pi-runtime/` の固定テストで検知する。
+normal と strong の解決では virtual model を対象から外す。virtual model だけを持つ provider は configured として `getAvailable()` に入るため、外さないと次の経路で失敗する。利用者が `/model spirits/auto` を保存キーで既定にする → `defaultProvider=spirits` / `defaultModel=auto` が保存される → normal が `spirits/auto` 自身に解決される → `resolveModel` が「物理モデルではない」で throw し、すべてのリクエストがエラーになる。外した後は既定が virtual のとき「既定を解決できない」扱いになり、`request.previous` → エラーの順に進む。virtual の判定はミラーの `PiModel.api` と pi の api 値 `pi-virtual` で行う(pi は `isVirtualModel` をパッケージ外へ export していない)。値の上流変更は `test/pi-runtime/` の固定テストで検知する。spirits が宣言する thinking level の一覧も pi の一覧の写しなので、同じく `test/pi-runtime/` で一致を固定する(deep-verify1 W-6)。
 
 **理由**: 既存の既定設定と `/model` 動作に触れない。limits を宣言すると、normal と strong で異なるはずの値を登録時の 1 値として誤った確定値に見せる。Pi は初回応答後およびリクエストごとに実モデルの limits を使うので、宣言しなくても compaction は正しい。
 
@@ -57,7 +57,7 @@ normal と strong の解決では virtual model を対象から外す。virtual 
 
 ### 3. ロールはコアでは opaque な文字列ラベル
 
-**選択**: `ModelRoute.role?: string`、`VirtualModelStateData.role?: string`、`routedModel.role?: string`。コアは値を解釈せず、footer は受け取った値を `[<role>]` と描画する。spirits は `"normal"` と `"strong"` の 2 値しか使わない。
+**選択**: `ModelRoute.role?: string`、`VirtualModelStateData.role?: string`、`AgentSession.routedRole?: string`。コアは値を解釈せず、footer は受け取った値から制御文字を除いて `[<role>]` と描画する(Decision 7)。spirits は `"normal"` と `"strong"` の 2 値しか使わない。
 
 **理由**: 上流が spirits の語彙を知ると、上流が同じ機構に別のロール体系を入れたとき衝突する。opaque にすると footer の分岐は「有れば前置する」だけになり、差分が最小になる。
 
@@ -67,7 +67,7 @@ normal と strong の解決では virtual model を対象から外す。virtual 
 
 ### 4. ロールの保存は既存 `pi.virtual-model-state` entry に additive で載せる
 
-**選択**: entry data を `{ provider, modelId, state, role? }` に拡張し、書き込み条件を「state が変わった **または** role が変わった」に広げる。読み出しのため、entry 全体を返す `getVirtualModelEntry(branch, provider, modelId)` を `virtual-models.ts` に追加し、既存の `getVirtualModelState` はその `?.state` を返す薄いラッパにする。分岐走査と provider / modelId の絞り込みは `getVirtualModelEntry` の 1 箇所だけに置く。2 つの関数が別々に走査すると、片方の絞り込み条件だけを変えたときに state と role の読み出しが食い違う。`role` は optional なので、role を含まない既存 entry はそのまま読め、その場合はロール未決定。
+**選択**: entry data を `{ provider, modelId, state, role? }` に拡張し、書き込み条件を「state が変わった **または** role が変わった」に広げる。読み出しのため、entry 全体を返す `getVirtualModelEntry(branch, provider, modelId)` を `virtual-models.ts` に追加し、既存の `getVirtualModelState` はその `?.state` を返す薄いラッパにする。分岐走査と provider / modelId の絞り込みは `getVirtualModelEntry` の 1 箇所だけに置く。2 つの関数が別々に走査すると、片方の絞り込み条件だけを変えたときに state と role の読み出しが食い違う。`role` は optional なので、role を含まない既存 entry はそのまま読め、その場合はロール未決定。entry data は型検証なしに読むので、`role` が文字列でない entry(手で編集したセッションファイル、JS 拡張の route が数値を返した場合)もロール未決定として扱う。扱わないと、footer が `role` を文字列として処理する箇所で例外を投げ、毎フレームの描画が止まる(deep-verify1 C-1)。
 
 **理由**: 分岐単位であること、fork と `/tree` 追従、compaction 生存、JSON 直列化制約は既存仕様で確定済みである。そこに載せれば resume・分岐・アーカイブの配線が増えない。新しい entry 種別は二重の真相になる。
 
@@ -76,19 +76,22 @@ normal と strong の解決では virtual model を対象から外す。virtual 
 
 **撤回条件**: 上流が role をネイティブにサポートして entry スキーマを変えた場合、または保存先を role 専用 entry に移す判断に変わった場合。
 
-### 5. バッジは「最新のリクエストが通ったロール」に固定し、`routedModel` が返す
+### 5. バッジは「最新のリクエストが通ったロール」に固定し、`routedModel` とは独立の `routedRole` が返す
 
-**選択**: ルート決定時に role を書き、`routedModel.role` は分岐に記録された最新値を返す。`model` と `thinkingLevel` は従来どおり直近の成功レスポンスから導出する。よってスキル起動直前とスキル終了直後は、表示が実態より 1 リクエスト遅れる(spec の scenario に固定した)。
+**選択**: ルート決定時に role を書き、`AgentSession.routedRole` が virtual モデル選択中に分岐の最新 entry の role を返す。`routedModel`(`model` と `thinkingLevel`)は従来どおり直近の成功レスポンスから導出し、`role` を持たせない。footer はバッジを `routedRole`、`→ routed` を `routedModel` から別々に描画する。よってスキル起動直前とスキル終了直後は、表示が実態より 1 リクエスト遅れる(spec の scenario に固定した)。
 
-**理由**: 既存の `→ routed` 表示が「すでに起きたことを見せる」意味なので、同じ意味に揃える。まだ出ていないリクエストのロールを出すと、中断や振り直しの結果と矛盾する表示になる。
+`routedModel.role` として返すと、成功レスポンスが 1 件も無い間は `routedModel` が undefined なのでバッジも出ない。新しいセッションの最初のリクエストが振り分け後に provider エラーで終わると、role は記録済みなのにバッジが出ず、spec「ロールが記録されているとき表記する」を満たせない(deep-verify1 S-2)。独立させた結果、normal の成功後に strong のリクエストが provider エラーで終わると `[strong] … → <normal の対象モデル>` と表示される。バッジは「最後に振り分けたロール」、`→ routed` は「最後に応答したモデル」であり、両者の意味の違いをそのまま見せる。
 
-**代替案**: フェーズを即時表示する。ルータの in-memory 状態を footer まで配線し直し、resume で復元できない。footer は毎フレーム描画されるので、状態の受け渡しに新たな同期点を作る。
+**理由**: 既存の `→ routed` 表示が「すでに起きたことを見せる」意味なので、同じ意味に揃える。まだ出ていないリクエストのロールを出すと、中断や振り直しの結果と矛盾する表示になる。`routedModel` の形を基点のままにすると、`routedModel` を使う既存箇所(footer の limits 判定など)のコア差分も増えない。
 
-**撤回条件**: 上流が role をネイティブにサポートして `routedModel` が role を返すようになった場合、またはバッジの意味を「最新のリクエストのロール」から変える場合。
+**代替案 A**: フェーズを即時表示する。ルータの in-memory 状態を footer まで配線し直し、resume で復元できない。footer は毎フレーム描画されるので、状態の受け渡しに新たな同期点を作る。
+**代替案 B**: `routedModel` に `role` を載せ、`model` を optional にする。`routedModel?.model` を前提にする既存の呼び出し側すべてに分岐が要り、コア差分が広がる。
+
+**撤回条件**: 上流が role をネイティブにサポートした場合、またはバッジの意味を「最新のリクエストのロール」から変える場合。
 
 ### 6. ロールフェーズは拡張のクロージャ状態し、`input` で入り `agent_settled` で必ず戻る
 
-**選択**: 拡張ロード時に作った 1 つの状態(normal | strong)を保持する。実行中でないときの `input`(`streamingBehavior` が無い入力)では、入力が `/skill:sprt-opsx-review-change` または `/skill:sprt-opsx-verify-deep` で始まれば strong、それ以外なら normal を代入する。実行中の steer / follow-up 入力ではフェーズを変えない。`agent_settled` ハンドラは `aborted` の真偽と関係なく normal を代入する(try/finally 相当)。`route()` は現在の値を読むだけで、遷移も復帰もしない。
+**選択**: 拡張ロード時に作った 1 つの状態(normal | strong)を保持する。実行中でないときの `input`(`streamingBehavior` が無い入力)では、入力のスキル名が `sprt-opsx-review-change` または `sprt-opsx-verify-deep` に一致すれば strong、それ以外なら normal を代入する。スキル名は `/skill:` の後から最初の半角スペース(無ければ入力の終わり)までとし、pi の `_expandSkillCommand` と同じ区切りにする。区切りが違うと、`"/skill:sprt-opsx-verify-deep\nadd-dual model"` のように pi がスキルとして展開しない入力で strong に入る(deep-verify1 W-1)。実行中の steer / follow-up 入力ではフェーズを変えない。`agent_settled` ハンドラは `aborted` の真偽と関係なく normal を代入する(try/finally 相当)。`route()` は現在の値を読むだけで、遷移も復帰もしない。
 
 **理由**: `input` はスキル展開前に発火するのでコマンド名を確実に取れる。`agent_settled` は retry・compaction・queued continuation が無い状態で発火するので「run が終わった」に一致し、中断とエラーを区別せずに済む。遷移を `route()` 側に置かないので、振り分けとライフサイクルが分離し、テストは状態機械と判定関数を別々に触れる。
 
@@ -99,13 +102,15 @@ normal と strong の解決では virtual model を対象から外す。virtual 
 
 **撤回条件**: スキル実行の run 単位前提が崩れた場合(1 スキル実行が複数 run に跨るのが通常になった場合)、または strong ロールの要件がなくなった場合。pi が「run が始まらなかった入力」を通知するイベントを持った場合は、対象外入力での normal 代入をそのイベントでの復帰に置き換える。
 
-### 7. footer の差分はバッジの前置と provider 判定へのバッジ幅の算入に限定する
+### 7. footer の差分はバッジの前置、provider 判定へのバッジ幅の算入、バッジ用の制御文字除去に限定する
 
-**選択**: 既存の `rightSide` 組み立ての後で、文字列の先頭にバッジを連結する。provider 前置を出すかどうかの判定にはバッジ幅を含める(`visibleWidth(roleBadge + withProvider)`)。縮退順序(provider → 末尾 → 右側全体)、`truncateToWidth` による末尾切り詰め、余地が無いとき右側を出さない分岐は変更しない。バッジを先頭に置くことで、既存の末尾切り詰めが「`→ routed` とモデル名から先に失う」を自動実現する。role は opaque な文字列なので、既存の `sanitizeStatusText` を通してから描画する。
+**選択**: 既存の `rightSide` 組み立ての後で、文字列の先頭にバッジを連結する。バッジの role は `session.routedRole` から読む(Decision 5)。provider 前置を出すかどうかの判定にはバッジ幅を含める(`visibleWidth(roleBadge + withProvider)`)。縮退順序(provider → 末尾 → 右側全体)、`truncateToWidth` による末尾切り詰め、余地が無いとき右側を出さない分岐は変更しない。バッジを先頭に置くことで、既存の末尾切り詰めが「`→ routed` とモデル名から先に失う」を自動実現する。
+
+role は opaque な文字列なので、バッジ専用の処理で C0 制御文字(`\x00`-`\x1f`)と DEL(`\x7f`)を空白に置き換え、連続空白をまとめて前後を除く。結果が空ならバッジを出さない。既存の `sanitizeStatusText` は `\r\n\t` しか除かないので、`"\x1b[2J"` のような ESC 始まりのシーケンスが端末へ届く(deep-verify1 C-2)。`sanitizeStatusText` 自体を拡張すると拡張ステータスの既存表示まで変わるため、バッジ側に閉じる。
 
 判定にバッジ幅を含めないと、次のように spec の縮退順序を満たせない。幅が「provider 付きの右側はちょうど収まるが、バッジを足すと収まらない」とき、provider 前置が残ったまま末尾が切り詰められ、provider より先にモデル名側が失われる。ロールが無いときはバッジ幅が 0 なので、判定は従来と同じ結果になる。
 
-**理由**: 上流が footer に足す機能(色・統計・パディング)と衝突しにくい。差分は連結 1 箇所と判定式 1 箇所に収まる。
+**理由**: 上流が footer に足す機能(色・統計・パディング)と衝突しにくい。差分は連結 1 箇所、判定式 1 箇所、バッジ用の除去関数 1 つに収まる。
 
 **代替案 A**: バッジを最後に失う専用の縮退順を実装する。既存の幅計算に触れ、上流と衝突する。バッジは 8 文字程度で専用に扱う価値がない。
 **代替案 B**: `ctx.ui.setFooter()` で spirits が footer を差し替える。コア差分ゼロにできるが、トークン統計・context usage・git branch・セッション名を再実装することになり、上流の footer 変更が黙って失われる。
@@ -122,7 +127,9 @@ normal と strong の解決では virtual model を対象から外す。virtual 
 
 ### 9. コア差分の登録簿を docs に置き、変更アーティファクト名で紐づける
 
-**選択**: `docs/spirits-core-diffs.md` に行(コミット番号、対象ファイル、意図、導入した変更名)として登録する。既存の `[spirits]` コア差分コミット(現 10 件)も本変更で登録し、`docs/spirits-upstream-sync.md` のコミット構成の節から参照する。
+**選択**: `docs/spirits-core-diffs.md` に、件名が `[spirits]` で始まるコミットを 1 行 = 1 コミットで(コミット番号、対象ファイル、意図、導入した変更名)登録する。コア実装を変えない `[spirits]` コミット(`9edd6311c`、`80d9bbeaf`)も含める。既存の `[spirits]` コミット(現 10 件)も本変更で登録し、`docs/spirits-upstream-sync.md` のコミット構成の節から参照する。登録簿との突き合わせは件名一致の `git log -E --grep='^\[spirits\]' --oneline` で行う。`--grep='\[spirits\]'` は本文に "[spirits]" を含むだけのコミット(例: `40962fa8d`)も数え、行数が合わなくなる(deep-verify1 C-3)。対象ファイルには `openspec/changes/` 配下のパスを書かない(アーカイブで移動するため)。
+
+範囲を「コア差分」ではなく「`[spirits]` コミット」にするのは、件名の接頭辞だけで機械的に突き合わせられるからである。コア差分に限ると、`[spirits]` コミットのうちどれがコア差分かを毎回判断することになり、確認コマンドで一致を確かめられない(deep-verify1 S-1。登録済みの実態に合わせた)。
 
 **理由**: `git log --grep=[spirits]` はメッセージにしか依存せず、意図と対象ファイルが復元できない。上流 merge で差分が消えたことの検知は、「消えるべきでない差分の一覧」が無いと書けない。
 
@@ -141,7 +148,7 @@ normal と strong の解決では virtual model を対象から外す。virtual 
 
 ## Risks / Trade-offs
 
-- [Risk] footer と `routedModel` の差分は上流 merge で失われやすい → Mitigation: 既存の `packages/coding-agent/test/footer-width.test.ts` と `test/virtual-models.test.ts` に role のケースを追加し、`./test.sh` で落ちるようにする。登録簿で確認対象を固定する。
+- [Risk] footer と `routedRole` の差分は上流 merge で失われやすい → Mitigation: 既存の `packages/coding-agent/test/footer-width.test.ts` と `test/virtual-models.test.ts` に role のケースを追加し、`./test.sh` で落ちるようにする。登録簿で確認対象を固定し、取り込み後の差分確認はテストと `docs/` を含む登録簿の対象ファイルすべてに掛ける(deep-verify1 W-3)。
 - [Risk] バッジが 1 リクエスト遅れる意味は直感に反する → Mitigation: spec に scenario として固定し、README に「バッジは直近のリクエストのロール」と書く。
 - [Risk] プロセス kill やクラッシュで `agent_settled` が来ないとフェーズが strong のまま残る → Mitigation: フェーズはメモリのみでセッションに保存しない。プロセスをまたぐと normal から始める。セッション復帰後はバッジに記録済みのロール(strong など)を表示するが、次のリクエストは normal へルートする。run 中の中断とエラーでは settle が発火する。run が始まらなかった入力の後は、次の実行中でない入力でフェーズを決め直す(Decision 6)。
 - [Trade-off] normal が `request.previous` に落ちるとき、直前の run が strong なら previous は strong の対象モデルである。その場合 normal のリクエストは `[normal]` と表示されたまま strong の対象モデルへ送られる。通知にルート先のモデル名を出すので、利用者は気付ける。既定モデルを直すまで続く。
