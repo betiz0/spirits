@@ -64,6 +64,8 @@ Registration follows the same queuing and reload rules as `pi.registerProvider()
 
 `route(request, ctx)` runs before every request made with the virtual model and returns `{ model, thinkingLevel }`. The model can be any physical model in the catalog whose provider has credentials; look it up with `ctx.modelRegistry`. A virtual model cannot route to another virtual model. Pi clamps the thinking level to the returned model.
 
+A route may also carry `role`, a label for the request. pi treats it as opaque: it stores the label on the session branch next to the routing state and reports it as `routedModel.role`, which the interactive footer shows as a badge. The words a router uses are its own; pi never compares or interprets them.
+
 | Field | Meaning |
 |---|---|
 | `model`, `thinkingLevel` | The selected virtual model and level |
@@ -105,7 +107,8 @@ pi.registerVirtualModel<{ phase: "plan" | "build" }>({
 - State must be JSON-serializable. Returning `undefined` or `request.state` itself keeps the current state.
 - Pi stores any other returned object as new state, before the request is sent, even when it equals the current state. Return a new object only when the state changes. The state stays stored if the request later fails.
 - State follows the session tree, so forks and `/tree` navigation see the state of their branch. It survives compaction.
-- `direct` requests have no state, and Pi ignores state they return.
+- `direct` requests have no state, and Pi ignores the state and the role they return.
+- A returned `role` is stored on the same entry, and pi appends an entry when either the state or the role changes. `routedModel.role` reports the latest role stored on the branch, and undefined when no stored entry carries one. Entries written before roles existed read back as no role.
 
 The transcript already records the selection and every dispatched model, and `ctx.sessionManager.getBranch()` exposes both.
 

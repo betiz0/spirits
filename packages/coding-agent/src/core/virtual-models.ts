@@ -36,6 +36,8 @@ export interface VirtualModelStateData<TState = unknown> {
 	provider: string;
 	modelId: string;
 	state: TState;
+	/** Role label of the request that stored this entry. Absent when the router returned no role. */
+	role?: string;
 }
 
 const THINKING_LEVELS: readonly ModelThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
@@ -79,6 +81,12 @@ export interface ModelRoute<TState = unknown> {
 	 * `direct` requests.
 	 */
 	state?: TState;
+	/**
+	 * Label describing this request, e.g. a routing role. pi stores it on the session branch next to
+	 * the state and reports it on `AgentSession.routedModel`. The value is opaque: pi never compares
+	 * or interprets it. Ignored for `direct` requests.
+	 */
+	role?: string;
 }
 
 export interface VirtualModelDefinition<TState = unknown> {
@@ -155,15 +163,28 @@ function findLastModelChange(
 	return undefined;
 }
 
-/** Latest router state a session branch stores for a virtual model. */
-export function getVirtualModelState(branch: readonly SessionEntry[], provider: string, modelId: string): unknown {
+/**
+ * Latest `pi.virtual-model-state` entry a session branch stores for a virtual model. The only
+ * branch scan and provider / modelId filter, so state and role always come from the same entry.
+ * An entry written before roles existed reads back without a `role`.
+ */
+export function getVirtualModelEntry(
+	branch: readonly SessionEntry[],
+	provider: string,
+	modelId: string,
+): VirtualModelStateData | undefined {
 	for (let i = branch.length - 1; i >= 0; i--) {
 		const entry = branch[i];
 		if (entry.type !== "custom" || entry.customType !== VIRTUAL_MODEL_STATE_ENTRY) continue;
 		const data = entry.data as VirtualModelStateData | undefined;
-		if (data?.provider === provider && data.modelId === modelId) return data.state;
+		if (data?.provider === provider && data.modelId === modelId) return data;
 	}
 	return undefined;
+}
+
+/** Latest router state a session branch stores for a virtual model. */
+export function getVirtualModelState(branch: readonly SessionEntry[], provider: string, modelId: string): unknown {
+	return getVirtualModelEntry(branch, provider, modelId)?.state;
 }
 
 /** Build the catalog entry of a virtual model. */
