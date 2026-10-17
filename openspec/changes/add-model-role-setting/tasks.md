@@ -33,7 +33,7 @@
 - [x] 5.1 `cd packages/spirits && bun test` が成功する
 - [x] 5.2 `./test.sh`（リポジトリルート、 e2e を除く全テスト）が成功する
 - [x] 5.3 `npm run check`（リポジトリルート）がエラー・警告・情報 0 件で終わる
-- [ ] 5.4 `docs/spirits-core-diffs.md` に 3 章の `[spirits]` コミットを 1 行 = 1 コミットで登録する。検証: `git log -E --grep='^\[spirits\]' --oneline` の行数と登録簿の行数が一致する
+- [x] 5.4 `docs/spirits-core-diffs.md` に 3 章の `[spirits]` コミットを 1 行 = 1 コミットで登録する。検証: `git log -E --grep='^\[spirits\]' --oneline` の行数と登録簿の行数が一致する
 - [x] 5.5 `README.md` / `README.ja.md` / `README.de-CH.md` / `README.zh.md` に、 `/model <model> [level] <normal|strong>`、 CTRL+s での既定ロール保存、 ロックの解除方法（`/model <model> normal`）、 `/reload` で Enter のロックが既定ロールに戻ることを書く。検証: 4 ファイルに `normal` と `strong` の語が同じ節にあることを `grep -c` で確認する
 
 ## 6. 対話モードの目視確認

@@ -79,7 +79,8 @@ OpenSpec ワークフローでより強いモデルを要求するのは 2 ス�
   ```
 
   モデル ID だけ(`"claude-opus-4-7"`)を書いた場合は、その時点の既定 provider で解決します。`models` は spirits のキーで、pi は他の設定を保存するときにもこのキーを保持します。
-- propose / apply / verify / archive は normal で、既定 provider と既定モデルへルートします。既定が解決できないときは直近の成功レスポンスのモデルに寄り、1 回通知します。`sprt-opsx-review-change` または `sprt-opsx-verify-deep` の実行中のリクエストは strong へ、run が settled すれば normal に戻します(Escape の中断でもエラーでも戻します)。
+- propose / apply / verify / archive は normal で、既定 provider と既定モデルへルートします。既定が解決できないときは直近の成功レスポンスのモデルに寄り、1 回通知します。`sprt-opsx-review-change` または `sprt-opsx-verify-deep` の実行中のリクエストは strong へ、run が settled すれば**ロックしているロール**に戻します(Escape の中断でもエラーでも戻します)。
+- `/model <model> [level] normal|strong` でロールをロックできます。Enter は現在のセッションにだけ反映し、CTRL+s は既定ロール(`settings.json` の `models.role`)としても保存します。ロックはあとの入力でも続き、`/model <model> normal` で解除します。`/reload` は `models.role` を読み直すので、Enter だけで保存しなかったロックは既定ロールに戻ります。物理モデルを選んでいると振り分けしないため、ロックはバッジにだけ現れます。
 - 既定モデル(`defaultProvider` / `defaultModel`)には物理モデルを置いてください。virtual model は normal の対象にならないため、`spirits/auto` を既定に保存すると normal が解決できるモデルを失い、新しいセッションの最初のリクエストがエラーになります。
 - `models.strong` が無いときは黙って normal のままです。設定済みなのに使えない(知らない ID、資格情報のない provider)場合は normal にフォールバックし、同一 run で 1 回だけ通知します。
 - フッターはモデル名の前に `[normal]` / `[strong]` を出します。バッジは**直近のリクエストが通ったロール**を示すので 1 リクエスト遅れます。スキル起動直後は `[normal]` のまま、スキル終了直後は次のリクエストまで `[strong]` のままです。
