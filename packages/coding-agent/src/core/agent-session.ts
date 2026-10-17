@@ -417,7 +417,7 @@ export class AgentSession {
 	private _failedResponse: AssistantMessage | undefined;
 	/**
 	 * Cached role label of the current branch, keyed by the leaf and the entry count: both change
-	 * whenever a stored role can change. `routedModel` reads it on every footer frame.
+	 * whenever a stored role can change. `routedRole` reads it on every footer frame.
 	 */
 	private _routedRoleCache: { leafId: string | null; entryCount: number; role: string | undefined } | undefined;
 
@@ -1460,27 +1460,39 @@ export class AgentSession {
 		return this.agent.state.thinkingLevel;
 	}
 
-	/**
-	 * Under a virtual selection, the physical model and thinking level of the latest successful
-	 * response, plus the role label stored on this branch by the latest routed request.
-	 */
-	get routedModel(): { model: Model<any>; thinkingLevel?: ThinkingLevel; role?: string } | undefined {
+	/** Under a virtual selection, the physical model and thinking level of the latest successful response. */
+	get routedModel(): { model: Model<any>; thinkingLevel?: ThinkingLevel } | undefined {
 		if (!this.model || !isVirtualModel(this.model)) return undefined;
 		const latest = findLatestResponse(this.agent.state.messages);
 		const model = latest && this._modelRuntime.getPhysicalModel(latest.provider, latest.model);
-		return model && { model, thinkingLevel: latest?.thinkingLevel, role: this._storedRoutedRole() };
+		return model && { model, thinkingLevel: latest?.thinkingLevel };
 	}
 
-	/** Role stored on the current branch for the selected model, cached per leaf and entry count. */
+	/**
+	 * Under a virtual selection, the role label the latest routed request stored on this branch. It is
+	 * independent of `routedModel`: a request whose response the provider failed still reports the
+	 * role routing stored for it.
+	 */
+	get routedRole(): string | undefined {
+		if (!this.model || !isVirtualModel(this.model)) return undefined;
+		return this._storedRoutedRole();
+	}
+
+	/**
+	 * Role stored on the current branch for the selected model, cached per leaf and entry count. Entry
+	 * data is read without validation, so a stored role that is not a string reads as no role: the
+	 * footer renders this every frame, and treating it as a string would fail the whole render.
+	 */
 	private _storedRoutedRole(): string | undefined {
 		const leafId = this.sessionManager.getLeafId();
 		const entryCount = this.sessionManager.getEntryCount();
 		const cached = this._routedRoleCache;
 		if (cached && cached.leafId === leafId && cached.entryCount === entryCount) return cached.role;
 		const model = this.model;
-		const role = model
+		const stored = model
 			? getVirtualModelEntry(this.sessionManager.getBranch(), model.provider, model.id)?.role
 			: undefined;
+		const role = typeof stored === "string" ? stored : undefined;
 		this._routedRoleCache = { leafId, entryCount, role };
 		return role;
 	}

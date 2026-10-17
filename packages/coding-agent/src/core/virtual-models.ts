@@ -83,7 +83,7 @@ export interface ModelRoute<TState = unknown> {
 	state?: TState;
 	/**
 	 * Label describing this request, e.g. a routing role. pi stores it on the session branch next to
-	 * the state and reports it on `AgentSession.routedModel`. The value is opaque: pi never compares
+	 * the state and reports it on `AgentSession.routedRole`. The value is opaque: pi never compares
 	 * or interprets it. Ignored for `direct` requests.
 	 */
 	role?: string;
