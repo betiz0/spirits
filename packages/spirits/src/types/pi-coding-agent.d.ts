@@ -109,7 +109,7 @@ export interface ExtensionSettings {
 	 * spirits-owned settings keys. pi's `Settings` type does not declare them; pi keeps unknown
 	 * keys in the settings file when it saves a known setting, so no core change is needed.
 	 */
-	models?: { strong?: string };
+	models?: { strong?: string; role?: string };
 }
 
 /** Placement for extension widgets. */
@@ -281,6 +281,24 @@ export interface ExtensionVirtualModel<TState = unknown> {
 	route(request: ModelRouteRequest<TState>, ctx: ExtensionContext): ModelRoute<TState> | Promise<ModelRoute<TState>>;
 }
 
+/** Where the `/model` save key writes the default role. pi writes the keys it is given and knows nothing about them. */
+export interface ModelRoleSettingsKey {
+	/** Top-level settings field, e.g. `"models"`. */
+	field: string;
+	/** Key inside that field, e.g. `"role"`. */
+	key: string;
+}
+
+/** Definition passed to `pi.registerModelRoles()`. pi treats a role as an opaque string. */
+export interface ModelRoleRegistration {
+	/** Role words accepted as the last `/model` argument, matched case-insensitively. */
+	roles: readonly string[];
+	/** Settings location the `/model` save key writes the default role to. */
+	settingsKey: ModelRoleSettingsKey;
+	/** Called after `/model` applied a model, whatever the model kind, with the chosen role. */
+	onSelect(role: string, ctx: ExtensionContext): void;
+}
+
 /** Context passed to tool `execute()`: the extension context plus `executeTool()`. */
 export interface ExtensionToolContext extends ExtensionContext {
 	/** Tools {@link executeTool} can call. */
@@ -324,6 +342,12 @@ export interface ExtensionAPI {
 	registerVirtualModel<TState = unknown>(model: ExtensionVirtualModel<TState>): void;
 	/** Remove a virtual model registered with `registerVirtualModel()`. */
 	unregisterVirtualModel(provider: string, id: string): void;
+	/**
+	 * Register the `/model` role vocabulary, the settings key that holds the default role, and the
+	 * callback for a role chosen through `/model`. One registration is active: registering again
+	 * replaces it, which is what an extension reload does.
+	 */
+	registerModelRoles(definition: ModelRoleRegistration): void;
 	/** Subscribe to a session event. Returns an unsubscribe function. */
 	on(
 		event: "before_agent_start",
@@ -388,8 +412,17 @@ export interface CustomEntry<T = unknown> {
 	data?: T;
 }
 
+/**
+ * Entry pi writes for a change of its own state. The values are irrelevant here; a branch holds these
+ * from the moment pi applies a model or thinking level, which is what tells a fresh session apart from
+ * one that has already been asked something.
+ */
+export interface SessionStateChangeEntry {
+	type: "model_change" | "thinking_level_change";
+}
+
 /** Session entry shapes spirits walks on the current branch. */
-export type SessionEntry = SessionMessageEntry | CustomEntry;
+export type SessionEntry = SessionMessageEntry | CustomEntry | SessionStateChangeEntry;
 
 /** Read-only session manager. Spirits only resolves the current branch. */
 export interface ReadonlySessionManager {
@@ -508,6 +541,44 @@ export class ModelRuntime {
 	refresh(options?: { allowNetwork?: boolean }): Promise<unknown>;
 	/** Models available for selection, virtual entries included. */
 	getAvailable(): Promise<PiModel[]>;
+}
+
+/** Result of `discoverAndLoadExtensions()`. Only the members the pin test hands to the runner are mirrored. */
+export interface LoadExtensionsResult {
+	extensions: unknown[];
+	errors: Array<{ path: string; error: string }>;
+	runtime: unknown;
+}
+
+/** Discover and load the extensions of the agent and project directories, the way pi starts a session. */
+export function discoverAndLoadExtensions(
+	configuredPaths: readonly string[],
+	cwd: string,
+	agentDir: string,
+): Promise<LoadExtensionsResult>;
+
+/** Catalog handle a runner needs. pi constructs it from a `ModelRuntime`. */
+export class ModelRegistry {
+	constructor(modelRuntime: ModelRuntime);
+}
+
+/**
+ * Runner that owns the loaded extensions. Only the role surface the pin test uses is mirrored: pi hands
+ * the `/model` role to the registration an extension made, and reports the vocabulary to the caller
+ * that has to parse the argument.
+ */
+export class ExtensionRunner {
+	constructor(
+		extensions: readonly unknown[],
+		runtime: unknown,
+		cwd: string,
+		sessionManager: SessionManager,
+		modelRegistry: ModelRegistry,
+	);
+	/** The active `pi.registerModelRoles()` registration. */
+	getModelRoles(): ModelRoleRegistration | undefined;
+	/** Hand the role `/model` chose to the registration, the way interactive mode does. */
+	selectModelRole(role: string): void;
 }
 
 /** Options for `DefaultResourceLoader`. Only the fields spirits sets are mirrored. */

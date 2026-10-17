@@ -10,7 +10,7 @@ import {
 	ENV_MEMORY_PREVIEW_LINES,
 	ENV_TODO_MAX_LINES,
 } from "../src/constants.ts";
-import { loadConfig, readRoutingSettings, readStrongModelSetting } from "../src/config.ts";
+import { loadConfig, readDefaultRoleSetting, readRoutingSettings, readStrongModelSetting } from "../src/config.ts";
 
 test("defaults when unset", () => {
 	expect(loadConfig({})).toEqual({
@@ -119,6 +119,31 @@ test("reads routing settings from a pi settings object", () => {
 		strong: { modelId: "claude-opus-4-7" },
 	});
 	expect(readRoutingSettings({})).toEqual({});
+});
+
+// spec "dual-model-routing / 既定ロールの読み取り": strong / 大文字小文字 / 設定が無い / banana / 空
+test("reads the default role from models.role", () => {
+	expect(readDefaultRoleSetting({ models: { role: "strong" } })).toBe("strong");
+	expect(readDefaultRoleSetting({ models: { role: "STRONG" } })).toBe("strong");
+	expect(readDefaultRoleSetting({ models: { role: " Normal " } })).toBe("normal");
+});
+
+test("treats an unusable default role setting as unset", () => {
+	for (const value of ["banana", "", "   ", 42, true, null, ["strong"]]) {
+		expect(readDefaultRoleSetting({ models: { role: value } })).toBeUndefined();
+	}
+	expect(readDefaultRoleSetting({})).toBeUndefined();
+	expect(readDefaultRoleSetting({ models: {} })).toBeUndefined();
+	expect(readDefaultRoleSetting({ models: "strong" })).toBeUndefined();
+	expect(readDefaultRoleSetting(undefined)).toBeUndefined();
+});
+
+test("carries the default role into the routing settings", () => {
+	expect(readRoutingSettings({ defaultProvider: "anthropic", models: { role: "STRONG" } })).toEqual({
+		defaultProvider: "anthropic",
+		defaultRole: "strong",
+	});
+	expect(readRoutingSettings({ models: { role: "banana" } })).toEqual({});
 });
 
 test("bundled skills are enabled unless SPIRITS_BUNDLED_SKILLS=0", () => {

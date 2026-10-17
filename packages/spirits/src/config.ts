@@ -4,8 +4,9 @@
  * The memory limits are read once at extension load. Invalid values fall back to the
  * Layer 2 defaults instead of failing startup (design Decision 11).
  *
- * The strong model target also comes from the operator, but from pi's settings file rather than
- * the environment, so it is resolved on every read and never cached (design Decision 1).
+ * The strong model target and the default role also come from the operator, but from pi's settings
+ * file rather than the environment, so they are resolved on every read and never cached
+ * (design Decision 1).
  */
 
 import {
@@ -18,10 +19,12 @@ import {
 	ENV_MEMORY_LINE_LIMIT,
 	ENV_MEMORY_PREVIEW_LINES,
 	ENV_TODO_MAX_LINES,
+	MODEL_ROLES,
 	MODEL_SPEC_SEPARATOR,
 	SETTINGS_KEY_DEFAULT_MODEL,
 	SETTINGS_KEY_DEFAULT_PROVIDER,
 	SETTINGS_KEY_MODELS,
+	SETTINGS_KEY_ROLE,
 	SETTINGS_KEY_STRONG_MODEL,
 } from "./constants.ts";
 
@@ -119,8 +122,22 @@ export function readStrongModelSetting(settings: unknown): StrongModelSpec | und
 	return { provider, modelId };
 }
 
+/**
+ * Resolve the spirits `models.role` setting (add-model-role-setting design Decision 4). Same rule as
+ * `models.strong`: a missing key, a non-string, or a blank value is unset. Anything that is not a
+ * role name, in any casing, is unset too, and the caller falls back to normal without a notice.
+ */
+export function readDefaultRoleSetting(settings: unknown): string | undefined {
+	const raw = settingsValue(settingsValue(settings, SETTINGS_KEY_MODELS), SETTINGS_KEY_ROLE);
+	if (typeof raw !== "string") return undefined;
+	const value = raw.trim().toLowerCase();
+	return MODEL_ROLES.includes(value) ? value : undefined;
+}
+
 /** Settings the router reads for one request. */
 export interface RoutingSettings {
+	/** Default role for a new session, from `models.role`. Absent when unset or invalid. */
+	defaultRole?: string;
 	/** Configured strong target. Absent when the key is unset, blank, or not a string. */
 	strong?: StrongModelSpec;
 	/** Provider of pi's default model, the normal target. */
@@ -135,9 +152,11 @@ export interface RoutingSettings {
  */
 export function readRoutingSettings(settings: unknown): RoutingSettings {
 	const strong = readStrongModelSetting(settings);
+	const defaultRole = readDefaultRoleSetting(settings);
 	const defaultProvider = readStringSetting(settings, SETTINGS_KEY_DEFAULT_PROVIDER);
 	const defaultModelId = readStringSetting(settings, SETTINGS_KEY_DEFAULT_MODEL);
 	return {
+		...(defaultRole ? { defaultRole } : {}),
 		...(strong ? { strong } : {}),
 		...(defaultProvider ? { defaultProvider } : {}),
 		...(defaultModelId ? { defaultModelId } : {}),

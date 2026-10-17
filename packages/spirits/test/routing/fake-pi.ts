@@ -6,6 +6,7 @@
  */
 
 import type {
+	AgentMessage,
 	AgentSettledEvent,
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
@@ -15,10 +16,12 @@ import type {
 	ExtensionVirtualModel,
 	InputEvent,
 	InputEventResult,
+	ModelRoleRegistration,
 	ModelRouteRequest,
 	PiModel,
 	ResourcesDiscoverEvent,
 	ResourcesDiscoverResult,
+	SessionEntry,
 	SessionStartEvent,
 	SessionTreeEvent,
 	ToolDefinition,
@@ -36,6 +39,10 @@ export class FakePi implements ExtensionAPI {
 	readonly unsubscribers = new Map<string, Array<() => void>>();
 	/** Errors thrown by a handler while firing an event, collected the way pi reports them. */
 	readonly errors: unknown[] = [];
+	/** Entries passed to `appendEntry()`, in order. */
+	readonly entries: Array<{ customType: string; data: unknown }> = [];
+	/** The `registerModelRoles()` registration, which a re-registration replaces. */
+	modelRoles?: ModelRoleRegistration;
 	settings: Record<string, unknown> = {};
 
 	registerTool<TParams extends TSchema = TSchema, TDetails = unknown, TState = unknown>(
@@ -44,10 +51,16 @@ export class FakePi implements ExtensionAPI {
 		this.tools.push(tool as ToolDefinition);
 	}
 
-	appendEntry(): void {}
+	appendEntry(customType: string, data?: unknown): void {
+		this.entries.push({ customType, data });
+	}
 
 	getSettings(): Record<string, unknown> {
 		return this.settings;
+	}
+
+	registerModelRoles(definition: ModelRoleRegistration): void {
+		this.modelRoles = definition;
 	}
 
 	registerVirtualModel<TState = unknown>(model: ExtensionVirtualModel<TState>): void {
@@ -130,22 +143,49 @@ export function makeRequest(overrides: Partial<ModelRouteRequest> = {}): ModelRo
 	};
 }
 
-/** Extension context backed by a catalog, capturing the notices the route emits. */
-export function fakeCatalog(options: { available: readonly PiModel[]; authedProviders?: readonly string[] } = {
-	available: [],
-}): { ctx: ExtensionContext; notices: string[] } {
+/** A custom entry as pi stores it, for building a fake session branch. */
+export function makeCustomEntry(customType: string, data: unknown): SessionEntry {
+	return { type: "custom", customType, data };
+}
+
+/** A message entry as pi stores it. Its presence is what makes a session an already asked one. */
+export function makeMessageEntry(): SessionEntry {
+	const message: AgentMessage = { role: "user", content: "asked" };
+	return { type: "message", message };
+}
+
+/** One of the entries pi writes for its own state changes, on a branch from the launch on. */
+export function makeStateChangeEntry(type: "model_change" | "thinking_level_change"): SessionEntry {
+	return { type };
+}
+
+/**
+ * Extension context backed by a catalog, capturing the notices the route emits. `model` is the
+ * session selection and `branch` the entries `ctx.sessionManager.getBranch()` reports.
+ */
+export function fakeCatalog(options: {
+	available?: readonly PiModel[];
+	authedProviders?: readonly string[];
+	model?: PiModel;
+	branch?: readonly SessionEntry[];
+} = {}): { ctx: ExtensionContext; notices: string[] } {
 	const authed = new Set(options.authedProviders ?? []);
 	const notices: string[] = [];
 	return {
 		notices,
 		ctx: {
 			ui: { setHeader: () => {}, setWidget: () => {}, notify: (message: string) => notices.push(message) },
+			model: options.model,
+			sessionManager: { getBranch: () => [...(options.branch ?? [])] },
 			modelRegistry: {
-				getAvailable: () => [...options.available],
+				getAvailable: () => [...(options.available ?? [])],
 				find: (provider: string, modelId: string) =>
-					options.available.find((model) => model.provider === provider && model.id === modelId),
+					(options.available ?? []).find((model) => model.provider === provider && model.id === modelId),
 				hasConfiguredAuth: (model: PiModel) => authed.has(model.provider),
 			},
 		} as unknown as ExtensionContext,
 	};
 }
+
+/** The `spirits/auto` selection, as pi reports it on the context of a session that chose it. */
+export const AUTO_SELECTION: PiModel = { provider: "spirits", id: "auto" };

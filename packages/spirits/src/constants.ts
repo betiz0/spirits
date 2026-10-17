@@ -129,6 +129,9 @@ export const SETTINGS_KEY_MODELS = "models";
 /** Settings key under SETTINGS_KEY_MODELS holding the strong model spec string. */
 export const SETTINGS_KEY_STRONG_MODEL = "strong";
 
+/** Settings key under SETTINGS_KEY_MODELS holding the default role pi's `/model` save key writes. */
+export const SETTINGS_KEY_ROLE = "role";
+
 /** Settings key of pi's default model provider, the normal target when it is set. */
 export const SETTINGS_KEY_DEFAULT_PROVIDER = "defaultProvider";
 
@@ -152,6 +155,15 @@ export const MODEL_ROLE_NORMAL = "normal";
 
 /** Role of the requests a strong-phase skill makes. */
 export const MODEL_ROLE_STRONG = "strong";
+
+/** Role vocabulary spirits registers with pi's `/model`, in the spelling the save key stores. */
+export const MODEL_ROLES: readonly string[] = [MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG];
+
+/**
+ * pi's custom entry type that stores the router state and the routed role on a session branch. pi
+ * keeps the constant inside its package, so spirits reads and writes the entry through this name.
+ */
+export const ROUTING_STATE_ENTRY_TYPE = "pi.virtual-model-state";
 
 /** Prefix of the skill commands the `input` event reports before pi expands them. */
 export const SKILL_COMMAND_PREFIX = "/skill:";

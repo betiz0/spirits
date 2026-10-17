@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type { ExtensionContext, ModelRouteRequest, PiModel } from "@earendil-works/pi-coding-agent";
 import type { RoutingSettings } from "../src/config.ts";
 import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG } from "../src/constants.ts";
+import { createRoutingPhase } from "../src/routing/phase.ts";
 import { createNotificationGuard, createRoutingRoute } from "../src/routing/router.ts";
 
 const SONNET: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5" };
@@ -21,7 +22,13 @@ function makeRequest(overrides: Partial<ModelRouteRequest> = {}): ModelRouteRequ
 }
 
 /** Route with the phase, the settings, and the catalog set apart so each branch is reachable. */
-function createHarness(options: { settings: RoutingSettings; available?: PiModel[]; authedProviders?: string[] }) {
+function createHarness(options: {
+	settings: RoutingSettings;
+	available?: PiModel[];
+	authedProviders?: string[];
+	/** A real phase to route against, in place of the role the harness sets by hand. */
+	phase?: { current(): string };
+}) {
 	const catalog = options.available ?? [];
 	const authed = new Set(options.authedProviders ?? []);
 	const notices: string[] = [];
@@ -39,7 +46,7 @@ function createHarness(options: { settings: RoutingSettings; available?: PiModel
 	let role = MODEL_ROLE_NORMAL;
 	const guard = createNotificationGuard();
 	const route = createRoutingRoute({
-		phase: { current: () => role },
+		phase: options.phase ?? { current: () => role },
 		readSettings: () => settings,
 		guard,
 	});
@@ -79,6 +86,24 @@ test("routes the configured strong model during a strong phase", () => {
 	// The selected thinking level passes through; pi clamps it to the routed model.
 	expect(harness.route()).toEqual({ model: OPUS, thinkingLevel: "high", role: MODEL_ROLE_STRONG });
 	expect(harness.notices).toEqual([]);
+});
+
+// spec "dual-model-routing / /model によるロールのロック": ロック strong のリクエストは strong の対象へルートされる
+test("routes the role a locked phase reports", () => {
+	const phase = createRoutingPhase();
+	phase.setRole(MODEL_ROLE_STRONG);
+	const harness = createHarness({
+		settings: { ...DEFAULTS, strong: STRONG_SPEC },
+		available: [SONNET, OPUS],
+		authedProviders: ["anthropic"],
+		phase,
+	});
+
+	// The route only reads `phase.current()`, so a lock and a strong phase reach it the same way.
+	expect(harness.route()).toEqual({ model: OPUS, thinkingLevel: "high", role: MODEL_ROLE_STRONG });
+
+	phase.settle();
+	expect(harness.route()).toEqual({ model: OPUS, thinkingLevel: "high", role: MODEL_ROLE_STRONG });
 });
 
 test("falls back to normal silently when no strong model is configured", () => {

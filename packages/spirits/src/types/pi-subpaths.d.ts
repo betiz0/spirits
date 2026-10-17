@@ -13,3 +13,17 @@ declare module "@earendil-works/pi-coding-agent/bun/sandbox-env-setup";
 declare module "@earendil-works/pi-coding-agent/cli/setup" {
 	export function setupCli(): void;
 }
+
+/**
+ * The `/model` argument split interactive mode performs. Only the pin test
+ * `test/pi-runtime/model-roles-api.test.ts` reads it, to check a trailing role word against the
+ * vocabulary an extension registered with pi.
+ */
+declare module "@earendil-works/pi-coding-agent/modes/interactive/model-command-args" {
+	export interface ModelCommandArgs {
+		searchTerm?: string;
+		thinkingLevel?: string;
+		role?: string;
+	}
+	export function parseModelCommandArgs(args: string, roles?: readonly string[]): ModelCommandArgs;
+}

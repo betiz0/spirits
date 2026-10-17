@@ -46,6 +46,8 @@ class FakePi implements ExtensionAPI {
 
 	unregisterVirtualModel(): void {}
 
+	registerModelRoles(): void {}
+
 	on(
 		event: "before_agent_start",
 		handler: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>,

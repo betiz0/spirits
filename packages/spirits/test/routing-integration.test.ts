@@ -5,7 +5,7 @@
 
 import { expect, test } from "bun:test";
 import type { ModelRoute, PiModel } from "@earendil-works/pi-coding-agent";
-import { SKILL_COMMAND_PREFIX } from "../src/constants.ts";
+import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, SKILL_COMMAND_PREFIX } from "../src/constants.ts";
 import spiritsExtension from "../src/index.ts";
 import { fakeCatalog, FakePi, makeInputEvent, makeRequest, makeSettledEvent } from "./routing/fake-pi.ts";
 
@@ -45,6 +45,41 @@ test("runs normal, then strong during the skill, then normal after settle", asyn
 		"normal:claude-sonnet-4-5",
 	]);
 	expect(notices).toEqual([]);
+});
+
+// spec "dual-model-routing / strong フェーズからの復帰": ロックしたロールへ戻る
+test("keeps the locked role across a target skill run", async () => {
+	const { pi, ctx, decision } = harness();
+	pi.modelRoles?.onSelect(MODEL_ROLE_STRONG, ctx);
+
+	const decisions = [decision()];
+	await pi.fire("input", makeInputEvent(`${SKILL_COMMAND_PREFIX}sprt-opsx-verify-deep add-model-role-setting`), ctx);
+	decisions.push(decision());
+	await pi.fire("agent_settled", makeSettledEvent(), ctx);
+	// Settle returns to the lock, not to normal.
+	decisions.push(decision());
+
+	expect(decisions).toEqual([
+		"strong:claude-opus-4-7",
+		"strong:claude-opus-4-7",
+		"strong:claude-opus-4-7",
+	]);
+});
+
+// spec "dual-model-routing / strong フェーズの開始": ロック中の入力はロックを解除しない
+test("keeps the locked role across a plain input run", async () => {
+	const { pi, ctx, decision } = harness();
+	pi.modelRoles?.onSelect(MODEL_ROLE_STRONG, ctx);
+
+	await pi.fire("input", makeInputEvent("check the footer badge"), ctx);
+	expect(decision()).toBe("strong:claude-opus-4-7");
+
+	await pi.fire("agent_settled", makeSettledEvent(), ctx);
+	expect(decision()).toBe("strong:claude-opus-4-7");
+
+	// `/model <model> normal` is the way out.
+	pi.modelRoles?.onSelect(MODEL_ROLE_NORMAL, ctx);
+	expect(decision()).toBe("normal:claude-sonnet-4-5");
 });
 
 test("keeps normal across a non-target skill run", async () => {

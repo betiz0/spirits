@@ -86,6 +86,54 @@ test("ends the skill name at the first space like pi", () => {
 	expect(phase.current()).toBe(MODEL_ROLE_NORMAL);
 });
 
+// spec "dual-model-routing / strong フェーズの開始": ロック中の入力はロックを解除しない
+test("keeps the locked role on idle input that is not a target skill", () => {
+	const phase = createRoutingPhase();
+	phase.setRole(MODEL_ROLE_STRONG);
+
+	for (const text of ["plain prompt", `${SKILL_COMMAND_PREFIX}sprt-architecture-guards`, "/opsx-apply x"]) {
+		phase.handleInput(text);
+		expect(phase.current()).toBe(MODEL_ROLE_STRONG);
+	}
+});
+
+// spec "dual-model-routing / strong フェーズの開始": 対象スキルはロック中でも strong へ遷移する
+test("enters strong for a target skill while locked on strong", () => {
+	const phase = createRoutingPhase();
+	phase.setRole(MODEL_ROLE_STRONG);
+
+	phase.handleInput(`${SKILL_COMMAND_PREFIX}sprt-opsx-verify-deep add-model-role-setting`);
+
+	expect(phase.current()).toBe(MODEL_ROLE_STRONG);
+});
+
+// spec "dual-model-routing / strong フェーズからの復帰": ロックしたロールへ戻る
+test("settles back to the locked role", () => {
+	const phase = createRoutingPhase();
+	phase.setRole(MODEL_ROLE_STRONG);
+	phase.handleInput(`${SKILL_COMMAND_PREFIX}sprt-opsx-verify-deep`);
+	expect(phase.current()).toBe(MODEL_ROLE_STRONG);
+
+	phase.settle();
+
+	expect(phase.current()).toBe(MODEL_ROLE_STRONG);
+});
+
+test("a lock set to normal releases a strong lock", () => {
+	const phase = createRoutingPhase();
+	phase.setRole(MODEL_ROLE_STRONG);
+	phase.handleInput(`${SKILL_COMMAND_PREFIX}sprt-opsx-verify-deep`);
+	phase.settle();
+	expect(phase.current()).toBe(MODEL_ROLE_STRONG);
+
+	// `/model <model> normal` is the way out of a strong lock.
+	phase.setRole(MODEL_ROLE_NORMAL);
+	expect(phase.current()).toBe(MODEL_ROLE_NORMAL);
+	phase.handleInput(`${SKILL_COMMAND_PREFIX}sprt-opsx-verify-deep`);
+	phase.settle();
+	expect(phase.current()).toBe(MODEL_ROLE_NORMAL);
+});
+
 test("settles back to normal twice without drifting", () => {
 	const phase = createRoutingPhase();
 	phase.handleInput(`${SKILL_COMMAND_PREFIX}sprt-opsx-review-change`);
