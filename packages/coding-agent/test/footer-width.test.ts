@@ -25,7 +25,8 @@ function createSession(options: {
 	compactionUsage?: AssistantUsage;
 	toolUsage?: AssistantUsage;
 	usingSubscription?: boolean;
-	routedModel?: { model: { id: string }; thinkingLevel?: string; role?: string };
+	routedModel?: { model: { id: string }; thinkingLevel?: string };
+	routedRole?: string;
 }): AgentSession {
 	const usage = options.usage;
 	const entries: Array<Record<string, unknown>> = [];
@@ -84,6 +85,7 @@ function createSession(options: {
 		},
 		getContextUsage: () => ({ contextWindow: 200_000, percent: 12.3 }),
 		routedModel: options.routedModel,
+		routedRole: options.routedRole,
 		modelRuntime: {
 			isUsingSubscription: () => options.usingSubscription ?? false,
 		},
@@ -174,14 +176,16 @@ describe("FooterComponent width handling", () => {
 
 	// Right side of a virtual selection: `auto • high → claude-opus-4-7 • high` is 36 visible columns,
 	// the badge adds 9, the provider prefix adds 10, and the stats side is 17 with no usage recorded.
-	function roleSession(role: string | undefined) {
+	function roleSession(role: string | undefined, options: { routed?: boolean } = {}) {
 		return createSession({
 			sessionName: "",
 			modelId: "auto",
 			provider: "spirits",
 			reasoning: true,
 			thinkingLevel: "high",
-			routedModel: { model: { id: "claude-opus-4-7" }, thinkingLevel: "high", role },
+			routedModel:
+				options.routed === false ? undefined : { model: { id: "claude-opus-4-7" }, thinkingLevel: "high" },
+			routedRole: role,
 		});
 	}
 
@@ -271,6 +275,59 @@ describe("FooterComponent width handling", () => {
 		expect(lines).toHaveLength(2);
 		expect(statsLine).toContain("[stro ng]");
 		expect(statsLine).not.toContain("\n");
+	});
+
+	// spec "model-role-badge / ロールバッジの表記": エスケープシーケンスを含むロール
+	it("strips escape sequences from the role badge", () => {
+		const footer = new FooterComponent(roleSession("\u001b[31mstrong"), createFooterData(1));
+
+		const lines = footer.render(120);
+
+		// The ESC becomes a space, so the terminal keeps its display state. Stripping the theme's own
+		// colors leaves the `[31m` as literal badge text: had the ESC survived, it would have been eaten
+		// as a color change instead.
+		expect(stripAnsi(lines[1])).toContain("[[31mstrong] auto");
+		expect(lines).toHaveLength(2);
+	});
+
+	// spec "model-role-badge / ロールバッジの表記": 制御文字だけのロール
+	it("omits the badge when the role is blank after sanitizing", () => {
+		const footer = new FooterComponent(roleSession(" \u0000\u001f "), createFooterData(2));
+
+		const statsLine = stripAnsi(footer.render(120)[1]);
+
+		expect(statsLine).not.toContain("[");
+		expect(statsLine).toContain("(spirits) auto • high → claude-opus-4-7 • high");
+	});
+
+	// spec "model-role-badge / ロールバッジの表記": 成功レスポンスが無くてもバッジを出す
+	it("shows the badge without a successful response", () => {
+		const footer = new FooterComponent(roleSession("strong", { routed: false }), createFooterData(1));
+
+		const statsLine = stripAnsi(footer.render(120)[1]);
+
+		// No `→ routed` display, because no response succeeded yet.
+		expect(statsLine.endsWith("[strong] auto • high")).toBe(true);
+	});
+
+	// spec "model-role-badge / バッジの更新タイミング": 振り分け後の provider エラーではバッジとルート先表示が分かれる
+	it("keeps the badge ahead of a routed model that did not answer the failed request", () => {
+		const session = createSession({
+			sessionName: "",
+			modelId: "auto",
+			provider: "spirits",
+			reasoning: true,
+			thinkingLevel: "high",
+			// The last response came from the normal target; the next request routed strong and the
+			// provider failed it. The badge names the last routed role, `→ routed` the last model that answered.
+			routedModel: { model: { id: "claude-sonnet-4-5" }, thinkingLevel: "high" },
+			routedRole: "strong",
+		});
+		const footer = new FooterComponent(session, createFooterData(1));
+
+		const statsLine = stripAnsi(footer.render(120)[1]);
+
+		expect(statsLine.endsWith("[strong] auto • high → claude-sonnet-4-5 • high")).toBe(true);
 	});
 
 	it("includes summary and tool result usage in the total cost", () => {

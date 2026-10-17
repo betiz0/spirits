@@ -20,6 +20,19 @@ function sanitizeStatusText(text: string): string {
 }
 
 /**
+ * Sanitize a routing role label for display in the badge. A router returns an opaque string and pi
+ * stores it without validating it, so every C0 control character and DEL becomes a space: an escape
+ * sequence reaching the terminal would change its display state. Returns an empty string when nothing
+ * is left. Extension statuses keep their own, narrower sanitizer.
+ */
+function sanitizeRoleLabel(text: string): string {
+	return text
+		.replace(/[\x00-\x1f\x7f]/g, " ")
+		.replace(/ +/g, " ")
+		.trim();
+}
+
+/**
  * Format token counts for compact footer display.
  */
 export function formatTokens(count: number): string {
@@ -244,11 +257,14 @@ export class FooterComponent implements Component {
 			rightSideWithoutProvider += ` → ${routed.model.id}${level}`;
 		}
 
-		// The routing role badge goes in front of every other right-side element. Its width counts
-		// against the provider prefix, so the prefix is what falls back first, and the tail truncation
-		// below loses `→ routed` and the model name before the badge. A router returns an opaque label,
-		// so it goes through the same single-line sanitizing as the extension statuses below.
-		const roleBadge = routed?.role ? `[${sanitizeStatusText(routed.role)}] ` : "";
+		// The routing role badge goes in front of every other right-side element, and it comes from the
+		// stored role rather than `routedModel`: a request whose response the provider failed still
+		// carries the role it was routed with. The badge width counts against the provider prefix, so the
+		// prefix is what falls back first, and the tail truncation below loses `→ routed` and the model
+		// name before the badge.
+		const storedRole = this.session.routedRole;
+		const sanitizedRole = storedRole === undefined ? "" : sanitizeRoleLabel(storedRole);
+		const roleBadge = sanitizedRole ? `[${sanitizedRole}] ` : "";
 
 		// Prepend the provider in parentheses if there are multiple providers and there's enough room
 		let rightSide = rightSideWithoutProvider;
