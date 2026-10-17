@@ -152,7 +152,7 @@ import { addUsageToTotals, combineUsage, createUsageTotals } from "./usage-total
 import {
 	findLatestResponse,
 	getBranchSelection,
-	getVirtualModelState,
+	getVirtualModelEntry,
 	isVirtualModel,
 	VIRTUAL_MODEL_STATE_ENTRY,
 	type VirtualModelStateData,
@@ -415,6 +415,11 @@ export class AgentSession {
 	 * retry is routed with it as `failed`, since the context no longer contains it.
 	 */
 	private _failedResponse: AssistantMessage | undefined;
+	/**
+	 * Cached role label of the current branch, keyed by the leaf and the entry count: both change
+	 * whenever a stored role can change. `routedModel` reads it on every footer frame.
+	 */
+	private _routedRoleCache: { leafId: string | null; entryCount: number; role: string | undefined } | undefined;
 
 	// Bash execution state
 	private readonly _bashAbortControllers = new Set<AbortController>();
@@ -818,16 +823,23 @@ export class AgentSession {
 			// start a turn; extension messages can follow them, e.g. from before_agent_start.
 			const lastResponse = context.messages.findLastIndex((message) => message.role === "assistant");
 			const userTurn = context.messages.slice(lastResponse + 1).some((message) => message.role === "user");
-			const state = getVirtualModelState(this.sessionManager.getBranch(), model.provider, model.id);
+			const stored = getVirtualModelEntry(this.sessionManager.getBranch(), model.provider, model.id);
 			const route = await this._modelRuntime.resolveModel(model, convertToLlm(context.messages), {
 				reason: failed ? "retry" : userTurn ? "user" : "continuation",
 				thinkingLevel,
 				signal,
 				failed,
-				state,
+				state: stored?.state,
 			});
-			if (route.state !== undefined && route.state !== state) {
-				const data: VirtualModelStateData = { provider: model.provider, modelId: model.id, state: route.state };
+			// A role-only change appends too: the entry is where a resume reads the label back, and the
+			// label must not stay behind the request that decided it.
+			if ((route.state !== undefined && route.state !== stored?.state) || route.role !== stored?.role) {
+				const data: VirtualModelStateData = {
+					provider: model.provider,
+					modelId: model.id,
+					state: route.state ?? stored?.state,
+					...(route.role === undefined ? {} : { role: route.role }),
+				};
 				const entry = this.sessionManager.getEntry(
 					this.sessionManager.appendCustomEntry(VIRTUAL_MODEL_STATE_ENTRY, data),
 				);
@@ -1448,12 +1460,29 @@ export class AgentSession {
 		return this.agent.state.thinkingLevel;
 	}
 
-	/** Under a virtual selection, the physical model and thinking level of the latest successful response. */
-	get routedModel(): { model: Model<any>; thinkingLevel?: ThinkingLevel } | undefined {
+	/**
+	 * Under a virtual selection, the physical model and thinking level of the latest successful
+	 * response, plus the role label stored on this branch by the latest routed request.
+	 */
+	get routedModel(): { model: Model<any>; thinkingLevel?: ThinkingLevel; role?: string } | undefined {
 		if (!this.model || !isVirtualModel(this.model)) return undefined;
 		const latest = findLatestResponse(this.agent.state.messages);
 		const model = latest && this._modelRuntime.getPhysicalModel(latest.provider, latest.model);
-		return model && { model, thinkingLevel: latest?.thinkingLevel };
+		return model && { model, thinkingLevel: latest?.thinkingLevel, role: this._storedRoutedRole() };
+	}
+
+	/** Role stored on the current branch for the selected model, cached per leaf and entry count. */
+	private _storedRoutedRole(): string | undefined {
+		const leafId = this.sessionManager.getLeafId();
+		const entryCount = this.sessionManager.getEntryCount();
+		const cached = this._routedRoleCache;
+		if (cached && cached.leafId === leafId && cached.entryCount === entryCount) return cached.role;
+		const model = this.model;
+		const role = model
+			? getVirtualModelEntry(this.sessionManager.getBranch(), model.provider, model.id)?.role
+			: undefined;
+		this._routedRoleCache = { leafId, entryCount, role };
+		return role;
 	}
 
 	/** Whether the session is currently processing an agent run or post-run continuation. */

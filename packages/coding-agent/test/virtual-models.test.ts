@@ -14,7 +14,13 @@ import { AuthStorage } from "../src/core/auth-storage.ts";
 import { ModelRuntime } from "../src/core/model-runtime.ts";
 import { createAgentSession } from "../src/core/sdk.ts";
 import { SessionManager } from "../src/core/session-manager.ts";
-import { getBranchSelection, type ModelRouteRequest, type VirtualModelDefinition } from "../src/core/virtual-models.ts";
+import {
+	getBranchSelection,
+	type ModelRouteRequest,
+	VIRTUAL_MODEL_STATE_ENTRY,
+	type VirtualModelDefinition,
+	type VirtualModelStateData,
+} from "../src/core/virtual-models.ts";
 import { createTestResourceLoader } from "./utilities.ts";
 
 async function createRuntime(requests: ModelRouteRequest[] = []) {
@@ -135,6 +141,31 @@ describe("ModelRuntime virtual models", () => {
 
 		const high = await runtime.resolveModel(virtual, messages, { reason: "user", thinkingLevel: "high" });
 		expect(high).toEqual({ model: large, thinkingLevel: "high" });
+	});
+
+	it("passes the router role through resolveModel", async () => {
+		const { runtime, definition } = await createRuntime();
+		runtime.registerVirtualModel({
+			...definition,
+			id: "roled",
+			name: "Roled",
+			route: () => ({ model: runtime.getModel("faux", "large")!, thinkingLevel: "high", role: "strong" }),
+		});
+
+		const route = await runtime.resolveModel(runtime.getModel("router", "roled")!, [], {
+			reason: "user",
+			thinkingLevel: "high",
+		});
+
+		expect(route).toMatchObject({ model: { id: "large" }, thinkingLevel: "high", role: "strong" });
+	});
+
+	it("returns no role when the router omits it", async () => {
+		const { runtime, virtual } = await createRuntime();
+
+		const route = await runtime.resolveModel(virtual, [], { reason: "user", thinkingLevel: "high" });
+
+		expect(route.role).toBeUndefined();
 	});
 
 	it("reports the failed request of a retry separately from the latest successful response", async () => {
@@ -258,6 +289,194 @@ describe("ModelRuntime virtual models", () => {
 
 		expect(message.stopReason).toBe("error");
 		expect(message.errorMessage).toContain("must be routed before streaming");
+	});
+});
+
+describe("virtual model roles on the session branch", () => {
+	let tempDir: string;
+
+	beforeEach(() => {
+		tempDir = mkdtempSync(join(tmpdir(), "pi-virtual-model-roles-"));
+	});
+
+	afterEach(() => {
+		rmSync(tempDir, { recursive: true, force: true });
+	});
+
+	/** Replaces `router/auto` with a route the tests steer: it reports `role`, or throws when `fail` is set. */
+	async function roleRuntime() {
+		const { runtime, faux } = await createRuntime();
+		const router = { role: "normal" as string | undefined, fail: false };
+		runtime.registerVirtualModel({
+			provider: "router",
+			id: "auto",
+			name: "Auto",
+			thinkingLevels: ["low", "high"],
+			route() {
+				if (router.fail) throw new Error("router is unavailable");
+				return { model: runtime.getModel("faux", "large")!, thinkingLevel: "high", role: router.role };
+			},
+		});
+		await runtime.refresh({ allowNetwork: false });
+		faux.setResponses(Array.from({ length: 8 }, () => fauxAssistantMessage("ok")));
+		return { runtime, router };
+	}
+
+	async function openSession(runtime: ModelRuntime, sessionManager: SessionManager, model?: Model<string>) {
+		const { session } = await createAgentSession({
+			cwd: tempDir,
+			agentDir: tempDir,
+			modelRuntime: runtime,
+			sessionManager,
+			resourceLoader: createTestResourceLoader(),
+			model,
+		});
+		onTestFinished(() => session.dispose());
+		return session;
+	}
+
+	/** Roles of the `pi.virtual-model-state` entries on the branch, oldest first. */
+	function storedRoles(sessionManager: SessionManager): (string | undefined)[] {
+		return sessionManager
+			.getBranch()
+			.flatMap((entry) =>
+				entry.type === "custom" && entry.customType === VIRTUAL_MODEL_STATE_ENTRY
+					? [(entry.data as VirtualModelStateData | undefined)?.role]
+					: [],
+			);
+	}
+
+	it("stores the routed role on the session branch", async () => {
+		const { runtime } = await roleRuntime();
+		const sessionManager = SessionManager.inMemory(tempDir);
+		const session = await openSession(runtime, sessionManager, runtime.getModel("router", "auto"));
+
+		await session.prompt("one");
+
+		expect(storedRoles(sessionManager)).toEqual(["normal"]);
+	});
+
+	it("appends a state entry when only the role changes", async () => {
+		const { runtime, router } = await roleRuntime();
+		const sessionManager = SessionManager.inMemory(tempDir);
+		const session = await openSession(runtime, sessionManager, runtime.getModel("router", "auto"));
+		await session.prompt("one");
+
+		router.role = "strong";
+		await session.prompt("two");
+
+		expect(storedRoles(sessionManager)).toEqual(["normal", "strong"]);
+	});
+
+	it("does not store a role when routing fails", async () => {
+		const { runtime, router } = await roleRuntime();
+		const sessionManager = SessionManager.inMemory(tempDir);
+		const session = await openSession(runtime, sessionManager, runtime.getModel("router", "auto"));
+		await session.prompt("one");
+
+		router.role = "strong";
+		router.fail = true;
+		await session.prompt("two");
+
+		expect(storedRoles(sessionManager)).toEqual(["normal"]);
+		expect(session.messages.at(-1)).toMatchObject({ stopReason: "error" });
+		expect(session.routedModel?.role).toBe("normal");
+	});
+
+	it("reports the stored role on routedModel", async () => {
+		const { runtime, router } = await roleRuntime();
+		const sessionManager = SessionManager.inMemory(tempDir);
+		const session = await openSession(runtime, sessionManager, runtime.getModel("router", "auto"));
+
+		await session.prompt("one");
+		expect(session.routedModel).toMatchObject({ model: { id: "large" }, role: "normal" });
+
+		router.role = "strong";
+		await session.prompt("two");
+		expect(session.routedModel?.role).toBe("strong");
+	});
+
+	it("reports no role for a branch without a stored role", async () => {
+		const { runtime, faux } = await createRuntime();
+		faux.setResponses([fauxAssistantMessage("ok")]);
+		const sessionManager = SessionManager.inMemory(tempDir);
+		const session = await openSession(runtime, sessionManager, runtime.getModel("router", "auto"));
+
+		await session.prompt("one");
+
+		expect(session.routedModel).toBeDefined();
+		expect(session.routedModel?.role).toBeUndefined();
+		// A router that never returns a role writes no state entries.
+		expect(storedRoles(sessionManager)).toEqual([]);
+	});
+
+	it("reads a stored entry without a role as no role", async () => {
+		const { runtime } = await createRuntime();
+		const sessionManager = SessionManager.inMemory(tempDir);
+		sessionManager.appendModelChange("router", "auto");
+		sessionManager.appendMessage({ role: "user", content: "hi", timestamp: 1 });
+		sessionManager.appendMessage(assistantFrom(runtime.getModel("faux", "large")!, "hello"));
+		// The entry format written before routers could return a role.
+		sessionManager.appendCustomEntry(VIRTUAL_MODEL_STATE_ENTRY, {
+			provider: "router",
+			modelId: "auto",
+			state: { phase: "plan" },
+		});
+
+		const session = await openSession(runtime, sessionManager);
+
+		expect(session.routedModel?.model).toMatchObject({ id: "large" });
+		expect(session.routedModel?.role).toBeUndefined();
+	});
+
+	it("restores the stored role when reopening the session", async () => {
+		const { runtime, router } = await roleRuntime();
+		const sessionManager = SessionManager.inMemory(tempDir);
+		const session = await openSession(runtime, sessionManager, runtime.getModel("router", "auto"));
+		router.role = "strong";
+		await session.prompt("one");
+		session.dispose();
+
+		const reopened = await openSession(runtime, sessionManager);
+
+		expect(reopened.model).toMatchObject({ provider: "router", id: "auto" });
+		expect(reopened.routedModel?.role).toBe("strong");
+	});
+
+	// spec "dual-model-routing / ロールの記録と復元": 分岐ごとにロールを持つ
+	it("reports the role stored on each branch", async () => {
+		const { runtime, router } = await roleRuntime();
+		const sessionManager = SessionManager.inMemory(tempDir);
+		const session = await openSession(runtime, sessionManager, runtime.getModel("router", "auto"));
+
+		router.role = "strong";
+		await session.prompt("one");
+		const branchA = sessionManager.getLeafId()!;
+		expect(session.routedModel?.role).toBe("strong");
+
+		// The second branch starts from the same leaf and records normal.
+		sessionManager.branch(branchA);
+		router.role = "normal";
+		await session.prompt("two");
+		const branchB = sessionManager.getLeafId()!;
+		expect(session.routedModel?.role).toBe("normal");
+
+		sessionManager.branch(branchA);
+		expect(session.routedModel?.role).toBe("strong");
+		sessionManager.branch(branchB);
+		expect(session.routedModel?.role).toBe("normal");
+	});
+
+	it("keeps routedModel undefined for a physical selection", async () => {
+		const { runtime, faux } = await createRuntime();
+		faux.setResponses([fauxAssistantMessage("ok")]);
+		const sessionManager = SessionManager.inMemory(tempDir);
+		const session = await openSession(runtime, sessionManager, runtime.getModel("faux", "small"));
+
+		await session.prompt("one");
+
+		expect(session.model).toMatchObject({ provider: "faux", id: "small" });
+		expect(session.routedModel).toBeUndefined();
 	});
 });
 

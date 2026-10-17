@@ -991,7 +991,8 @@ export class ModelRuntime implements Models {
 	 *
 	 * `previous` reports the latest successful response in `messages`. A retry passes the failed
 	 * response as `options.failed`; `messages` no longer contains it. `options.state` is the router
-	 * state stored by the caller, which also stores the returned state.
+	 * state stored by the caller, which also stores the returned state. The returned `role` is the
+	 * router's label, passed through without interpretation.
 	 */
 	async resolveModel(
 		model: Model<Api>,
@@ -1023,7 +1024,12 @@ export class ModelRuntime implements Models {
 		const routed = `${name} routed to ${route.model.provider}/${route.model.id}`;
 		if (!target) throw new Error(`${routed}, which is not a physical model.`);
 		if (!this.hasConfiguredAuth(target.provider)) throw new Error(`${routed}, which has no credentials.`);
-		return { model: target, thinkingLevel: clampThinkingLevel(target, route.thinkingLevel), state: route.state };
+		return {
+			model: target,
+			thinkingLevel: clampThinkingLevel(target, route.thinkingLevel),
+			state: route.state,
+			role: route.role,
+		};
 	}
 
 	/** A catalog chat model that is not virtual. */
