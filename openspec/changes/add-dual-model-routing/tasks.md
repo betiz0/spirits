@@ -1,0 +1,58 @@
+# Tasks
+
+`VITEST` は `node "$(git rev-parse --show-toplevel)/node_modules/vitest/dist/cli.js" --run` を指し、`packages/coding-agent` で実行する。spirits のテストは `packages/spirits` で `bun test <file>`、型検査は `bun run check`。root の `npm run check` はコア差分の型検査に使う。
+
+## 1. 規約正本: routing 層の追加
+
+- [x] 1.1 `docs/architecture/convention-registry.md` の `registry:layers` に `"spirits:routing": ["spirits:shared", "packages/coding-agent"]` を追加し、`spirits:entry` の許可先に `spirits:routing` を足す。`registry:layer-members` に `"spirits:routing": ["packages/spirits/src/routing/"]` を追加し、「spirits は 8 層」の本文を 9 層と routing を含む記述に更新する。検証: `cd packages/spirits && bun test test/architecture-conventions.test.ts` が成功する(新規層は登録だけなら未使用でも失敗しないことを確認)。
+
+## 2. 型ミラーと設定の読み取り
+
+- [x] 2.1 `packages/spirits/src/types/pi-coding-agent.d.ts` に、virtual model 登録とルーティングに必要な最小形を追加する: `registerVirtualModel` / `unregisterVirtualModel`、`ExtensionVirtualModel`、`ModelRouteRequest`、`ModelRoute`(`role?: string` を含む)、`ExtensionContext.modelRegistry`(`getAvailable()` / `find(provider, modelId)` / `hasConfiguredAuth(model)`)、`ExtensionSettings.models`(`strong?: string`)。既存の test double(`test/harness-install.test.ts` と `test/todo-tool.test.ts` の `FakePi`)に `registerVirtualModel` / `unregisterVirtualModel` の no-op を実装する。検証: `cd packages/spirits && bun run check` が成功する。
+- [x] 2.2 `packages/spirits/src/constants.ts` に設定キー名(`models` / `strong`)、virtual model の provider id `spirits` と model id `auto`、ロール名 `normal` / `strong`、strong フェーズへ遷移させるスキル名 `sprt-opsx-review-change` と `sprt-opsx-verify-deep`、通知キーを追加する(PROJECT-GLOBAL の固定値としてソース直書きを避ける)。検証: `cd packages/spirits && bun run check` が成功する。
+- [x] 2.3 `packages/spirits/src/config.ts` に設定ファイル由来の strong 指定解決を追加する: `models.strong` を文字列として読み、`"<provider>/<modelId>"` と `"<modelId>"`(provider 未指定)に分ける。未設定、空文字、空白のみは未設定として扱う(`design` Decision 1)。検証: `bun test test/config.test.ts` の新ケース "reads a provider-qualified strong model setting" / "keeps a bare strong model id unqualified" / "treats a blank strong model setting as unset" / "ignores a non-string strong model setting" が成功する。
+- [x] 2.4 `packages/spirits/test/pi-runtime/settings-unknown-key.test.ts` を新規作成し、pi の `SettingsManager` が `models.strong` を含む未知キーを、既定モデルの保存後も設定ファイルに保持することを検証する(`design` Decision 1 の前提、Risk の Mitigation)。検証: `bun test test/pi-runtime/settings-unknown-key.test.ts` の "keeps unknown settings keys after saving a known setting" が成功する。
+
+## 3. Pi コア: ロールの型と entry の読み出し(`[spirits]` 差分 1/3)
+
+- [x] 3.1 `packages/coding-agent/src/core/virtual-models.ts` の `ModelRoute` と `VirtualModelStateData` に optional な `role?: string` を追加する(コアは値を解釈しない、`design` Decision 3)。entry 全体を返す `getVirtualModelEntry(branch, provider, modelId)` を追加し、既存の `getVirtualModelState` を `getVirtualModelEntry(branch, provider, modelId)?.state` を返す薄いラッパにして、分岐走査を 1 箇所にする(`design` Decision 4)。`packages/coding-agent/docs/virtual-models.md` の route 節と "Keep routing state" 節に role を追記する。検証: `VITEST test/virtual-models.test.ts` が成功し、root で `npm run check` が成功する。`getVirtualModelState` の本体にループが残っていないこと。
+
+## 4. Pi コア: ロールの透過・保存・復元(`[spirits]` 差分 2/3)
+
+- [x] 4.1 `packages/coding-agent/src/core/model-runtime.ts` の `resolveModel` が `route.role` を戻り値へ透過する。検証: `VITEST test/virtual-models.test.ts` の "passes the router role through resolveModel" / "returns no role when the router omits it" が成功する。
+- [x] 4.2 `packages/coding-agent/src/core/agent-session.ts` の `prepareRequest` で、`route.role` を `pi.virtual-model-state` entry に保存する。書き込み条件は「state が変わった」または「role が変わった」に広げ、`entry_appended` の発火は既存のまま維持する。`resolveModel` が throw したときは何も書かない(role の無い entry はそのまま読む、`design` Decision 4)。検証: `VITEST test/virtual-models.test.ts` の "stores the routed role on the session branch" / "appends a state entry when only the role changes" / "does not store a role when routing fails" が成功する。
+- [x] 4.3 `AgentSession.routedModel` が分岐に保存された role を返す。保存値の読み出しは leafId と entry count をキーにキャッシュし、毎フレームの分岐再走査を避ける(`model` / `thinkingLevel` の導出は既存のまま、`design` Decision 5)。分岐ごとに role が切り替わることのテストを追加する(spec「分岐ごとにロールを持つ」)。検証: `VITEST test/virtual-models.test.ts` の "reports the stored role on routedModel" / "reports no role for a branch without a stored role" / "reads a stored entry without a role as no role" / "restores the stored role when reopening the session" / "keeps routedModel undefined for a physical selection" / "reports the role stored on each branch"(分岐 A に strong、分岐 B に normal を記録し、`sessionManager.branch()` で行き来して `routedModel.role` を確かめる)が成功する。
+
+## 5. spirits: ルーティング判定
+
+- [x] 5.1 `packages/spirits/src/routing/resolve.ts` に normal / strong の対象解決を実装する。normal は既定 provider + 既定モデル、解決できなければ `request.previous`、どちらも無ければ未解決。strong は 2.3 の指定を `ctx.modelRegistry.getAvailable()` の完全一致(`provider/id` または `id`)と既定 provider で解決し、解決できないか `hasConfiguredAuth` が false なら未解決扱い(`design` Decision 1、2)。**normal・strong のどちらでも virtual model(`spirits/auto` 自身を含む)は対象にせず、解決できないものとして扱う**。virtual の判定のため、ミラーの `PiModel` に `api?: string` を追加し、pi の virtual model の api 値 `pi-virtual` を `constants.ts` に置く。`ModelLookup` はミラーの `ExtensionModelRegistry` から `Pick` で作り、型を再定義しない。検証: `bun test test/routing-resolve.test.ts` の "resolves the default model as normal" / "falls back to the previous model when the default is unresolvable" / "leaves normal unresolved without a default or a previous model" / "resolves a bare strong id against the default provider" / "leaves strong unresolved when the provider has no credentials" / "skips a virtual default and falls back to the previous model" / "leaves strong unresolved when it names a virtual model" が成功する。`bun test test/pi-runtime/virtual-model-api.test.ts` の "marks a registered virtual model with the pi-virtual api"(pi の `ModelRuntime` に virtual model を登録し、`getAvailable()` の要素の `api` が `pi-virtual` であることを固定する)が成功する。
+- [x] 5.2 `packages/spirits/src/routing/router.ts` に `route()` の本体を実装する: 現在のフェーズを読み、strong フェーズで strong が解決できるときだけ strong へ、それ以外は normal へ、`thinkingLevel` を透過して `role` を添えて返す。strong 未設定は無警告、strong が解決できないときは normal へフォールバックして `ctx.ui.notify` で 1 回だけ通知する(同一 run 内で同じ理由を重複させない、`design` Decision 8)。検証: `bun test test/routing-router.test.ts` の "routes normal outside a strong phase" / "routes the configured strong model during a strong phase" / "falls back to normal silently when no strong model is configured" / "falls back to normal and notifies once per run when the strong model is unusable" / "notifies once when falling back to the previous model" / "notifies again in the next run" が成功する。
+- [x] 5.3 `packages/spirits/src/routing/register.ts` で `spirits/auto` を登録する(`thinkingLevels` は全レベル、`contextWindow` / `maxTokens` は宣言しない)。`packages/spirits/src/index.ts` から呼び、`session_start` の理由を問わず登録が有効であることを確認する。検証: `bun test test/routing-register.test.ts` の "registers spirits/auto with every thinking level and no declared limits" / "routes through the registered model after a reload"(`spiritsExtension(pi)` を同じ fake pi に 2 回呼ぶ)が成功する。
+
+## 6. spirits: スキルに紐づくロールフェーズ
+
+- [x] 6.1 `packages/spirits/src/routing/phase.ts` に 1 値の状態機械を実装する: 実行中でないときの入力(`streamingBehavior` が無い入力)では、対象スキルのスラッシュコマンドなら strong、それ以外なら normal を代入する。実行中の steer / follow-up 入力ではフェーズを変えない。`settle()` は中断・エラーの区別なく normal を代入する(`design` Decision 6)。対象スキル名は `STRONG_PHASE_SKILL_NAMES` を直接参照し、`createRoutingPhase` に引数を持たせない。検証: `bun test test/routing-phase.test.ts` の "enters strong for the change review skill command" / "enters strong for the deep verify skill command" / "ignores other skill commands and plain input" / "returns to normal on settle regardless of abort" / "settles back to normal twice without drifting" / "returns to normal on the next idle input when no run settled"(strong 入力の後に settle が無いまま通常入力を受けると normal)/ "keeps the phase on steer and follow-up input" が成功する。
+- [x] 6.2 `packages/spirits/src/routing/register.ts` に `input` と `agent_settled` のハンドラを配線し、`input` ハンドラは `event.text` と `event.streamingBehavior` をフェーズへ渡す。`input` ハンドラが例外を投げた場合も、後続の `agent_settled` で normal に復帰できること、両ハンドラが登録解除関数を返すことを確認する。検証: `bun test test/routing-phase-wiring.test.ts` の "wires input and agent_settled handlers" / "phase returns to normal when settle follows a failed input handler" / "does not carry a strong phase into the next run when the skill run never started"(対象スキル入力の後に `agent_settled` を発火せず通常入力を発火し、次のリクエストが normal)が成功する。
+- [x] 6.3 登録・フェーズ・判定の統合確認を `packages/spirits/test/routing-integration.test.ts` に書く(登録済みの route 定義を取り出し、入力 → リクエスト → settle → リクエスト の順でロール列を検証)。検証: `bun test test/routing-integration.test.ts` の "runs normal, then strong during the skill, then normal after settle" / "keeps normal across a non-target skill run" が成功する。
+
+## 7. Pi コア: footer のロールバッジ(`[spirits]` 差分 3/3)
+
+- [x] 7.1 `packages/coding-agent/src/modes/interactive/components/footer.ts` で、`rightSide` の先頭に `[<role>]` を前置する。provider 前置の判定にはバッジ幅を含め、`(provider)` が最初に落ちるようにする。縮退順序、`truncateToWidth` による末尾切り詰め、余地が無いとき右側を出さない分岐、配色は変更しない(`design` Decision 7)。role は既存の `sanitizeStatusText` を通してから描画する。テストヘルパの fake session の `routedModel` に `role?: string` を追加する。検証: `VITEST test/footer-width.test.ts` の "prefixes the role badge to the right side" / "keeps the badge before the provider prefix" / "keeps the badge before the routed model" / "omits the badge when no role is recorded" / "drops the provider prefix before truncating the badge" / "keeps the badge while truncating the tail" / "drops the whole right side, badge included, when there is no room"(右側を置く余地が無い幅でバッジも右側も出ない)/ "renders a role with control characters on one line" が成功し、既存の幅関連ケースがすべてそのまま成功する。
+
+## 8. ドキュメント
+
+- [x] 8.1 `docs/spirits-core-diffs.md` を新規作成し、`git log --grep='\[spirits\]' --oneline` に現れる既存のコア差分コミット(現 10 件)と本変更の 3 差分を、コミット番号・対象ファイル・意図・導入した変更名の表として登録する(本変更の 3 件はコミット作成後に番号を埋める)。検証: `git log --grep='\[spirits\]' --oneline` の各行が登録簿に存在し、登録簿の行数がそれと一致する。
+- [x] 8.2 `docs/spirits-upstream-sync.md` の「4. コミット構成」に `docs/spirits-core-diffs.md` への参照と、取り込み後に登録簿と実差分を突き合わせる手順を追記する。検証: `grep -n "spirits-core-diffs" docs/spirits-upstream-sync.md` が 1 件以上を返す。
+- [x] 8.3 README 4 言語(`README.md`、`README.ja.md`、`README.de-CH.md`、`README.zh.md`)に、`models.strong` の設定形式、`/model spirits/auto` の選択、ステップ別の振り分け、バッジが「直近のリクエストのロール」であること(スキル起動直後と終了直後に 1 リクエスト遅れる)を記載する。加えて、`spirits/auto` を既定モデルとして保存すると normal の対象にならず、新しいセッションの最初のリクエストがエラーになるため、既定には物理モデルを置くことを記載する。検証: `grep -l "spirits/auto" README*.md | wc -l` が 4、`grep -l "models.strong" README*.md | wc -l` が 4、4 言語すべてに既定モデルの注意書きがある。
+- [x] 8.4 `docs/spirits-design.md` のコンポーネント設計に dual-model-routing を 1 節として追記し、コア差分 3 箇所と登録簿・§5 の規律への参照を書く(実装詳細は本変更の design.md を参照させ、重複記述を避ける)。検証: `grep -n "dual-model-routing" docs/spirits-design.md` が 1 件以上を返す。
+
+## 9. 統合確認
+
+- [x] 9.1 `cd packages/spirits && bun test && bun run check`、`cd packages/coding-agent && VITEST test/virtual-models.test.ts test/footer-width.test.ts`、root で `npm run check` がすべて成功する。
+- [x] 9.2 `git diff --name-only` で、コア側の差分が `src/core/virtual-models.ts`、`src/core/model-runtime.ts`、`src/core/agent-session.ts`、`src/modes/interactive/components/footer.ts`、`docs/virtual-models.md`、`test/virtual-models.test.ts`、`test/footer-width.test.ts` に閉じていることを確認し、`[spirits]` プレフィックスの独立コミット 3 つ(型と entry 読み出し / 透過・保存・復元 / footer)に分ける。
+- [x] 9.3 `.pi/skills/interactive-testing.md` に従い、`spirits/auto` を選択したセッションで TUI を起動し、`/skill:sprt-opsx-verify-deep` の実行中にバッジが `[strong]` へ変わり、settle 後の次の入力で `[normal]` へ戻ることを目視確認する。`models.strong` を置かない場合はバッジが `[normal]` のままで警告も出ないことを確認する。
+
+## Workflow follow-up
+
+- 3 つの `[spirits]` コミットを作成後、8.1 の登録簿にコミット番号を埋める。
+- `verify` → `openspec archive` の順で確定させる。アーカイブ時に `dual-model-routing` と `model-role-badge` の本仕様が新規作成され、`upstream-tracking` の本仕様へ 2 要件が追加されることを確認する。

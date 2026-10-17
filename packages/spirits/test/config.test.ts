@@ -10,7 +10,7 @@ import {
 	ENV_MEMORY_PREVIEW_LINES,
 	ENV_TODO_MAX_LINES,
 } from "../src/constants.ts";
-import { loadConfig } from "../src/config.ts";
+import { loadConfig, readRoutingSettings, readStrongModelSetting } from "../src/config.ts";
 
 test("defaults when unset", () => {
 	expect(loadConfig({})).toEqual({
@@ -68,6 +68,57 @@ test("todo max lines falls back on 0, abc, -1", () => {
 	for (const value of ["0", "abc", "-1"]) {
 		expect(loadConfig({ [ENV_TODO_MAX_LINES]: value }).todo.maxLines).toBe(DEFAULT_TODO_MAX_LINES);
 	}
+});
+
+test("reads a provider-qualified strong model setting", () => {
+	expect(readStrongModelSetting({ models: { strong: "anthropic/claude-opus-4-7" } })).toEqual({
+		provider: "anthropic",
+		modelId: "claude-opus-4-7",
+	});
+	expect(readStrongModelSetting({ models: { strong: " anthropic / claude-opus-4-7 " } })).toEqual({
+		provider: "anthropic",
+		modelId: "claude-opus-4-7",
+	});
+});
+
+test("keeps a bare strong model id unqualified", () => {
+	expect(readStrongModelSetting({ models: { strong: "claude-opus-4-7" } })).toEqual({
+		modelId: "claude-opus-4-7",
+	});
+	// Only the first separator splits the provider, so ids containing one survive.
+	expect(readStrongModelSetting({ models: { strong: "openrouter/anthropic/claude-opus-4-7" } })).toEqual({
+		provider: "openrouter",
+		modelId: "anthropic/claude-opus-4-7",
+	});
+});
+
+test("treats a blank strong model setting as unset", () => {
+	for (const value of ["", "   ", "\t", "anthropic/", "/claude-opus-4-7"]) {
+		expect(readStrongModelSetting({ models: { strong: value } })).toBeUndefined();
+	}
+	expect(readStrongModelSetting({})).toBeUndefined();
+	expect(readStrongModelSetting({ models: {} })).toBeUndefined();
+	expect(readStrongModelSetting(undefined)).toBeUndefined();
+});
+
+test("ignores a non-string strong model setting", () => {
+	for (const value of [42, true, null, ["anthropic/claude-opus-4-7"]]) {
+		expect(readStrongModelSetting({ models: { strong: value } })).toBeUndefined();
+	}
+	expect(readStrongModelSetting({ models: "anthropic/claude-opus-4-7" })).toBeUndefined();
+	expect(readStrongModelSetting({ models: ["strong"] })).toBeUndefined();
+});
+
+test("reads routing settings from a pi settings object", () => {
+	expect(readRoutingSettings({ defaultProvider: "anthropic", defaultModel: "claude-sonnet-4-5" })).toEqual({
+		defaultProvider: "anthropic",
+		defaultModelId: "claude-sonnet-4-5",
+	});
+	expect(readRoutingSettings({ defaultProvider: "anthropic", models: { strong: " claude-opus-4-7 " } })).toEqual({
+		defaultProvider: "anthropic",
+		strong: { modelId: "claude-opus-4-7" },
+	});
+	expect(readRoutingSettings({})).toEqual({});
 });
 
 test("bundled skills are enabled unless SPIRITS_BUNDLED_SKILLS=0", () => {

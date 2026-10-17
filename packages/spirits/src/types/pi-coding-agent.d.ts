@@ -19,10 +19,15 @@ import type { Static, TSchema } from "typebox";
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
-/** Minimal view of a pi-ai model. Spirits only reads `provider` and `id`. */
+/** Minimal view of a pi-ai model. */
 export interface PiModel {
 	provider: string;
 	id: string;
+	/**
+	 * pi's api id. A virtual catalog entry is `"pi-virtual"`, which pi does not export a helper for
+	 * outside its package. Absent on test doubles.
+	 */
+	api?: string;
 }
 
 export type ToolExecutionMode = "sequential" | "parallel";
@@ -95,6 +100,11 @@ export type TUI = unknown;
 /** Effective settings subset the spirits extension reads. */
 export interface ExtensionSettings {
 	quietStartup?: boolean | "header";
+	/**
+	 * spirits-owned settings keys. pi's `Settings` type does not declare them; pi keeps unknown
+	 * keys in the settings file when it saves a known setting, so no core change is needed.
+	 */
+	models?: { strong?: string };
 }
 
 /** Placement for extension widgets. */
@@ -117,6 +127,8 @@ export interface ExtensionUIContext {
 		content: ((tui: TUI, theme: Theme) => Component & { dispose?(): void }) | undefined,
 		options?: ExtensionWidgetOptions,
 	): void;
+	/** Show a notice. The only user-facing channel that works in every run mode. */
+	notify(message: string, type?: "info" | "warning" | "error"): void;
 }
 
 /** Fired when a session is started, loaded, or reloaded. */
@@ -138,6 +150,36 @@ export interface ResourcesDiscoverResult {
 	skillPaths?: string[];
 	promptPaths?: string[];
 	themePaths?: string[];
+}
+
+/** Source of user input. */
+export type InputSource = "interactive" | "rpc" | "extension";
+
+/**
+ * Fired when user input arrives. It fires before pi expands a `/skill:<name>` command into a skill
+ * block, so a handler sees the command name.
+ */
+export interface InputEvent {
+	type: "input";
+	/** The input text. */
+	text: string;
+	/** Where the input came from. */
+	source: InputSource;
+	/** How the input is delivered during streaming, or undefined when idle. */
+	streamingBehavior?: "steer" | "followUp";
+}
+
+/** Result of an `input` handler. */
+export type InputEventResult =
+	| { action: "continue" }
+	| { action: "transform"; text: string; images?: ImageContent[] }
+	| { action: "handled" };
+
+/** Fired after an agent run settled, with no automatic retry, compaction, or queued continuation left. */
+export interface AgentSettledEvent {
+	type: "agent_settled";
+	/** Whether the run ended because it was aborted, for example with Escape. */
+	aborted: boolean;
 }
 
 /** Fired after navigating in the session tree. */
@@ -177,6 +219,61 @@ export interface ExtensionContext {
 	thinkingLevel?: ThinkingLevel;
 	/** The current abort signal, or undefined when the agent is not streaming. */
 	signal: AbortSignal | undefined;
+	/** Catalog lookups used to resolve a route target. Only the methods spirits calls are mirrored. */
+	modelRegistry: ExtensionModelRegistry;
+}
+
+/** Catalog handle a router resolves its targets against. Only the methods spirits calls are mirrored. */
+export interface ExtensionModelRegistry {
+	/** Models available for selection: catalog entries whose provider has credentials. */
+	getAvailable(): PiModel[];
+	/** Catalog model of a provider, or undefined when the id is unknown. */
+	find(provider: string, modelId: string): PiModel | undefined;
+	/** Whether the model's provider has credentials. */
+	hasConfiguredAuth(model: PiModel): boolean;
+}
+
+/** Why a request is being routed. */
+export type ModelRouteReason = "user" | "continuation" | "retry" | "direct";
+
+/** One routing decision input. Spirits reads the selection, reason, and previous response only. */
+export interface ModelRouteRequest<TState = unknown> {
+	/** The selected virtual model. */
+	model: PiModel;
+	/** The selected thinking level. Its meaning is up to the router. */
+	thinkingLevel: ThinkingLevel;
+	reason: ModelRouteReason;
+	/** Physical model and thinking level of the latest successful response. */
+	previous?: { model: PiModel; thinkingLevel?: ThinkingLevel };
+	/** Router state last returned on this session branch. Undefined for `direct` requests. */
+	state?: TState;
+	signal?: AbortSignal;
+}
+
+/** Physical model, thinking level, and optional opaque role for one request. */
+export interface ModelRoute<TState = unknown> {
+	model: PiModel;
+	thinkingLevel: ThinkingLevel;
+	/** New router state, stored on the session branch. Must be JSON-serializable. */
+	state?: TState;
+	/** Label describing this request. pi stores and reports it without interpreting the value. */
+	role?: string;
+}
+
+/** Virtual model registered via `pi.registerVirtualModel()`. Only the fields spirits sets are mirrored. */
+export interface ExtensionVirtualModel<TState = unknown> {
+	/** Provider the virtual model is listed under. May be any provider id. */
+	provider: string;
+	/** Model id. Must not be the id of a physical model of `provider`. */
+	id: string;
+	name: string;
+	/** Thinking levels offered for selection. Defaults to `["off"]`. */
+	thinkingLevels?: readonly ThinkingLevel[];
+	/** Limits shown before the first response. Unset limits are unknown. */
+	contextWindow?: number;
+	maxTokens?: number;
+	/** Pick the physical model, which must have credentials, and the thinking level for one request. */
+	route(request: ModelRouteRequest<TState>, ctx: ExtensionContext): ModelRoute<TState> | Promise<ModelRoute<TState>>;
 }
 
 /** Context passed to tool `execute()`: the extension context plus `executeTool()`. */
@@ -218,6 +315,10 @@ export interface ExtensionAPI {
 	appendEntry<T = unknown>(customType: string, data?: T): void;
 	/** A copy of the effective settings (global and project merged, with overrides). */
 	getSettings(): ExtensionSettings;
+	/** Register a virtual model: a selectable catalog entry that routes each request. */
+	registerVirtualModel<TState = unknown>(model: ExtensionVirtualModel<TState>): void;
+	/** Remove a virtual model registered with `registerVirtualModel()`. */
+	unregisterVirtualModel(provider: string, id: string): void;
 	/** Subscribe to a session event. Returns an unsubscribe function. */
 	on(
 		event: "before_agent_start",
@@ -229,6 +330,8 @@ export interface ExtensionAPI {
 		event: "resources_discover",
 		handler: ExtensionHandler<ResourcesDiscoverEvent, ResourcesDiscoverResult>,
 	): () => void;
+	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): () => void;
+	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): () => void;
 }
 
 /** Extension event handler. Return a result to influence the session, or void to observe only. */
@@ -350,6 +453,39 @@ export class SessionManager {
 	appendMessage(message: AgentMessage & { timestamp?: number }): string;
 	/** Append a custom extension entry as a child of the current leaf. */
 	appendCustomEntry(customType: string, data?: unknown): string;
+}
+
+/** Settings manager. Only the methods the pi-runtime pin test calls are mirrored. */
+export class SettingsManager {
+	/** Load global (`<agentDir>/settings.json`) and project settings. */
+	static create(cwd: string, agentDir?: string): SettingsManager;
+	/** A copy of the effective settings, unknown keys included. */
+	getSettings(): ExtensionSettings;
+	/** Save the default provider and model id, the way `/model` does. */
+	setDefaultModelAndProvider(provider: string, modelId: string): void;
+	/** Await queued writes. */
+	flush(): Promise<void>;
+}
+
+/**
+ * Model runtime. Only the members the pi-runtime pin test calls are mirrored. The store options are
+ * `unknown` because their interfaces live in pi-ai, whose types spirits does not compile against.
+ */
+export class ModelRuntime {
+	/** Create a runtime. Without `credentials` pi reads the agent directory's credential file. */
+	static create(options?: {
+		credentials?: unknown;
+		modelsStore?: unknown;
+		modelsPath?: string | null;
+		allowModelNetwork?: boolean;
+		refreshOnCreate?: boolean;
+	}): Promise<ModelRuntime>;
+	/** Register a virtual model: a selectable catalog entry that routes each request. */
+	registerVirtualModel(model: ExtensionVirtualModel): void;
+	/** Reload the model config and catalogs. */
+	refresh(options?: { allowNetwork?: boolean }): Promise<unknown>;
+	/** Models available for selection, virtual entries included. */
+	getAvailable(): Promise<PiModel[]>;
 }
 
 /** Options for `DefaultResourceLoader`. Only the fields spirits sets are mirrored. */

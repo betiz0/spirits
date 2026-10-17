@@ -119,5 +119,58 @@ export const TOOL_NAME_PROMPT_SET = "spirits_prompt_set";
 /** Environment variable that disables the bundled skills. Set to `0` to disable; unset or any other value keeps them enabled. */
 export const ENV_BUNDLED_SKILLS = "SPIRITS_BUNDLED_SKILLS";
 
+// ---------------------------------------------------------------------------
+// Dual model routing (`spirits/auto`)
+// ---------------------------------------------------------------------------
+
+/** Settings key holding the strong model spec. pi keeps the key because it keeps unknown keys. */
+export const SETTINGS_KEY_MODELS = "models";
+
+/** Settings key under SETTINGS_KEY_MODELS holding the strong model spec string. */
+export const SETTINGS_KEY_STRONG_MODEL = "strong";
+
+/** Settings key of pi's default model provider, the normal target when it is set. */
+export const SETTINGS_KEY_DEFAULT_PROVIDER = "defaultProvider";
+
+/** Settings key of pi's default model id, the normal target when it is set. */
+export const SETTINGS_KEY_DEFAULT_MODEL = "defaultModel";
+
+/** Separates the provider from the model id in a model key. Shared with pi's model references. */
+export const MODEL_SPEC_SEPARATOR = "/";
+
+/** Provider of the routing virtual model. No provider uses the id, so the model is always selectable. */
+export const ROUTING_PROVIDER_ID = "spirits";
+
+/** Model id of the routing virtual model, selected as `/model spirits/auto`. */
+export const ROUTING_MODEL_ID = "auto";
+
+/** Name shown for the routing virtual model in the model selector. */
+export const ROUTING_MODEL_NAME = "Auto";
+
+/** Role of every request that is not made during a strong phase. */
+export const MODEL_ROLE_NORMAL = "normal";
+
+/** Role of the requests a strong-phase skill makes. */
+export const MODEL_ROLE_STRONG = "strong";
+
+/** Prefix of the skill commands the `input` event reports before pi expands them. */
+export const SKILL_COMMAND_PREFIX = "/skill:";
+
+/** Skills whose agent run goes to the strong role. */
+export const STRONG_PHASE_SKILL_NAMES: readonly string[] = ["sprt-opsx-review-change", "sprt-opsx-verify-deep"];
+
+/**
+ * pi's api id for virtual catalog entries. pi keeps `isVirtualModel` inside the package, so spirits
+ * reads this value off `PiModel.api` to keep virtual models out of routing targets. Pinned by
+ * `test/pi-runtime/virtual-model-api.test.ts`.
+ */
+export const PI_VIRTUAL_MODEL_API = "pi-virtual";
+
+/** Notification suppressed after the first one in a run: a configured strong model cannot be used. */
+export const NOTIFY_KEY_STRONG_UNUSABLE = "routing-strong-unusable";
+
+/** Notification suppressed after the first one in a run: normal fell back to the previous model. */
+export const NOTIFY_KEY_PREVIOUS_FALLBACK = "routing-previous-fallback";
+
 /** Days a non-current bundled version directory is kept before cleanup. Unit: days. */
 export const BUNDLED_SKILLS_STALE_AFTER_DAYS = 7;

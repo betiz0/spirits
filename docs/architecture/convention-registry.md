@@ -16,7 +16,7 @@
 - 公開パッケージ(`package.json` の `private` でないもの)は `packages/<ディレクトリ名>` の層を持つ。許可向きは各 `package.json` の `dependencies` / `optionalDependencies` / `peerDependencies` の workspace 依存から検査時に導出する。依存追加は正本の編集なしに新しい向きを許可する。
 - private パッケージと例外層と spirits の層は `registry:layers` の表を正とする。
 - **例外層**は公開パッケージの `tsconfig.build.json` の `exclude` のうち `src/` 配下を指し(`src` 自身を除く)、glob を含まず、実在するディレクトリからなる。例外層の許可向きは「当該パッケージの `package.json` 宣言分 + 同パッケージの例外層以外の部分 + 下記 `registry:layers` に列挙した未宣言パッケージ」である。
-- **spirits** は 8 層に分割される。`packages/spirits/src/index.ts` だけが `entry` 層で、`repl` `rlm` `harness` `todo` `update` は互いに依存しない兄弟層。`bin` を除く全 src 層は Pi(`packages/coding-agent` と `packages/tui`)を許可する。
+- **spirits** は 9 層に分割される。`packages/spirits/src/index.ts` だけが `entry` 層で、`repl` `rlm` `harness` `todo` `update` `routing` は互いに依存しない兄弟層。`bin` を除く全 src 層は Pi(`packages/coding-agent` と `packages/tui`)を許可する。ただし `routing` は Pi のうち `packages/coding-agent` のみを許可する。
 - 層への所属は `registry:layer-members` の登録パスだけで決める。登録に当てはまらない src のファイルは既定の層に割り当てず、`ARCH-LAYER-UNKNOWN` で失敗する。
 
 ## 機械可読部
@@ -36,7 +36,8 @@
   "spirits:harness": ["spirits:repl", "spirits:shared", "packages/coding-agent", "packages/tui"],
   "spirits:todo": ["spirits:repl", "spirits:shared", "packages/coding-agent", "packages/tui"],
   "spirits:update": ["spirits:shared", "packages/coding-agent", "packages/tui"],
-  "spirits:entry": ["spirits:repl", "spirits:shared", "spirits:rlm", "spirits:harness", "spirits:todo", "packages/coding-agent", "packages/tui"],
+  "spirits:routing": ["spirits:shared", "packages/coding-agent"],
+  "spirits:entry": ["spirits:repl", "spirits:shared", "spirits:rlm", "spirits:harness", "spirits:todo", "spirits:routing", "packages/coding-agent", "packages/tui"],
   "spirits:bin": ["spirits:entry", "spirits:shared", "spirits:update", "packages/coding-agent"]
 }
 ```
@@ -48,6 +49,7 @@
   "spirits:harness": ["packages/spirits/src/harness/"],
   "spirits:todo": ["packages/spirits/src/todo/"],
   "spirits:update": ["packages/spirits/src/update/"],
+  "spirits:routing": ["packages/spirits/src/routing/"],
   "spirits:shared": [
     "packages/spirits/src/config.ts",
     "packages/spirits/src/constants.ts",
@@ -142,7 +144,7 @@
 ## ARCH-SPIRITS-LAYER: spirits の層の許可向き
 
 - **強度**: SHALL
-- **内容**: spirits の各層(`repl` `shared` `rlm` `harness` `todo` `update` `entry` `bin`)は `registry:layers` の表に載った層へのみ依存する。`rlm` `harness` `todo` は互いに依存できない兄弟層。エントリ層へ import できるのは `bin` のみ。
+- **内容**: spirits の各層(`repl` `shared` `rlm` `harness` `todo` `update` `routing` `entry` `bin`)は `registry:layers` の表に載った層へのみ依存する。`rlm` `harness` `todo` `routing` は互いに依存できない兄弟層。エントリ層へ import できるのは `bin` のみ。
 - **例外**: `bin` は `entry` `shared` `update` と `packages/coding-agent` へ依存できる(コンパイル済み単一バイナリの起動時初期化のため)。
 - **判定方法**: 起点が `spirits:repl` 以外の spirits の層の層違反を `ARCH-SPIRITS-LAYER` として報告する。
 - **根拠**: ハードルール「後段非依存」と Roadmap の兄弟層の分離。design decision 1。

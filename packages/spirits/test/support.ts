@@ -1,7 +1,17 @@
-import type { ExtensionToolContext, ReadonlySessionManager } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionModelRegistry,
+	ExtensionToolContext,
+	ReadonlySessionManager,
+} from "@earendil-works/pi-coding-agent";
 import type { HostFnScope } from "../src/repl/registry.ts";
 
 const EMPTY_SESSION_MANAGER: ReadonlySessionManager = { getBranch: () => [] };
+
+const EMPTY_MODEL_REGISTRY: ExtensionModelRegistry = {
+	getAvailable: () => [],
+	find: () => undefined,
+	hasConfiguredAuth: () => false,
+};
 
 /** Build an `ExtensionToolContext` good enough for REPL tests. */
 export function makeToolContext(
@@ -15,13 +25,14 @@ export function makeToolContext(
 	} = {},
 ): ExtensionToolContext {
 	return {
-		ui: { setHeader: () => {}, setWidget: () => {} },
+		ui: { setHeader: () => {}, setWidget: () => {}, notify: () => {} },
 		mode: "tui",
 		cwd: options.cwd ?? process.cwd(),
 		signal: options.signal,
 		model: options.model,
 		thinkingLevel: options.thinkingLevel,
 		sessionManager: options.sessionManager ?? EMPTY_SESSION_MANAGER,
+		modelRegistry: EMPTY_MODEL_REGISTRY,
 		tools: [],
 		executeTool:
 			options.executeTool ??

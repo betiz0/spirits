@@ -3,10 +3,13 @@ import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type {
+	AgentSettledEvent,
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
 	ExtensionAPI,
 	ExtensionHandler,
+	InputEvent,
+	InputEventResult,
 	ResourcesDiscoverEvent,
 	ResourcesDiscoverResult,
 	SessionStartEvent,
@@ -39,6 +42,10 @@ class FakePi implements ExtensionAPI {
 		return {};
 	}
 
+	registerVirtualModel(): void {}
+
+	unregisterVirtualModel(): void {}
+
 	on(
 		event: "before_agent_start",
 		handler: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>,
@@ -49,14 +56,9 @@ class FakePi implements ExtensionAPI {
 		event: "resources_discover",
 		handler: ExtensionHandler<ResourcesDiscoverEvent, ResourcesDiscoverResult>,
 	): () => void;
-	on(
-		event: string,
-		handler:
-			| ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>
-			| ExtensionHandler<SessionStartEvent>
-			| ExtensionHandler<SessionTreeEvent>
-			| ExtensionHandler<ResourcesDiscoverEvent, ResourcesDiscoverResult>,
-	): () => void {
+	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): () => void;
+	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): () => void;
+	on(event: string, handler: unknown): () => void {
 		if (event === "session_start") {
 			this.sessionHandlers.push(handler as ExtensionHandler<SessionStartEvent>);
 		} else if (event === "session_tree") {

@@ -1,9 +1,12 @@
 import { expect, test } from "bun:test";
 import type {
+	AgentSettledEvent,
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
 	ExtensionAPI,
 	ExtensionHandler,
+	InputEvent,
+	InputEventResult,
 	ResourcesDiscoverEvent,
 	ResourcesDiscoverResult,
 	SessionEntry,
@@ -35,6 +38,10 @@ class FakePi implements ExtensionAPI {
 		return {};
 	}
 
+	registerVirtualModel(): void {}
+
+	unregisterVirtualModel(): void {}
+
 	on(
 		event: "before_agent_start",
 		handler: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>,
@@ -45,6 +52,8 @@ class FakePi implements ExtensionAPI {
 		event: "resources_discover",
 		handler: ExtensionHandler<ResourcesDiscoverEvent, ResourcesDiscoverResult>,
 	): () => void;
+	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): () => void;
+	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): () => void;
 	on(_event: string, _handler: unknown): () => void {
 		return () => {};
 	}

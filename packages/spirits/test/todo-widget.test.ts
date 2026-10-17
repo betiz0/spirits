@@ -1,11 +1,14 @@
 import { expect, test } from "bun:test";
 import type {
+	AgentSettledEvent,
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
 	ExtensionHandler,
 	ExtensionMode,
 	ExtensionToolContext,
 	ExtensionUIContext,
+	InputEvent,
+	InputEventResult,
 	ResourcesDiscoverEvent,
 	ResourcesDiscoverResult,
 	SessionEntry,
@@ -70,6 +73,8 @@ class FakePi {
 		event: "resources_discover",
 		handler: ExtensionHandler<ResourcesDiscoverEvent, ResourcesDiscoverResult>,
 	): () => void;
+	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): () => void;
+	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): () => void;
 	on(event: string, handler: unknown): () => void {
 		if (event === "session_start") {
 			this.sessionStartHandlers.push(handler as ExtensionHandler<SessionStartEvent>);

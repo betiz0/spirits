@@ -5,7 +5,8 @@
  * which lets cells start child agent sessions through the same host function registry.
  * M4 adds the continual harness: `goal` / `note` host functions, the code-mode and memory
  * prompt sections, and the skill / prompt codemode tools. The branding module replaces pi's
- * startup header in TUI mode. The session TODO list adds the `manage_todos` tool.
+ * startup header in TUI mode. The session TODO list adds the `manage_todos` tool. Dual model
+ * routing registers the `spirits/auto` virtual model that splits requests between two roles.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -16,6 +17,7 @@ import { getAgentDir } from "./harness/paths.ts";
 import { DEFAULT_MAX_DEPTH } from "./rlm/depth.ts";
 import { createRlmHostFn } from "./rlm/hostfn.ts";
 import { spawnChildSession } from "./rlm/spawn.ts";
+import { registerDualModelRouting } from "./routing/register.ts";
 import { registerManageTodos } from "./todo/tool.ts";
 import { registerTodoPanel } from "./todo/widget.ts";
 import { registerTsrepl } from "./tools.ts";
@@ -30,4 +32,5 @@ export default function spiritsExtension(pi: ExtensionAPI): void {
 	registerTsrepl(pi, { hostFns: [rlm, ...harnessHostFns] });
 	registerManageTodos(pi);
 	registerTodoPanel(pi);
+	registerDualModelRouting(pi);
 }
