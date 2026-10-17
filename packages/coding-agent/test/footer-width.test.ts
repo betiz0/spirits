@@ -25,7 +25,7 @@ function createSession(options: {
 	compactionUsage?: AssistantUsage;
 	toolUsage?: AssistantUsage;
 	usingSubscription?: boolean;
-	routedModel?: { model: { id: string }; thinkingLevel?: string };
+	routedModel?: { model: { id: string }; thinkingLevel?: string; role?: string };
 }): AgentSession {
 	const usage = options.usage;
 	const entries: Array<Record<string, unknown>> = [];
@@ -170,6 +170,107 @@ describe("FooterComponent width handling", () => {
 		const statsLine = stripAnsi(footer.render(120)[1]);
 
 		expect(statsLine).toContain("auto \u2022 high \u2192 gpt-5.6-luna \u2022 medium");
+	});
+
+	// Right side of a virtual selection: `auto • high → claude-opus-4-7 • high` is 36 visible columns,
+	// the badge adds 9, the provider prefix adds 10, and the stats side is 17 with no usage recorded.
+	function roleSession(role: string | undefined) {
+		return createSession({
+			sessionName: "",
+			modelId: "auto",
+			provider: "spirits",
+			reasoning: true,
+			thinkingLevel: "high",
+			routedModel: { model: { id: "claude-opus-4-7" }, thinkingLevel: "high", role },
+		});
+	}
+
+	it("prefixes the role badge to the right side", () => {
+		const footer = new FooterComponent(roleSession("strong"), createFooterData(1));
+
+		const statsLine = stripAnsi(footer.render(120)[1]);
+
+		// The right side is right-aligned, so it ends the line.
+		expect(statsLine.endsWith("[strong] auto • high → claude-opus-4-7 • high")).toBe(true);
+	});
+
+	it("keeps the badge before the provider prefix", () => {
+		const footer = new FooterComponent(roleSession("normal"), createFooterData(2));
+
+		const statsLine = stripAnsi(footer.render(120)[1]);
+
+		expect(statsLine).toContain("[normal] (spirits) auto • high → claude-opus-4-7 • high");
+	});
+
+	it("keeps the badge before the routed model", () => {
+		const footer = new FooterComponent(roleSession("strong"), createFooterData(1));
+
+		const statsLine = stripAnsi(footer.render(120)[1]);
+
+		const badge = statsLine.indexOf("[strong]");
+
+		// Both the selection and the routed display follow the badge.
+		expect(statsLine.indexOf("auto • high", badge)).toBeGreaterThan(badge);
+		expect(statsLine.indexOf("→ claude-opus-4-7", badge)).toBeGreaterThan(badge);
+	});
+
+	it("omits the badge when no role is recorded", () => {
+		const footer = new FooterComponent(roleSession(undefined), createFooterData(2));
+
+		const statsLine = stripAnsi(footer.render(120)[1]);
+
+		expect(statsLine).not.toContain("[");
+		expect(statsLine).toContain("(spirits) auto • high → claude-opus-4-7 • high");
+	});
+
+	it("drops the provider prefix before truncating the badge", () => {
+		// 70 columns fit the badge, the model and the routed model, but not the provider prefix too.
+		const footer = new FooterComponent(roleSession("strong"), createFooterData(2));
+
+		const statsLine = stripAnsi(footer.render(70)[1]);
+
+		expect(statsLine).not.toContain("(spirits)");
+		expect(statsLine).toContain("[strong] auto • high → claude-opus-4-7 • high");
+		expect(visibleWidth(statsLine)).toBeLessThanOrEqual(70);
+	});
+
+	it("keeps the badge while truncating the tail", () => {
+		const footer = new FooterComponent(roleSession("strong"), createFooterData(2));
+
+		const statsLine = stripAnsi(footer.render(60)[1]);
+
+		expect(statsLine).toContain("[strong] auto");
+		// The tail goes first: the routed model's thinking level is what the truncation cut.
+		expect(statsLine).not.toContain("claude-opus-4-7 • high");
+		expect(visibleWidth(statsLine)).toBeLessThanOrEqual(60);
+	});
+
+	it("drops the whole right side, badge included, when there is no room", () => {
+		const footer = new FooterComponent(roleSession("strong"), createFooterData(2));
+
+		// 19 columns leave nothing after the stats and the minimum padding, so the right side is not
+		// rendered at all: the badge does not survive on its own either.
+		const lines = footer.render(19);
+		const statsLine = stripAnsi(lines[1]);
+
+		expect(lines).toHaveLength(2);
+		expect(statsLine).toBe("12.3%/200k (auto)");
+		expect(statsLine).not.toContain("[");
+		expect(statsLine).not.toContain("claude-opus-4-7");
+		expect(visibleWidth(statsLine)).toBeLessThanOrEqual(19);
+	});
+
+	// spec "model-role-badge / ロールバッジの表記": 制御文字を含むロール
+	it("renders a role with control characters on one line", () => {
+		const footer = new FooterComponent(roleSession("stro\n\tng"), createFooterData(1));
+
+		const lines = footer.render(120);
+		const statsLine = stripAnsi(lines[1]);
+
+		// The badge stays a single line, and the footer keeps its two lines.
+		expect(lines).toHaveLength(2);
+		expect(statsLine).toContain("[stro ng]");
+		expect(statsLine).not.toContain("\n");
 	});
 
 	it("includes summary and tool result usage in the total cost", () => {

@@ -244,15 +244,21 @@ export class FooterComponent implements Component {
 			rightSideWithoutProvider += ` → ${routed.model.id}${level}`;
 		}
 
+		// The routing role badge goes in front of every other right-side element. Its width counts
+		// against the provider prefix, so the prefix is what falls back first, and the tail truncation
+		// below loses `→ routed` and the model name before the badge. A router returns an opaque label,
+		// so it goes through the same single-line sanitizing as the extension statuses below.
+		const roleBadge = routed?.role ? `[${sanitizeStatusText(routed.role)}] ` : "";
+
 		// Prepend the provider in parentheses if there are multiple providers and there's enough room
 		let rightSide = rightSideWithoutProvider;
 		if (this.footerData.getAvailableProviderCount() > 1 && state.model) {
-			rightSide = `(${state.model!.provider}) ${rightSideWithoutProvider}`;
-			if (statsLeftWidth + minPadding + visibleWidth(rightSide) > width) {
-				// Too wide, fall back
-				rightSide = rightSideWithoutProvider;
+			const withProvider = `(${state.model!.provider}) ${rightSideWithoutProvider}`;
+			if (statsLeftWidth + minPadding + visibleWidth(roleBadge + withProvider) <= width) {
+				rightSide = withProvider;
 			}
 		}
+		rightSide = roleBadge + rightSide;
 
 		const rightSideWidth = visibleWidth(rightSide);
 		const totalNeeded = statsLeftWidth + minPadding + rightSideWidth;
