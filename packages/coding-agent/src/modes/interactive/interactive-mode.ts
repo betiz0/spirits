@@ -378,6 +378,11 @@ type LoginProviderCompletionOption = {
 
 const RADIUS_LOGIN_INTRO = "Radius is a service crafted for Pi by the builders of Pi, Earendil Works";
 
+/** The role vocabulary an extension registered for `/model`, empty when none registered one. */
+function registeredModelRoles(extensionRunner: ExtensionRunner): readonly string[] {
+	return extensionRunner.getModelRoles()?.roles ?? [];
+}
+
 /**
  * Whether a model supports a thinking level. Unlike AgentSession.setThinkingLevel,
  * this never clamps: callers use it to reject unsupported levels before applying them.
@@ -756,9 +761,13 @@ export class InteractiveMode {
 
 				if (models.length === 0) return null;
 
-				const levelCompletions = getThinkingLevelArgumentCompletions(prefix, models);
-				if (levelCompletions) {
-					return levelCompletions;
+				const argumentCompletions = getThinkingLevelArgumentCompletions(
+					prefix,
+					models,
+					registeredModelRoles(this.session.extensionRunner),
+				);
+				if (argumentCompletions) {
+					return argumentCompletions;
 				}
 
 				// Create items with provider/id format
@@ -5273,31 +5282,75 @@ export class InteractiveMode {
 		});
 	}
 
+	/**
+	 * Apply a role `/model` chose: tell the extension that registered the vocabulary, and store it as
+	 * the global default role when the save key submitted the command. pi neither validates the value nor
+	 * knows what the settings key means, and a model selection stands on its own: a failing `onSelect`
+	 * is reported as an extension error rather than undoing the model.
+	 */
+	private applyModelRole(role: string, persist: boolean): void {
+		const registration = this.session.extensionRunner.getModelRoles();
+		if (persist && registration) {
+			this.settingsManager.setExtensionNestedSetting(
+				registration.settingsKey.field,
+				registration.settingsKey.key,
+				role,
+			);
+		}
+		this.session.extensionRunner.selectModelRole(role);
+	}
+
+	/** Status line for an applied selection. The persist wording lists what became a default. */
+	private modelSelectionStatus(
+		persist: boolean,
+		model: Model<any>,
+		thinkingLevel: ThinkingLevel | undefined,
+		role: string | undefined,
+	): string {
+		if (!persist) {
+			return `Model: ${model.id}`;
+		}
+		const saved = [`Default model: ${model.provider}/${model.id}`];
+		if (thinkingLevel) {
+			saved.push(`Default thinking level: ${thinkingLevel}`);
+		}
+		if (role) {
+			saved.push(`Default role: ${role}`);
+		}
+		return saved.join(" · ");
+	}
+
 	private async handleModelCommand(searchTerm?: string, persist?: boolean): Promise<void> {
-		const { searchTerm: modelTerm, thinkingLevel } = parseModelCommandArgs(searchTerm ?? "");
+		const {
+			searchTerm: modelTerm,
+			thinkingLevel,
+			role,
+		} = parseModelCommandArgs(searchTerm ?? "", registeredModelRoles(this.session.extensionRunner));
 		if (!modelTerm) {
-			this.showModelSelector(undefined, thinkingLevel, persist);
+			this.showModelSelector(undefined, thinkingLevel, persist, role);
 			return;
 		}
 
 		const model = await this.findExactModelMatch(modelTerm);
 		if (model) {
-			await this.applyModelSelection(model, thinkingLevel, persist ?? false);
+			await this.applyModelSelection(model, thinkingLevel, persist ?? false, role);
 			return;
 		}
 
-		this.showModelSelector(modelTerm, thinkingLevel, persist);
+		this.showModelSelector(modelTerm, thinkingLevel, persist, role);
 	}
 
 	/**
-	 * Apply a model selection with an optional thinking level. The level is validated
+	 * Apply a model selection with an optional thinking level and role. The level is validated
 	 * against the target model first; when the model does not support it, an error is
-	 * shown and neither the model nor the thinking level changes.
+	 * shown and neither the model nor the thinking level changes. The role reaches the extension
+	 * that registered the vocabulary whatever the kind of model that was selected.
 	 */
 	private async applyModelSelection(
 		model: Model<any>,
 		thinkingLevel: ThinkingLevel | undefined,
 		persist: boolean,
+		role?: string,
 	): Promise<void> {
 		if (thinkingLevel && !modelSupportsThinkingLevel(model, thinkingLevel)) {
 			this.showError(`Thinking level "${thinkingLevel}" is not supported by ${model.provider}/${model.id}.`);
@@ -5311,13 +5364,10 @@ export class InteractiveMode {
 			if (thinkingLevel) {
 				this.session.setThinkingLevel(thinkingLevel, { persist });
 			}
-			this.showStatus(
-				persist
-					? thinkingLevel
-						? `Default model: ${model.provider}/${model.id} · Default thinking level: ${thinkingLevel}`
-						: `Default model: ${model.provider}/${model.id}`
-					: `Model: ${model.id}`,
-			);
+			if (role) {
+				this.applyModelRole(role, persist);
+			}
+			this.showStatus(this.modelSelectionStatus(persist, model, thinkingLevel, role));
 			void this.maybeWarnAboutAnthropicSubscriptionAuth(model);
 		} catch (error) {
 			this.showError(error instanceof Error ? error.message : String(error));
@@ -5453,6 +5503,7 @@ export class InteractiveMode {
 		initialSearchInput?: string,
 		pendingThinkingLevel?: ThinkingLevel,
 		persist?: boolean,
+		pendingRole?: string,
 	): void {
 		this.showSelector((done) => {
 			const selectModel = async (model: Model<any>, selectorPersist: boolean) => {
@@ -5472,14 +5523,12 @@ export class InteractiveMode {
 					if (pendingThinkingLevel) {
 						this.session.setThinkingLevel(pendingThinkingLevel, { persist: persistRequest });
 					}
+					// The pending role applies to whatever the selector picked, and a cancel never gets here.
+					if (pendingRole) {
+						this.applyModelRole(pendingRole, persistRequest);
+					}
 					done();
-					this.showStatus(
-						persistRequest
-							? pendingThinkingLevel
-								? `Default model: ${model.provider}/${model.id} · Default thinking level: ${pendingThinkingLevel}`
-								: `Default model: ${model.provider}/${model.id}`
-							: `Model: ${model.id}`,
-					);
+					this.showStatus(this.modelSelectionStatus(persistRequest, model, pendingThinkingLevel, pendingRole));
 					void this.maybeWarnAboutAnthropicSubscriptionAuth(model);
 				} catch (error) {
 					done();

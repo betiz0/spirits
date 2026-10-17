@@ -1885,6 +1885,24 @@ export interface ExtensionAPI {
 	/** Remove a virtual model registered with `registerVirtualModel()`. */
 	unregisterVirtualModel(provider: string, id: string): void;
 
+	/**
+	 * Register the role vocabulary `/model` accepts as its last argument, so an extension can lock a
+	 * session role and store a default role without pi knowing what a role means.
+	 *
+	 * pi matches the trailing word against `roles` case-insensitively, hands the matching vocabulary
+	 * entry to `onSelect` after it applied the model, and writes the same value to `settingsKey` when
+	 * the save key submits the command. One registration is active: registering again replaces it, which
+	 * is what an extension reload does. See docs/extensions.md.
+	 *
+	 * @example
+	 * pi.registerModelRoles({
+	 *   roles: ["normal", "strong"],
+	 *   settingsKey: { field: "models", key: "role" },
+	 *   onSelect: (role) => lockRole(role),
+	 * });
+	 */
+	registerModelRoles(definition: ModelRoleRegistration): void;
+
 	/** Shared event bus for extension communication. */
 	events: EventBus;
 }
@@ -1897,6 +1915,27 @@ export interface ExtensionAPI {
 export interface ExtensionVirtualModel<TState = unknown> extends Omit<VirtualModelDefinition<TState>, "route"> {
 	/** Like `VirtualModelDefinition.route`, with an extension context. */
 	route(request: ModelRouteRequest<TState>, ctx: ExtensionContext): ModelRoute<TState> | Promise<ModelRoute<TState>>;
+}
+
+/** Where `pi.registerModelRoles()` tells pi to store the default role. pi writes the names it is given. */
+export interface ModelRoleSettingsKey {
+	/** Top-level settings field, for example `models`. */
+	field: string;
+	/** Key inside that field, for example `role`. */
+	key: string;
+}
+
+/** Definition passed to `pi.registerModelRoles()`. A role is an opaque string to pi. */
+export interface ModelRoleRegistration {
+	/** Role words accepted as the last `/model` argument, matched case-insensitively. */
+	roles: readonly string[];
+	/** Settings location the `/model` save key writes the chosen role to. */
+	settingsKey: ModelRoleSettingsKey;
+	/**
+	 * Called after `/model` applied a model, whatever the kind of model that was selected. Not called
+	 * when the model selector was cancelled.
+	 */
+	onSelect(role: string, ctx: ExtensionContext): void;
 }
 
 /** Configuration for registering a provider via pi.registerProvider(). */
@@ -2128,6 +2167,11 @@ export interface ExtensionRuntimeState {
 	pendingNativeProviderRegistrations: Array<{ provider: Provider; extensionPath: string }>;
 	/** Virtual model registrations queued during extension loading, processed when runner binds. */
 	pendingVirtualModelRegistrations: Array<{ definition: VirtualModelDefinition; extensionPath: string }>;
+	/**
+	 * The `pi.registerModelRoles()` registration, or undefined when no extension registered one. Only
+	 * one is active: a later registration replaces the earlier one, as an extension reload does.
+	 */
+	modelRoles: { definition: ModelRoleRegistration; extensionPath: string } | undefined;
 	/** Create an extension context. Throws before the runner binds. */
 	createContext: () => ExtensionContext;
 	/** Throws when this extension instance is stale after runtime replacement. */
@@ -2149,6 +2193,8 @@ export interface ExtensionRuntimeState {
 	mcpServers: McpServerRegistry;
 	registerVirtualModel: (definition: VirtualModelDefinition, extensionPath?: string) => void;
 	unregisterVirtualModel: (provider: string, id: string) => void;
+	/** Stores the single active `pi.registerModelRoles()` registration. */
+	registerModelRoles: (definition: ModelRoleRegistration, extensionPath?: string) => void;
 }
 
 /**

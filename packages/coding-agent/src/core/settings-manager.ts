@@ -1236,6 +1236,25 @@ export class SettingsManager {
 		});
 	}
 
+	/**
+	 * Write one nested key of a settings field pi does not type, for an extension that owns what the key
+	 * means. pi keeps unknown keys and writes back only the nested keys marked here, so a sibling the
+	 * operator set by hand (another key of the same field) survives the save. The global scope is the
+	 * only one written: a default an extension stores applies to every project.
+	 */
+	setExtensionNestedSetting(field: string, key: string, value: string): void {
+		const settings = this.globalSettings as Record<string, unknown>;
+		const nested = settings[field];
+		const next: Record<string, unknown> =
+			typeof nested === "object" && nested !== null && !Array.isArray(nested)
+				? { ...(nested as Record<string, unknown>) }
+				: {};
+		next[key] = value;
+		settings[field] = next;
+		this.markModified(field as keyof Settings, key);
+		this.save();
+	}
+
 	getSkillPaths(): string[] {
 		return [...(this.settings.skills ?? [])];
 	}

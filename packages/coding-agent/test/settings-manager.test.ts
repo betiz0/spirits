@@ -111,6 +111,38 @@ describe("SettingsManager", () => {
 		});
 	});
 
+	// spec "model-commands / /model は保存キーで既定として保存する": pi が型を知らない拡張キーの 1 キーだけを書く
+	describe("extension nested settings", () => {
+		it("saves one nested extension key and keeps its siblings", async () => {
+			const settingsPath = join(agentDir, "settings.json");
+			writeFileSync(settingsPath, JSON.stringify({ models: { strong: "anthropic/claude-opus-4-7" } }, null, 2));
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+			manager.setExtensionNestedSetting("models", "role", "strong");
+			await manager.flush();
+
+			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			expect(savedSettings.models).toEqual({ strong: "anthropic/claude-opus-4-7", role: "strong" });
+			expect((manager.getSettings() as Record<string, unknown>).models).toEqual({
+				strong: "anthropic/claude-opus-4-7",
+				role: "strong",
+			});
+		});
+
+		it("creates the field and replaces only the one key", async () => {
+			const settingsPath = join(agentDir, "settings.json");
+			writeFileSync(settingsPath, JSON.stringify({ theme: "dark" }, null, 2));
+
+			const manager = SettingsManager.create(projectDir, agentDir);
+			manager.setExtensionNestedSetting("models", "role", "normal");
+			manager.setExtensionNestedSetting("models", "role", "strong");
+			await manager.flush();
+
+			const savedSettings = JSON.parse(readFileSync(settingsPath, "utf-8"));
+			expect(savedSettings).toEqual({ theme: "dark", models: { role: "strong" } });
+		});
+	});
+
 	describe("deviceId", () => {
 		it("creates one global device ID and reuses it in later processes", async () => {
 			const settingsPath = join(agentDir, "settings.json");

@@ -82,6 +82,7 @@ Automatic retries, recovery, compaction, or queued work can continue afterward.
 | Add a model provider | `pi.registerProvider()` |
 | Add an MCP server | `pi.registerMcpServer()` |
 | Route each request to a model | [`pi.registerVirtualModel()`](virtual-models.md) |
+| Accept a role word at the end of `/model` | `pi.registerModelRoles()` |
 | Add terminal rendering | Renderer registration and `ctx.ui` |
 | Communicate with another extension | `pi.events` |
 
@@ -201,6 +202,26 @@ pi.unregisterMcpServer("jira");
 Servers registered while the extension loads connect when the session starts, together with the `mcp.json` servers; servers registered later connect right away, and `pi.unregisterMcpServer()` closes the connection and makes the server's tools unreachable. Registrations are not saved: register again on every load, for example based on the extension's own settings. A server in `mcp.json` with the same name takes precedence, and `/mcp` shows the override. Registering the same name again replaces the extension's earlier registration; names registered by another extension, invalid names, and invalid configs throw.
 
 The built-in MCP support connects registered servers. When nothing does, because another extension replaced it (see [MCP](mcp.md#other-mcp-extensions)), each registration is reported as an extension error. Other MCP extensions can connect registered servers too: read them with `pi.getMcpServers()` on `session_start` and handle the `mcp_servers_change` event for later changes.
+
+<a id="model-roles"></a>
+
+### Model roles
+
+`pi.registerModelRoles(definition)` adds words to the end of `/model` without Pi learning what a role means.
+
+```typescript
+pi.registerModelRoles({
+  roles: ["normal", "strong"],
+  settingsKey: { field: "models", key: "role" },
+  onSelect: (role, ctx) => lockSessionRole(role),
+});
+```
+
+Pi matches the last `/model` argument against `roles` case-insensitively and passes the registered spelling along, so an uppercase argument reaches `onSelect` as the vocabulary spells it. A word that names neither a registered role nor a thinking level stays inside the model search term, which is what keeps `/model claude sonnet` a search. A level and a role together are written `/model <model> <level> <role>`. `onSelect` runs after Pi applied the model, whatever the kind of model that was selected, and not at all when the model selector was cancelled.
+
+Only the save key (`app.models.save`, Ctrl+S by default) writes: Pi stores the role at `settingsKey` in the global settings and names it in the saved-defaults status. Saving one nested key leaves sibling keys of the same field alone, and sending the command with Enter changes no settings at all. Pi writes `settingsKey` as given and never reads it back; what the stored role means is up to the extension.
+
+One registration is active. Registering again replaces it, and registrations are not saved, so register on every extension load. A role that should route requests is a separate concern: see [Virtual models](virtual-models.md).
 
 <a id="extensioncontext"></a>
 <a id="extensioncommandcontext"></a>

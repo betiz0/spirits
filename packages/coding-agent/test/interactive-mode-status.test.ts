@@ -409,7 +409,7 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 				scopedModels: Array<{ model: TestModel }>;
 				modelRuntime: { getAvailableSnapshot: () => TestModel[] };
 				promptTemplates: [];
-				extensionRunner: { getRegisteredCommands: () => [] };
+				extensionRunner: { getRegisteredCommands: () => []; getModelRoles: () => undefined };
 				resourceLoader: { getSkills: () => { skills: [] } };
 			};
 			settingsManager: { getEnableSkillCommands: () => boolean };
@@ -432,7 +432,7 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 				scopedModels: [],
 				modelRuntime: { getAvailableSnapshot: () => models },
 				promptTemplates: [],
-				extensionRunner: { getRegisteredCommands: () => [] },
+				extensionRunner: { getRegisteredCommands: () => [], getModelRoles: () => undefined },
 				resourceLoader: { getSkills: () => ({ skills: [] }) },
 			},
 			settingsManager: { getEnableSkillCommands: () => false },
@@ -459,7 +459,7 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 				scopedModels: [];
 				modelRuntime: { getAvailableSnapshot: () => [] };
 				promptTemplates: [];
-				extensionRunner: { getRegisteredCommands: () => [] };
+				extensionRunner: { getRegisteredCommands: () => []; getModelRoles: () => undefined };
 				resourceLoader: { getSkills: () => { skills: [] } };
 			};
 			settingsManager: { getEnableSkillCommands: () => boolean };
@@ -479,7 +479,7 @@ describe("InteractiveMode.createBaseAutocompleteProvider", () => {
 				scopedModels: [],
 				modelRuntime: { getAvailableSnapshot: () => [] },
 				promptTemplates: [],
-				extensionRunner: { getRegisteredCommands: () => [] },
+				extensionRunner: { getRegisteredCommands: () => [], getModelRoles: () => undefined },
 				resourceLoader: { getSkills: () => ({ skills: [] }) },
 			},
 			settingsManager: { getEnableSkillCommands: () => false },

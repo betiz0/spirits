@@ -27,8 +27,23 @@ const createBaseAutocompleteProvider = (InteractiveMode as any).prototype.create
 
 type SelectorCreate = (done: () => void) => { component: any; focus: any; dispose?: () => void };
 
-function createSession(models: AnyModel[]) {
+/** A `pi.registerModelRoles()` registration, as an extension would hand it to pi. */
+function createRoleRegistration() {
 	return {
+		onSelect: vi.fn(),
+		roles: ["normal", "strong"],
+		settingsKey: { field: "models", key: "role" },
+	};
+}
+
+function createSession(models: AnyModel[], roleRegistration?: ReturnType<typeof createRoleRegistration>) {
+	return {
+		// The runner stands in for pi's dispatch: it records the role `/model` chose, and the test for
+		// `registerModelRoles` covers the call reaching the extension's `onSelect`.
+		extensionRunner: {
+			getModelRoles: () => roleRegistration,
+			selectModelRole: vi.fn(),
+		},
 		scopedModels: [] as Array<{ model: AnyModel }>,
 		modelRuntime: {
 			getAvailableSnapshot: () => models,
@@ -43,13 +58,18 @@ function createSession(models: AnyModel[]) {
 	};
 }
 
-function createFakeThis(models: AnyModel[], overrides: Record<string, any> = {}) {
+function createFakeThis(
+	models: AnyModel[],
+	overrides: Record<string, any> = {},
+	roleRegistration?: ReturnType<typeof createRoleRegistration>,
+) {
 	const fakeThis: any = Object.create(InteractiveMode.prototype);
-	const session = createSession(models);
+	const session = createSession(models, roleRegistration);
 	const settingsManager = {
 		getDefaultProvider: () => undefined,
 		getDefaultModel: () => undefined,
 		getDefaultThinkingLevel: () => "medium",
+		setExtensionNestedSetting: vi.fn(),
 	};
 	// session/sessionManager/settingsManager are private getters on the prototype;
 	// define them as own data properties so the fakes take over.
@@ -74,13 +94,17 @@ function createFakeThis(models: AnyModel[], overrides: Record<string, any> = {})
 }
 
 /** Capture the selector create callback instead of mounting the selector. */
-function createSelectorCapturingThis(models: AnyModel[]) {
+function createSelectorCapturingThis(models: AnyModel[], roleRegistration?: ReturnType<typeof createRoleRegistration>) {
 	let capturedCreate: SelectorCreate | undefined;
-	const fakeThis = createFakeThis(models, {
-		showSelector: (create: SelectorCreate) => {
-			capturedCreate = create;
+	const fakeThis = createFakeThis(
+		models,
+		{
+			showSelector: (create: SelectorCreate) => {
+				capturedCreate = create;
+			},
 		},
-	});
+		roleRegistration,
+	);
 	return {
 		fakeThis,
 		getCreate: () => {
@@ -235,6 +259,110 @@ describe("InteractiveMode.handleModelCommand", () => {
 
 		expect(fakeThis.session.setModel).toHaveBeenCalledWith(reasoningModel, { persist: true });
 		expect(fakeThis.session.setThinkingLevel).toHaveBeenCalledWith("high", { persist: true });
+	});
+
+	// spec "model-commands / /model は末尾の語を thinking レベルとロールとして解釈する": モデルとロールの同時指定
+	test("notifies the registered role after applying the model", async () => {
+		const fakeThis = createFakeThis([reasoningModel], {}, createRoleRegistration());
+
+		await handleModelCommand.call(fakeThis, "anthropic/claude-sonnet-4-5 strong");
+
+		expect(fakeThis.session.setModel).toHaveBeenCalledWith(reasoningModel, { persist: false });
+		expect(fakeThis.session.extensionRunner.selectModelRole).toHaveBeenCalledWith("strong");
+		// Enter does not write the default role.
+		expect(fakeThis.settingsManager.setExtensionNestedSetting).not.toHaveBeenCalled();
+		expect(fakeThis.showStatus).toHaveBeenCalledWith("Model: claude-sonnet-4-5");
+	});
+
+	// spec "model-commands / /model は完全一致しない場合に selector を経由する": selector で選んだモデルにロールを適用
+	test("notifies the registered role of a selector choice", async () => {
+		const { fakeThis, getCreate } = createSelectorCapturingThis([reasoningModel], createRoleRegistration());
+
+		await handleModelCommand.call(fakeThis, "sonn strong");
+		const created = getCreate()(() => {});
+		created.component.handleInput("\r");
+		await Promise.resolve(); // let the async selectModel finish
+
+		expect(fakeThis.session.setModel).toHaveBeenCalledWith(reasoningModel, { persist: false });
+		expect(fakeThis.session.extensionRunner.selectModelRole).toHaveBeenCalledWith("strong");
+		expect(fakeThis.showError).not.toHaveBeenCalled();
+	});
+
+	// spec "model-commands / /model は完全一致しない場合に selector を経由する": selector のキャンセル
+	test("does not notify the role when the selector is cancelled", async () => {
+		const { fakeThis, getCreate } = createSelectorCapturingThis([reasoningModel], createRoleRegistration());
+
+		await handleModelCommand.call(fakeThis, "sonn strong");
+		const created = getCreate()(() => {});
+		created.component.handleInput("\x1b"); // Escape cancels
+
+		expect(fakeThis.session.setModel).not.toHaveBeenCalled();
+		expect(fakeThis.session.extensionRunner.selectModelRole).not.toHaveBeenCalled();
+		expect(fakeThis.settingsManager.setExtensionNestedSetting).not.toHaveBeenCalled();
+	});
+
+	// spec "model-commands / /model は保存キーで既定として保存する": モデルとロールを保存
+	test("saves the role as the default and shows it", async () => {
+		const fakeThis = createFakeThis([reasoningModel], {}, createRoleRegistration());
+
+		await handleModelCommand.call(fakeThis, "anthropic/claude-sonnet-4-5 strong", true);
+
+		expect(fakeThis.settingsManager.setExtensionNestedSetting).toHaveBeenCalledWith("models", "role", "strong");
+		expect(fakeThis.session.extensionRunner.selectModelRole).toHaveBeenCalledWith("strong");
+		expect(fakeThis.showStatus).toHaveBeenCalledWith(
+			"Default model: anthropic/claude-sonnet-4-5 · Default role: strong",
+		);
+	});
+
+	// spec "model-commands / /model は保存キーで既定として保存する": 大文字のロールは小文字で保存する
+	test("saves an uppercase role in the registered spelling", async () => {
+		const fakeThis = createFakeThis([reasoningModel], {}, createRoleRegistration());
+
+		await handleModelCommand.call(fakeThis, "anthropic/claude-sonnet-4-5 STRONG", true);
+
+		expect(fakeThis.settingsManager.setExtensionNestedSetting).toHaveBeenCalledWith("models", "role", "strong");
+		expect(fakeThis.showStatus).toHaveBeenCalledWith(
+			"Default model: anthropic/claude-sonnet-4-5 · Default role: strong",
+		);
+	});
+
+	// spec "model-commands / /model は保存キーで既定として保存する": thinking レベルとロールを同時に保存
+	test("saves the thinking level and the role together", async () => {
+		const fakeThis = createFakeThis([reasoningModel], {}, createRoleRegistration());
+
+		await handleModelCommand.call(fakeThis, "anthropic/claude-sonnet-4-5 high strong", true);
+
+		expect(fakeThis.session.setThinkingLevel).toHaveBeenCalledWith("high", { persist: true });
+		expect(fakeThis.settingsManager.setExtensionNestedSetting).toHaveBeenCalledWith("models", "role", "strong");
+		expect(fakeThis.showStatus).toHaveBeenCalledWith(
+			"Default model: anthropic/claude-sonnet-4-5 · Default thinking level: high · Default role: strong",
+		);
+	});
+
+	// spec "model-commands / /model は保存キーで既定として保存する": ロール指定なしで保存
+	test("leaves the stored default role alone without a role argument", async () => {
+		const fakeThis = createFakeThis([reasoningModel], {}, createRoleRegistration());
+
+		await handleModelCommand.call(fakeThis, "anthropic/claude-sonnet-4-5", true);
+
+		expect(fakeThis.settingsManager.setExtensionNestedSetting).not.toHaveBeenCalled();
+		expect(fakeThis.session.extensionRunner.selectModelRole).not.toHaveBeenCalled();
+		expect(fakeThis.showStatus).toHaveBeenCalledWith("Default model: anthropic/claude-sonnet-4-5");
+	});
+
+	// spec "model-commands / /model は保存キーで既定として保存する": ロール付きの保存指定を selector に引き継ぐ
+	test("carries the role into a save requested through the selector", async () => {
+		const { fakeThis, getCreate } = createSelectorCapturingThis([reasoningModel], createRoleRegistration());
+
+		await handleModelCommand.call(fakeThis, "sonn strong", true);
+		const created = getCreate()(() => {});
+		created.component.handleInput("\r");
+		await Promise.resolve(); // let the async selectModel finish
+
+		expect(fakeThis.settingsManager.setExtensionNestedSetting).toHaveBeenCalledWith("models", "role", "strong");
+		expect(fakeThis.showStatus).toHaveBeenCalledWith(
+			"Default model: anthropic/claude-sonnet-4-5 · Default role: strong",
+		);
 	});
 });
 
@@ -425,13 +553,17 @@ describe("InteractiveMode.setupSaveKeyHook", () => {
 });
 
 describe("InteractiveMode.createBaseAutocompleteProvider /model completions", () => {
-	function createProviderThis(models: AnyModel[]) {
+	function createProviderThis(models: AnyModel[], roleRegistration?: ReturnType<typeof createRoleRegistration>) {
 		const fakeThis: any = Object.create(InteractiveMode.prototype);
 		const session = {
 			scopedModels: [],
 			modelRuntime: { getAvailableSnapshot: () => models },
 			promptTemplates: [],
-			extensionRunner: { getRegisteredCommands: () => [] },
+			extensionRunner: {
+				getRegisteredCommands: () => [],
+				getModelRoles: () => roleRegistration,
+				selectModelRole: vi.fn(),
+			},
 			resourceLoader: { getSkills: () => ({ skills: [] }) },
 		};
 		// session/sessionManager/settingsManager are private getters on the prototype;
@@ -482,7 +614,7 @@ describe("InteractiveMode.createBaseAutocompleteProvider /model completions", ()
 		expect(suggestions?.items.map((item: any) => item.value)).toEqual(["anthropic/claude-sonnet-4-5"]);
 	});
 
-	test("shows the level in the /model argument hint", async () => {
+	test("shows the level and the role in the /model argument hint", async () => {
 		const provider = createBaseAutocompleteProvider.call(createProviderThis([reasoningModel]));
 		const line = "/mo";
 		const suggestions = await provider.getSuggestions([line], 0, line.length, {
@@ -490,6 +622,19 @@ describe("InteractiveMode.createBaseAutocompleteProvider /model completions", ()
 		});
 
 		const modelItem = suggestions?.items.find((item: any) => item.value === "model");
-		expect(modelItem?.description).toContain("<provider/model> [level]");
+		expect(modelItem?.description).toContain("<provider/model> [level] [role]");
+	});
+
+	// spec "model-commands / /model の引数補完は 2 語目に thinking レベルとロールを出す": ロールの候補
+	test("completes the registered roles as the second /model argument", async () => {
+		const provider = createBaseAutocompleteProvider.call(
+			createProviderThis([reasoningModel], createRoleRegistration()),
+		);
+		const line = "/model anthropic/claude-sonnet-4-5 s";
+		const suggestions = await provider.getSuggestions([line], 0, line.length, {
+			signal: new AbortController().signal,
+		});
+
+		expect(suggestions?.items).toEqual([{ value: "anthropic/claude-sonnet-4-5 strong", label: "strong" }]);
 	});
 });

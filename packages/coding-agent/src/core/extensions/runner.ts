@@ -64,6 +64,7 @@ import type {
 	MessageEndEvent,
 	MessageEndEventResult,
 	MessageRenderer,
+	ModelRoleRegistration,
 	ProjectTrustContext,
 	ProjectTrustEvent,
 	ProjectTrustEventResult,
@@ -842,6 +843,33 @@ export class ExtensionRunner {
 
 	getModelRegistry(): ModelRegistry {
 		return this.modelRegistry;
+	}
+
+	/**
+	 * The `pi.registerModelRoles()` registration, or undefined when no loaded extension registered a
+	 * role vocabulary. pi does not interpret a role: it only passes the registered words along.
+	 */
+	getModelRoles(): ModelRoleRegistration | undefined {
+		return this.runtime.modelRoles?.definition;
+	}
+
+	/**
+	 * Tell the registered role vocabulary that `/model` chose a role. Without a registration this does
+	 * nothing, and a failing `onSelect` becomes an extension error so the model selection stands.
+	 */
+	selectModelRole(role: string): void {
+		const registration = this.runtime.modelRoles;
+		if (!registration) return;
+		try {
+			registration.definition.onSelect(role, this.createContext());
+		} catch (err) {
+			this.emitError({
+				extensionPath: registration.extensionPath,
+				event: "select_model_role",
+				error: err instanceof Error ? err.message : String(err),
+				stack: err instanceof Error ? err.stack : undefined,
+			});
+		}
 	}
 
 	getRegisteredCommands(): ResolvedCommand[] {

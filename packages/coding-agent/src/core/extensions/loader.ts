@@ -30,6 +30,7 @@ import type {
 	LoadExtensionsResult,
 	MarkdownTransformer,
 	MessageRenderer,
+	ModelRoleRegistration,
 	ProviderConfig,
 	RegisteredCommand,
 	ToolDefinition,
@@ -226,11 +227,17 @@ export function createExtensionRuntime(): ExtensionRuntime {
 		registerVirtualModel: (definition, extensionPath = "<unknown>") => {
 			runtime.pendingVirtualModelRegistrations.push({ definition, extensionPath });
 		},
+		// The active role vocabulary is one slot, not a queue: a re-registration replaces it, and the
+		// interactive mode reads it when `/model` runs, so no bind-time flush is needed.
+		registerModelRoles: (definition, extensionPath = "<unknown>") => {
+			runtime.modelRoles = { definition, extensionPath };
+		},
 		unregisterVirtualModel: (provider, id) => {
 			runtime.pendingVirtualModelRegistrations = runtime.pendingVirtualModelRegistrations.filter(
 				({ definition }) => definition.provider !== provider || definition.id !== id,
 			);
 		},
+		modelRoles: undefined,
 	};
 
 	return runtime;
@@ -511,6 +518,11 @@ function createExtensionAPI(
 		unregisterVirtualModel(provider: string, id: string) {
 			assertActive();
 			applyRuntimeChange(() => runtime.unregisterVirtualModel(provider, id));
+		},
+
+		registerModelRoles(definition: ModelRoleRegistration) {
+			assertActive();
+			applyRuntimeChange(() => runtime.registerModelRoles(definition, extension.path));
 		},
 
 		events: {
