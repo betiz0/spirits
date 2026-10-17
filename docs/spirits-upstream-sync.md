@@ -75,10 +75,13 @@ bun packages/ai/scripts/generate-models.ts --strict --data-only
    **取り込み後の突き合わせ**。merge と競合解決が終わったら、登録簿の各行について対象ファイルに spirits 側の差分が残っていることを確認する。登録簿に行があるのに差分が消えている行は、上流の内容に置き換わった行なので、差分を復元するまで手順 6 の push を行わない。
 
    ```sh
-   # 登録簿と実コミットを突き合わせる (行数が一致し、登録簿に無い [spirits] コミットが無いこと)
-   git log --grep='\[spirits\]' --oneline
-   # 行ごとの対象ファイルに、上流に対して spirits 側の差分が残っていること
-   git diff <取り込み対象タグ> -- packages/coding-agent/src packages/ai/scripts
+   # 登録簿と実コミットを突き合わせる (件名が [spirits] で始まるコミットのみ。
+   # 行数が一致し、登録簿に無いコミットが無いこと。本文に [spirits] を含むだけのコミットは数えない)
+   git log -E --grep='^\[spirits\]' --oneline
+   # 行ごとの対象ファイルに、上流に対して spirits 側の差分が残っていること。
+   # 対象はコア実装だけでなく、登録簿が挙げるテスト・docs・同梱スキル・CI まですべて。
+   # 新規に行を追加したら、その対象ファイルがこの一覧に収まるかを確認する。
+   git diff <取り込み対象タグ> -- packages docs .github README*.md openspec/config.yaml
    ```
 
    登録簿自体が競合した場合は spirits 側を正とする。上流が同じ機構をネイティブにサポートして差分が消えた場合は、消失ではなく撤回として扱い、登録簿から行を除く判断を change の design に記録する。

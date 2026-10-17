@@ -198,7 +198,7 @@ OpenSpec ワークフローのうち変更レビューと深い検証の 2 ス�
 - **設定**: strong の対象は settings.json の `models.strong`(`"<provider>/<modelId>"` または `"<modelId>"`)。Pi の `Settings` 型は変更せず、未知キーを保持する既存挙動を `packages/spirits/test/pi-runtime/` で固定する
 - **ロールフェーズ**: 拡張メモリ内の 1 値の状態機械。`input` イベントで `/skill:sprt-opsx-review-change` と `/skill:sprt-opsx-verify-deep` を検知して strong へ入り、`agent_settled` で `aborted` の真偽に関わらず normal へ戻る
 - **フォールバック**: strong 未設定は無警告。設定済みで使えない場合は normal へ寄せて `ctx.ui.notify` を run 内 1 回。normal は既定 provider + 既定モデル、解決できなければ直近の成功レスポンス、どちらも無ければリクエストをエラーで終わらせる
-- **コア差分 3 箇所**: `ModelRoute` と `VirtualModelStateData` の `role`、`resolveModel` の透過と `AgentSession` による `pi.virtual-model-state` entry への保存および `routedModel.role`、footer 右側の `[<role>]` バッジ。コアは `"normal"` / `"strong"` という語彙を知らず、role は opaque な文字列ラベル
+- **コア差分 3 箇所**: `ModelRoute` と `VirtualModelStateData` の `role`、`resolveModel` の透過と `AgentSession` による `pi.virtual-model-state` entry への保存および `AgentSession.routedRole`、footer 右側の `[<role>]` バッジ。コアは `"normal"` / `"strong"` という語彙を知らず、role は opaque な文字列ラベル
 - **バッジの意味**: 直近のリクエストが通ったロール。スキル起動直後と終了直後は 1 リクエスト遅れる
 - **層**: `packages/spirits/src/routing/` は `spirits:routing` 層として [`docs/architecture/convention-registry.md`](architecture/convention-registry.md) に登記し、依存先は `spirits:shared` と `packages/coding-agent` に限定する
 
