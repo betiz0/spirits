@@ -12,14 +12,19 @@ import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, SKILL_COMMAND_PREFIX, STRONG_PHAS
 /** How input delivered during streaming joins the run. Undefined when the session is idle. */
 type StreamingBehavior = InputEvent["streamingBehavior"];
 
-/** Ends the skill name in a `/skill:<name> <args>` command line. */
-const COMMAND_NAME_DELIMITER = /\s/;
+/** Character that ends the skill name in a `/skill:<name> <args>` command line, as pi splits it. */
+const SKILL_NAME_DELIMITER = " ";
 
-/** Skill name the input starts a command for, or undefined when the input is not a skill command. */
+/**
+ * Skill name the input starts a command for, or undefined when the input is not a skill command. The
+ * name ends at the first space or the end of the input, which is exactly how pi's
+ * `_expandSkillCommand` reads it: an input pi would not expand as a skill must not enter a strong
+ * phase either.
+ */
 function skillNameFromInput(text: string): string | undefined {
 	if (!text.startsWith(SKILL_COMMAND_PREFIX)) return undefined;
 	const rest = text.slice(SKILL_COMMAND_PREFIX.length);
-	const end = rest.search(COMMAND_NAME_DELIMITER);
+	const end = rest.indexOf(SKILL_NAME_DELIMITER);
 	return end === -1 ? rest : rest.slice(0, end);
 }
 

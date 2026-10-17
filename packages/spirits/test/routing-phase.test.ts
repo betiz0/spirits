@@ -33,6 +33,23 @@ test("ignores other skill commands and plain input", () => {
 	}
 });
 
+// spec "dual-model-routing / strong フェーズの開始": 展開されないスキルコマンドでは遷移しない
+test("ends the skill name at the first space like pi", () => {
+	const phase = createRoutingPhase();
+
+	// pi reads the skill name up to the first space, so these name `sprt-opsx-verify-deep\nadd-dual` and
+	// `sprt-opsx-verify-deep\tadd-dual`: unknown skills pi passes through as plain text.
+	phase.handleInput(`${SKILL_COMMAND_PREFIX}sprt-opsx-verify-deep\nadd-dual model`);
+	expect(phase.current()).toBe(MODEL_ROLE_NORMAL);
+
+	phase.handleInput(`${SKILL_COMMAND_PREFIX}sprt-opsx-verify-deep\tadd-dual model`);
+	expect(phase.current()).toBe(MODEL_ROLE_NORMAL);
+
+	// With a space the same command names the target skill and its arguments.
+	phase.handleInput(`${SKILL_COMMAND_PREFIX}sprt-opsx-verify-deep add-dual-model-routing`);
+	expect(phase.current()).toBe(MODEL_ROLE_STRONG);
+});
+
 // spec "dual-model-routing / strong フェーズの開始": run が始まらなかった strong を次の run へ持ち越さない
 	test("returns to normal on the next idle input when no run settled", () => {
 		const phase = createRoutingPhase();

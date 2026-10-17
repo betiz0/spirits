@@ -15,9 +15,10 @@ import { createNotificationGuard, createRoutingRoute } from "./router.ts";
 
 /**
  * Every thinking level is offered for selection: the route passes the selection through and pi
- * clamps it to the routed model, so a virtual level needs no per-role mapping.
+ * clamps it to the routed model, so a virtual level needs no per-role mapping. This is a copy of pi's
+ * list, so `test/pi-runtime/virtual-model-api.test.ts` pins it against what pi builds for the entry.
  */
-const ALL_THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+export const ALL_THINKING_LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
 /** Register `spirits/auto` and wire the skill phase to it. */
 export function registerDualModelRouting(pi: ExtensionAPI): void {

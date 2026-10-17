@@ -28,6 +28,11 @@ export interface PiModel {
 	 * outside its package. Absent on test doubles.
 	 */
 	api?: string;
+	/**
+	 * pi's thinking level map: every level pi knows, mapped to the level or to `null` when the model
+	 * does not offer it. Only the pi-runtime pin test reads it, to catch pi adding a level.
+	 */
+	thinkingLevelMap?: Record<string, string | null>;
 }
 
 export type ToolExecutionMode = "sequential" | "parallel";
@@ -482,6 +487,23 @@ export class ModelRuntime {
 	}): Promise<ModelRuntime>;
 	/** Register a virtual model: a selectable catalog entry that routes each request. */
 	registerVirtualModel(model: ExtensionVirtualModel): void;
+	/** Remove a virtual model registered with `registerVirtualModel()`. */
+	unregisterVirtualModel(provider: string, id: string): void;
+	/**
+	 * Register a provider configuration. pi's `ProviderConfigInput` lives outside the mirrored surface,
+	 * so the config stays a record: only the pi-runtime pin test registers one.
+	 */
+	registerProvider(providerId: string, config: Record<string, unknown>): void;
+	/**
+	 * Ask a virtual model's router for one request. pi throws when the model is not registered, or when
+	 * the route has no physical, credentialed target. `messages` stays unknown: pi's transcript types are
+	 * outside the mirrored surface, and only the pi-runtime pin test calls this.
+	 */
+	resolveModel(
+		model: PiModel,
+		messages: readonly unknown[],
+		options: { reason: string; thinkingLevel: ThinkingLevel; state?: unknown },
+	): Promise<ModelRoute>;
 	/** Reload the model config and catalogs. */
 	refresh(options?: { allowNetwork?: boolean }): Promise<unknown>;
 	/** Models available for selection, virtual entries included. */
