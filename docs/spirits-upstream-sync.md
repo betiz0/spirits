@@ -41,7 +41,7 @@ git status
 
 - `--no-commit` で止め、競合と自動マージ結果を検証してから merge を確定する。
 - 競合解決の原則: 製品 identity に関わる文書 (README など) は spirits 版を採用する。テストは原則として双方のテストブロックを残す。lockfile は手マージせず再生成する。
-- 自動マージされたコアファイルは `git diff <tag>` を確認し、残る差分が既知の fork 差分だけであることを確認する。既知の fork 差分は `git diff <base> <tag> -- <core files>` と照合する。
+- 自動マージされたコアファイルは `git diff <tag>` を確認し、残る差分が既知の fork 差分だけであることを確認する。既知の fork 差分は [`docs/spirits-core-diffs.md`](spirits-core-diffs.md) の登録簿を正とし、`git diff <base> <tag> -- <core files>` と照合する。
 - 型スタブと上流 Extension API の差分を照合する。
 
   ```sh
@@ -70,7 +70,18 @@ bun packages/ai/scripts/generate-models.ts --strict --data-only
 
 1. **merge コミット**: 上流の変更、競合解決、lockfile の再生成。メッセージは既定の `Merge tag 'v1.1.0'` のまま変えない。
 2. **spirits 側の修正** (`scripts/build-binaries.ts`、`.github/workflows/spirits-ci.yml`、README など): merge の後に 1 修正 = 1 コミット。`fix:` を使う。手順文書の修正は `docs:` を使う。
-3. **Pi コアへの適応** (`packages/spirits/` を除く `packages/` 配下): `[spirits]` プレフィックスを付けた独立コミット。上流 API への適応以外で新しいコア差分を増やさない。
+3. **Pi コアへの適応** (`packages/spirits/` を除く `packages/` 配下): `[spirits]` プレフィックスを付けた独立コミット。上流 API への適応以外で新しいコア差分を増やさない。コア差分は [`docs/spirits-core-diffs.md`](spirits-core-diffs.md) の登録簿に行として登録し、新しいコミットを作ったら同じ変更で行を追加する。
+
+   **取り込み後の突き合わせ**。merge と競合解決が終わったら、登録簿の各行について対象ファイルに spirits 側の差分が残っていることを確認する。登録簿に行があるのに差分が消えている行は、上流の内容に置き換わった行なので、差分を復元するまで手順 6 の push を行わない。
+
+   ```sh
+   # 登録簿と実コミットを突き合わせる (行数が一致し、登録簿に無い [spirits] コミットが無いこと)
+   git log --grep='\[spirits\]' --oneline
+   # 行ごとの対象ファイルに、上流に対して spirits 側の差分が残っていること
+   git diff <取り込み対象タグ> -- packages/coding-agent/src packages/ai/scripts
+   ```
+
+   登録簿自体が競合した場合は spirits 側を正とする。上流が同じ機構をネイティブにサポートして差分が消えた場合は、消失ではなく撤回として扱い、登録簿から行を除く判断を change の design に記録する。
 4. **上流修正のバックポート**: 検証で上流 main の既知の修正が必要になった場合は、その commit を `git cherry-pick --no-commit <sha>` で取り込み、1 修正 = 1 コミットで分離する。メッセージは変更対象で使い分ける。`packages/` 配下 (Pi コア) なら `[spirits] fix(...): <上流の subject>`、それ以外 (`scripts/` など) なら `fix: <上流の subject>`。本文に `(cherry picked from commit <sha>)` を付ける。追跡される生成物 (`packages/ai/src/providers/*.models.ts`、`models.generated.ts`) は再生成せず、上流 commit と同じ内容にする。
 5. 検証で修正が必要になった場合も同じ規則でコミットを追加し、手順 5 の統合検証を最初からやり直す。
 

@@ -14,6 +14,7 @@ spirits 不通过逐个工具调用的循环来驱动模型，而是把持久化
 - **递归子代理** — `await rlm("prompt")` 在进程内运行子代理并以字符串返回其最终回答。深度上限（默认 2）、同一 REPL 的调用串行化、中断向子代理传播，每次调用记录一条 `rlm_usage`（用于 token 与成本统计）。
 - **Continual Harness** — `note()` 追加跨会话记忆，`goal()` 管理当前分支的目标，codemode 工具管理技能（`spirits_skill_*`），并可覆盖 code-mode 提示词（`spirits_prompt_set`）。
 - **会话 TODO 与非破坏性清空** — `manage_todos` 管理与当前会话分支绑定的 TODO，并在编辑器和页脚之间显示面板；`/clear` 在保留模型、思考等级和扩展状态的同时开始新的对话分支。
+- **双模型分流** — `/model spirits/auto` 只需选择一个模型，每个请求会被分流到 normal 或 strong。只有 OpenSpec 的评审与深度验证两个技能使用 strong(设置中的 `models.strong`)，其余仍用默认模型。
 - **单文件二进制** — 使用 `bun build --compile` 编译。目标机器无需安装 Bun 或 Node。
 
 ## 安装
@@ -61,6 +62,23 @@ spirits 内置了一组安装后即可使用的技能。启动时会写入 `<age
 - 使用 `SPIRITS_BUNDLED_SKILLS=0` 可禁用全部内置技能(未设置或其他值表示启用)。禁用时既不写入也不提供技能路径。
 - 更新 spirits 后，要获取新的内置内容需要重新启动 spirits。内置内容嵌在运行中的二进制文件里，因此 `/reload` 只会重新写入当前运行版本的目录树。旧版本目录只有在 7 天以上未被使用时，才会在写入时被删除。
 - `bundled-skills/` 由 spirits 管理。请勿编辑其中的文件；自己的技能请放在 `<agentDir>/skills/`。
+
+## 模型分流
+
+OpenSpec 工作流中只有两个步骤需要更强的模型：评审变更的 `sprt-opsx-review-change` 和深度验证的 `sprt-opsx-verify-deep`。与其手动切换模型再忘记切回，不如选择一个模型，由 spirits 按请求分流。
+
+- 用 `/model spirits/auto` 选择分流模型。默认模型设置、`--model` 和 `/model` 的行为都不变；直接选择物理模型的会话不会被分流。
+- strong 的目标写在 `settings.json`(`~/.spirits/agent/settings.json`，或项目的 `.pi/settings.json`)：
+
+  ```json
+  { "models": { "strong": "anthropic/claude-opus-4-7" } }
+  ```
+
+  只写模型 ID(`"claude-opus-4-7"`)时，用当时的默认 provider 解析。`models` 是 spirits 的键，pi 保存其他设置时会保留它。
+- propose、apply、verify、archive 走 normal，路由到默认 provider 与默认模型。默认无法解析时改用最近一次成功响应的模型，并提示一次。运行 `sprt-opsx-review-change` 或 `sprt-opsx-verify-deep` 期间的请求走 strong，run settle 后回到 normal(Escape 中断或出错也会回到)。
+- `defaultProvider` / `defaultModel` 里保留**物理**模型。virtual model 永远不会成为 normal 的目标：把 `spirits/auto` 存为默认后，normal 没有可解析的目标，新会话的第一个请求会以错误结束。
+- 没有 `models.strong` 时静默保持 normal。已配置但不可用的目标(ID 不存在、provider 没有凭据)会回退到 normal，并在同一个 run 内只提示一次。
+- 页脚在模型名前显示 `[normal]` 或 `[strong]`。徽章表示**最近一次请求所用的角色**，因此滞后一个请求：刚启动技能时仍是 `[normal]`，技能刚结束时在下一次请求前仍是 `[strong]`。
 
 ## 已知限制
 

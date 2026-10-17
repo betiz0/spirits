@@ -14,6 +14,7 @@ spirits は、[Pi](https://github.com/earendil-works/pi) をフォークし、Pr
 - **再帰的な子エージェント** — `await rlm("prompt")` がプロセス内で子エージェントを実行し、最終回答を文字列で返します。深度上限(既定 2)、同一 REPL からの直列化、中断の子への伝播、呼び出しごとの `rlm_usage` 記録(トークン・コスト集計)を行います。
 - **Continual Harness** — `note()` でセッション横断メモリを追記、`goal()` でブランチのゴールを管理、codemode ツールでスキル管理(`spirits_skill_*`)、code-mode プロンプトの上書き(`spirits_prompt_set`)を行います。
 - **セッション TODO と非破壊クリア** — `manage_todos` が現在のセッションブランチに紐づく TODO を管理し、エディタとフッターの間にパネル表示します。`/clear` はモデル・思考レベル・拡張状態を保ったまま新しい会話ブランチを開始します。
+- **2 系統のモデル振り分け** — `/model spirits/auto` は 1 つの選択を保ったまま、リクエストごとに normal / strong へ振り分けます。OpenSpec のレビューと深い検証の 2 スキルだけ strong(`settings.json` の `models.strong`)、ほかは既定モデルで動きます。
 - **単一バイナリ** — `bun build --compile` でコンパイル。実行環境に Bun / Node は不要です。
 
 ## インストール
@@ -65,6 +66,23 @@ spirits はインストール直後から使えるスキルを同梱します。
 - `SPIRITS_BUNDLED_SKILLS=0` で同梱スキル全体を無効化します(未設定・その他の値は有効)。無効時は書き出しも供給も行いません。
 - spirits を更新した後、新しい同梱内容を反映するには spirits を再起動してください。同梱内容は実行中のバイナリに埋め込まれているため、`/reload` は実行中の版のツリーを書き出し直すだけです。旧版ディレクトリは、7 日以上使われなかった場合にだけ書き出し時に削除されます。
 - `bundled-skills/` は spirits の管理領域です。そこのファイルを編集せず、自分のスキルは `<agentDir>/skills/` に置いてください。
+
+## モデルの振り分け
+
+OpenSpec ワークフローでより強いモデルを要求するのは 2 ステップだけです。変更をレビューする `sprt-opsx-review-change` と、深く検証する `sprt-opsx-verify-deep`。手でモデルを切り替えて戻し忘れる代わりに、1 つのモデルを選択したままリクエスト単位で振り分けます。
+
+- `/model spirits/auto` で振り分け用のモデルを選択します。既定モデルの設定、`--model`、`/model` の挙動は変えず、物理モデルを直接選んでいるセッションは振り分けません。
+- strong の対象は `settings.json`(`~/.spirits/agent/settings.json`、またはプロジェクトの `.pi/settings.json`)に書きます。
+
+  ```json
+  { "models": { "strong": "anthropic/claude-opus-4-7" } }
+  ```
+
+  モデル ID だけ(`"claude-opus-4-7"`)を書いた場合は、その時点の既定 provider で解決します。`models` は spirits のキーで、pi は他の設定を保存するときにもこのキーを保持します。
+- propose / apply / verify / archive は normal で、既定 provider と既定モデルへルートします。既定が解決できないときは直近の成功レスポンスのモデルに寄り、1 回通知します。`sprt-opsx-review-change` または `sprt-opsx-verify-deep` の実行中のリクエストは strong へ、run が settled すれば normal に戻します(Escape の中断でもエラーでも戻します)。
+- 既定モデル(`defaultProvider` / `defaultModel`)には物理モデルを置いてください。virtual model は normal の対象にならないため、`spirits/auto` を既定に保存すると normal が解決できるモデルを失い、新しいセッションの最初のリクエストがエラーになります。
+- `models.strong` が無いときは黙って normal のままです。設定済みなのに使えない(知らない ID、資格情報のない provider)場合は normal にフォールバックし、同一 run で 1 回だけ通知します。
+- フッターはモデル名の前に `[normal]` / `[strong]` を出します。バッジは**直近のリクエストが通ったロール**を示すので 1 リクエスト遅れます。スキル起動直後は `[normal]` のまま、スキル終了直後は次のリクエストまで `[strong]` のままです。
 
 ## 既知の制約
 

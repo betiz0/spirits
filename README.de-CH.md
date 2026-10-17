@@ -14,6 +14,7 @@ Statt das Modell über eine Schleife einzelner Tool-Aufrufe zu steuern, erhält 
 - **Rekursive Kind-Agenten** — `await rlm("prompt")` startet einen Kind-Agenten im selben Prozess und gibt dessen finale Antwort als String zurück. Die Tiefe ist begrenzt (Standard 2), Aufrufe einer REPL werden serialisiert, Abbrüche werden an das Kind weitergegeben, und jeder Aufruf schreibt einen `rlm_usage`-Eintrag für Token- und Kostenabrechnung.
 - **Continual Harness** — `note()` schreibt sitzungsübergreifendes Gedächtnis, `goal()` verfolgt das Ziel des aktuellen Branches, Codemode-Werkzeuge verwalten Skills (`spirits_skill_*`), und der Agent kann seinen Code-Mode-Prompt selbst überschreiben (`spirits_prompt_set`).
 - **Session-TODO und nicht destruktives Leeren** — `manage_todos` führt eine an den aktuellen Session-Branch gebundene TODO-Liste, die als Panel zwischen Editor und Footer erscheint; `/clear` startet einen frischen Konversationszweig, während Modell, Thinking-Level und Extension-State erhalten bleiben.
+- **Zwei Modell-Routen** — `/model spirits/auto` bleibt eine einzige Auswahl und jede Anfrage wird als normal oder strong geroutet. Die beiden OpenSpec-Prüf-Skills erhalten das starke Modell (`models.strong` in den Einstellungen), alles andere das Standardmodell.
 - **Single Binary** — kompiliert mit `bun build --compile`. Auf der Zielmaschine werden weder Bun noch Node benötigt.
 
 ## Installation
@@ -61,6 +62,23 @@ spirits enthält Skills, die direkt nach der Installation verfügbar sind. Sie w
 - Mit `SPIRITS_BUNDLED_SKILLS=0` werden alle mitgelieferten Skills deaktiviert (nicht gesetzt oder jeder andere Wert lässt sie aktiv). Deaktiviert wird weder geschrieben noch ein Skill-Pfad geliefert.
 - Nach einem Update spirits neu starten, um die neuen Inhalte zu erhalten: Die Inhalte sind in die laufende Binärdatei eingebettet, daher schreibt `/reload` nur den Baum der bereits laufenden Version neu. Ein Verzeichnis einer alten Version wird beim Schreiben erst entfernt, wenn es 7 Tage lang nicht benutzt wurde.
 - `bundled-skills/` wird von spirits verwaltet. Die Dateien dort nicht bearbeiten; eigene Skills gehören nach `<agentDir>/skills/`.
+
+## Modell-Routing
+
+Im OpenSpec-Workflow verlangen nur zwei Schritte ein stärkeres Modell: die Vorprüfung der Änderung `sprt-opsx-review-change` und die Tiefenverifikation `sprt-opsx-verify-deep`. Statt das Modell von Hand zu wechseln und das Zurücksetzen zu vergessen, wählt man ein Modell und lässt spirits jede Anfrage routen.
+
+- Das Routing-Modell mit `/model spirits/auto` auswählen. Sonst ändert sich nichts: Standardmodell-Einstellungen, `--model` und das Verhalten von `/model` bleiben, wie sie sind; eine Sitzung mit direkt gewähltem physikalischem Modell wird nie geroutet.
+- Das strong-Ziel steht in `settings.json` (`~/.spirits/agent/settings.json`, oder `.pi/settings.json` im Projekt):
+
+  ```json
+  { "models": { "strong": "anthropic/claude-opus-4-7" } }
+  ```
+
+  Nur die Modell-ID (`"claude-opus-4-7"`) wird über den jeweils aktuellen Standard-Provider aufgelöst. `models` ist ein spirits-Schlüssel; pi behält ihn, wenn es andere Einstellungen speichert.
+- propose, apply, verify und archive laufen als **normal** auf Standard-Provider und Standardmodell. Lässt sich das Standardmodell nicht auflösen, übernimmt das Modell der letzten erfolgreichen Antwort mit einem Hinweis. Anfragen während `sprt-opsx-review-change` oder `sprt-opsx-verify-deep` laufen als **strong**, und die Rolle zurück nach normal, sobald der Run settled – auch nach Escape-Abbruch oder Fehler.
+- Als Standardmodell (`defaultProvider` / `defaultModel`) ein **physisches** Modell belassen. Ein virtuelles Modell ist nie ein normal-Ziel: Wer `spirits/auto` als Standard speichert, lässt dem normal-Zweig nichts aufzulösen übrig, und die erste Anfrage einer neuen Sitzung endet mit einem Fehler.
+- Ohne `models.strong` bleibt alles still als normal. Ein konfiguriertes, aber unbenutzbares strong-Ziel (unbekannte ID, Provider ohne Zugangsdaten) fällt auf normal zurück und meldet das genau einmal pro Run.
+- Die Fußzeile zeigt `[normal]` oder `[strong]` vor dem Modellnamen. Das Badge nennt die Rolle der **letzten Anfrage** und hinkt deshalb eine Anfrage hinterher: direkt nach dem Start eines Skills steht noch `[normal]`, direkt nach dessen Ende noch `[strong]`, bis die nächste Anfrage kommt.
 
 ## Bekannte Einschränkungen
 

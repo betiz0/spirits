@@ -14,6 +14,7 @@ Instead of driving the model through a loop of individual tool calls, spirits gi
 - **Recursive child agents** — `await rlm("prompt")` runs a child agent in-process and returns its final answer as a string. Depth is capped (default 2), calls from one REPL are serialized, aborts propagate to the child, and every call records an `rlm_usage` entry for token and cost accounting.
 - **Continual harness** — `note()` appends cross-session memory, `goal()` tracks the goal of the current branch, codemode tools manage skills (`spirits_skill_*`), and the agent can override its own code-mode prompt (`spirits_prompt_set`).
 - **Session TODO and non-destructive clear** — `manage_todos` keeps a TODO list bound to the current session branch, shown as a panel between the editor and footer; `/clear` starts a fresh conversation branch while keeping the model, thinking level, and extension state.
+- **Dual model routing** — `/model spirits/auto` keeps one selection while every request is routed to a normal or a strong model. The two OpenSpec review and verify skills get the strong one (`models.strong` in settings), everything else the default model.
 - **Single binary** — compiled with `bun build --compile`. The target machine needs neither Bun nor Node.
 
 ## Install
@@ -77,6 +78,23 @@ spirits ships with skills that are available right after install. They are writt
 - Disable all bundled skills with `SPIRITS_BUNDLED_SKILLS=0` (unset or any other value keeps them enabled). Nothing is written and no skill path is supplied.
 - After a spirits update, start spirits again to get the new contents: the bundled contents are embedded in the running binary, so `/reload` only rewrites the tree of the version that is already running. A previous version directory is removed on write only after it has not been used for 7 days.
 - `bundled-skills/` is managed by spirits. Do not edit files there; keep your own skills in `<agentDir>/skills/`.
+
+## Model routing
+
+Only two OpenSpec workflow steps ask for a stronger model: the change review skill `sprt-opsx-review-change` and the deep verification skill `sprt-opsx-verify-deep`. Instead of switching models by hand and forgetting to switch back, select one model and let spirits route each request.
+
+- Select the routing model with `/model spirits/auto`. Nothing else changes: the default model settings, `--model`, and the behaviour of `/model` stay as they are, and a session with a physical model selected is never routed.
+- Configure the strong target in `settings.json` (`~/.spirits/agent/settings.json`, or `.pi/settings.json` in the project):
+
+  ```json
+  { "models": { "strong": "anthropic/claude-opus-4-7" } }
+  ```
+
+  A bare model id (`"claude-opus-4-7"`) resolves against the current default provider. `models` is a spirits key, and pi keeps it when it saves other settings.
+- propose, apply, verify, and archive run as **normal** on the default provider and model. If the default cannot be resolved, the model of the latest successful response takes over with one notice. Requests made while `sprt-opsx-review-change` or `sprt-opsx-verify-deep` runs go as **strong**, and the role returns to normal when the run settles, including after an Escape abort or an error.
+- Keep a **physical** model in `defaultProvider` / `defaultModel`. A virtual model is never a normal target, so saving `spirits/auto` as the default leaves normal with nothing to resolve and the first request of a new session ends in an error.
+- Without `models.strong` everything stays normal in silence. A configured strong target that cannot be used (unknown id, provider without credentials) falls back to normal and says so once per run.
+- The footer shows `[normal]` or `[strong]` in front of the model name. The badge reports the role of the **latest request**, so it lags one request: right after starting a skill it still reads `[normal]`, and right after the skill settles it still reads `[strong]` until the next request.
 
 ## Known limitations
 
