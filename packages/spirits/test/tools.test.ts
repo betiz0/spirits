@@ -1,10 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-	SessionManager,
-	sessionEntryToContextMessages,
-	type PiModel,
-	type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import { type PiModel, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import spiritsExtension from "../src/index.ts";
 import { TSREPL_CELL_ENTRY_TYPE } from "../src/constants.ts";
 import type { CellMetrics } from "../src/repl/metrics.ts";
@@ -13,6 +8,7 @@ import { OUTPUT_LIMIT } from "../src/repl/format.ts";
 import { createRlmHostFn } from "../src/rlm/hostfn.ts";
 import type { SpawnParams } from "../src/rlm/spawn.ts";
 import { createTsreplTool, TSREPL_PROMPT_SNIPPET } from "../src/tools.ts";
+import { sessionEntryToContextMessages, SessionManager } from "./pi-runtime/session-manager.ts";
 import { FakePi } from "./routing/fake-pi.ts";
 import { makeToolContext } from "./support.ts";
 
