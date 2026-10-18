@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { HostFnEntry } from "../src/repl/registry.ts";
-import { DEFAULT_MAX_DEPTH } from "../src/rlm/depth.ts";
+import { DEFAULT_MAX_DEPTH, RLM_MAX_CHILD_DURATION_MS, RLM_MAX_TOOL_CALLS } from "../src/rlm/depth.ts";
 import { createRlmHostFn, type SpawnFn } from "../src/rlm/hostfn.ts";
 import type { RlmRunResult, RlmTokens } from "../src/rlm/spawn.ts";
 import {
@@ -86,7 +86,13 @@ test("tool description includes rlm guidance", () => {
 });
 
 test("tool description unchanged without host fns", () => {
-	expect(createTsreplTool().description).toBe(TSREPL_DESCRIPTION);
+	// Without the `rlm` host function the description carries no rlm guidance: no usage example, no
+	// depth limit, no child tool-call limit.
+	const description = createTsreplTool().description;
+	expect(description).not.toContain("await rlm(");
+	expect(description).not.toContain("深度上限");
+	expect(description).not.toContain(`${RLM_MAX_TOOL_CALLS} 回`);
+	expect(description).not.toContain(String(RLM_MAX_CHILD_DURATION_MS));
 });
 
 test("tool abort propagates to child", async () => {

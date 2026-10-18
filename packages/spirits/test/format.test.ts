@@ -4,7 +4,9 @@ import {
 	formatFailure,
 	formatRuntimeError,
 	formatSuccess,
+	OUTPUT_HEAD,
 	OUTPUT_LIMIT,
+	OUTPUT_TAIL,
 } from "../src/repl/format.ts";
 import { Repl } from "../src/repl/cell.ts";
 import { createBuiltinHostFns } from "../src/repl/hostfns.ts";
@@ -40,20 +42,32 @@ test("truncate exact limit", () => {
 });
 
 test("truncate over limit", () => {
-	const result = applyOutputLimit("x".repeat(20000));
+	const result = applyOutputLimit("x".repeat(63200));
 	expect(result.truncated).toBe(true);
 	expect(result.truncatedChars).toBe(12000);
-	expect(result.text.startsWith("x".repeat(4800))).toBe(true);
-	expect(result.text.endsWith("x".repeat(3200))).toBe(true);
+	expect(result.text.startsWith("x".repeat(OUTPUT_HEAD))).toBe(true);
+	expect(result.text.endsWith("x".repeat(OUTPUT_TAIL))).toBe(true);
 	expect(result.text).toContain("12000");
 });
 
+test("truncate keeps head and tail ratio", () => {
+	expect(applyOutputLimit("x".repeat(OUTPUT_LIMIT)).truncated).toBe(false);
+
+	const over = applyOutputLimit("x".repeat(OUTPUT_LIMIT + 1));
+	expect(over.truncated).toBe(true);
+	expect(over.truncatedChars).toBe(1);
+	expect(over.text.startsWith("x".repeat(OUTPUT_HEAD))).toBe(true);
+	expect(over.text.endsWith("x".repeat(OUTPUT_TAIL))).toBe(true);
+	expect(OUTPUT_HEAD + OUTPUT_TAIL).toBe(51200);
+});
+
 test("truncate error", () => {
-	const result = formatFailure("e".repeat(20000));
+	const result = formatFailure("e".repeat(120000));
 	expect(result.isError).toBe(true);
 	expect(result.details.truncated).toBe(true);
-	expect(result.details.truncatedChars).toBe("[error]\n".length + 20000 - OUTPUT_LIMIT);
+	expect(result.details.truncatedChars).toBe("[error]\n".length + 120000 - OUTPUT_LIMIT);
 	expect(result.text).toContain("characters truncated");
+	expect(result.raw).toBe(`[error]\n${"e".repeat(120000)}`);
 });
 
 test("runtime error excerpt", () => {
@@ -115,10 +129,13 @@ test("circular value", () => {
 });
 
 test("cell output truncation", async () => {
-	const repl = new Repl(new HostFnRegistry(createBuiltinHostFns()));
-	const result = await repl.run({ code: 'print("x".repeat(20000))' }, makeToolContext());
+	const repl = new Repl(new HostFnRegistry(createBuiltinHostFns()), {
+		writeOutput: async () => "/tmp/spirits-tsrepl-format-test.txt",
+	});
+	const result = await repl.run({ code: 'print("x".repeat(120000))' }, makeToolContext());
 	expect(result.isError).toBe(false);
 	expect(result.details.truncated).toBe(true);
 	expect(result.details.truncatedChars).toBeGreaterThan(0);
 	expect(result.text).toContain("characters truncated");
+	expect(result.text).toContain("/tmp/spirits-tsrepl-format-test.txt");
 });

@@ -113,6 +113,16 @@ export const TOOL_NAME_SKILL_DELETE = "spirits_skill_delete";
 export const TOOL_NAME_PROMPT_SET = "spirits_prompt_set";
 
 // ---------------------------------------------------------------------------
+// tsrepl cell log (usage measurement)
+// ---------------------------------------------------------------------------
+
+/**
+ * Custom session entry type carrying one record per executed cell. pi keeps custom entries out of
+ * the LLM context, so this is measurement data only. Data shape: `CellMetrics` in `repl/metrics.ts`.
+ */
+export const TSREPL_CELL_ENTRY_TYPE = "tsrepl_cell";
+
+// ---------------------------------------------------------------------------
 // Bundled skills
 // ---------------------------------------------------------------------------
 

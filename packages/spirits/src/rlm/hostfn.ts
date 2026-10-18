@@ -14,7 +14,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { isRecord } from "../repl/guards.ts";
 import type { HostFnCallable, HostFnEntry, HostFnScope } from "../repl/registry.ts";
 import { createTsreplTool } from "../tools.ts";
-import { depthLimitError, resolveChildMaxDepth } from "./depth.ts";
+import { depthLimitError, resolveChildMaxDepth, RLM_MAX_CHILD_DURATION_MS } from "./depth.ts";
 import { buildRlmGuidance } from "./guidance.ts";
 import type { RlmOutcome, RlmRunResult, RlmTokens, SpawnParams } from "./spawn.ts";
 
@@ -29,6 +29,11 @@ export interface CreateRlmHostFnOptions {
 	/** Depth limit applied to this session. */
 	maxDepth: number;
 	spawn: SpawnFn;
+	/**
+	 * Wall-clock limit of one child run, for tests only. Production always takes
+	 * `RLM_MAX_CHILD_DURATION_MS`.
+	 */
+	maxChildDurationMs?: number;
 }
 
 /** Returned when a call is aborted while waiting or while the child runs. */
@@ -43,6 +48,7 @@ interface ParsedArgs {
 
 export function createRlmHostFn(options: CreateRlmHostFnOptions): HostFnEntry {
 	const { pi, depth, maxDepth, spawn } = options;
+	const childDurationLimitMs = options.maxChildDurationMs ?? RLM_MAX_CHILD_DURATION_MS;
 	// One queue per REPL (per `createRlmHostFn` instance, shared across cells). Different depths
 	// create separate instances, so a parent waiting on a child never blocks the child's own calls.
 	let tail: Promise<void> = Promise.resolve();
@@ -108,16 +114,22 @@ export function createRlmHostFn(options: CreateRlmHostFnOptions): HostFnEntry {
 					return RLM_ABORTED_NOTICE;
 				}
 
+				// The duration limit starts here, after the queue wait, and cuts the child through the
+				// signal handed to `spawn`. A child that still reports `completed` after the timer fired is
+				// a child that finished, so its answer wins over the limit.
+				const limit = newChildDurationLimit(childDurationLimitMs, scope.signal);
 				try {
 					const childMax = resolveChildMaxDepth(maxDepth, parsed.requestedMaxDepth);
 					const childTool = createTsreplTool({
 						hostFns: [createRlmHostFn({ pi, depth: depth + 1, maxDepth: childMax, spawn })],
+						// A child has no bash, so the tool-selection rules do not apply to it.
+						promptGuidelines: [],
 					});
 					const params: SpawnParams = {
 						prompt: parsed.prompt,
 						cwd: scope.toolContext.cwd,
 						model,
-						signal: scope.signal,
+						signal: limit.signal,
 						childTool,
 					};
 					if (scope.toolContext.thinkingLevel !== undefined) {
@@ -132,6 +144,10 @@ export function createRlmHostFn(options: CreateRlmHostFnOptions): HostFnEntry {
 						appendUsage("error", null);
 						throw error;
 					}
+					if (limit.fired && result.outcome !== "completed") {
+						appendUsage("aborted", result.sessionId, result);
+						throw childDurationLimitError(childDurationLimitMs);
+					}
 					appendUsage(result.outcome, result.sessionId, result);
 					if (result.outcome === "completed" || result.outcome === "budget") {
 						return result.text;
@@ -141,11 +157,47 @@ export function createRlmHostFn(options: CreateRlmHostFnOptions): HostFnEntry {
 					}
 					throw errorFromResult(result);
 				} finally {
+					limit.stop();
 					releaseOnce();
 				}
 			};
 		},
 	};
+}
+
+/**
+ * The wall-clock limit of one child run, and the signal `spawn` receives: the caller's signal plus a
+ * timer signal. `fired` says the timer (not the caller) cut the run.
+ */
+interface ChildDurationLimit {
+	signal: AbortSignal;
+	readonly fired: boolean;
+	stop(): void;
+}
+
+function newChildDurationLimit(limitMs: number, caller: AbortSignal): ChildDurationLimit {
+	const timer = new AbortController();
+	let fired = false;
+	const handle = setTimeout(() => {
+		fired = true;
+		timer.abort();
+	}, limitMs);
+	return {
+		signal: AbortSignal.any([caller, timer.signal]),
+		get fired(): boolean {
+			return fired;
+		},
+		stop(): void {
+			clearTimeout(handle);
+		},
+	};
+}
+
+/** Error for a child cut by the run-duration limit. Catchable in the cell. */
+function childDurationLimitError(limitMs: number): Error {
+	return new Error(
+		`rlm: 子セッションの実行時間が上限（${limitMs}ms）を超えたため打ち切りました。委譲を分割するか、子に結果をファイルへ書かせてパスだけを返してください。`,
+	);
 }
 
 /** Wait for this call's turn. Returns `aborted` if the scope signal aborts while waiting. */

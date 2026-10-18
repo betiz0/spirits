@@ -52,6 +52,15 @@ export class ReplContext {
 		this.#context = undefined;
 	}
 
+	/**
+	 * Keep the value of a cell that returned one as `_` on the context's `globalThis`. This is the
+	 * only host-side write to a global: `_` is a value a cell execution left behind, not a host
+	 * global, and `reset()` drops it together with every other `globalThis` value.
+	 */
+	setUnderscore(value: unknown): void {
+		(this.context as unknown as Record<string, unknown>)._ = value;
+	}
+
 	#createContext(): vm.Context {
 		const sandbox: Record<string, unknown> = {};
 		const host = globalThis as unknown as Record<string, unknown>;

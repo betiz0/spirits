@@ -74,16 +74,16 @@ REPL セル内から子エージェントを同期的に起動できる `rlm()` 
 
 ### 子セッションの中断
 
-親セルの `scope.signal` を `spawn` に渡し、abort 時に実行中の子へ `session.abort()` を呼ぶ。`abort()` の完了を待ってから `dispose()` する。セルの timeout も同じシグナルへ合成されるため、子の実行時間にも適用される。中断時のセルの結果は tsrepl の既存の中断・timeout のエラーに従う。
+`spawn` には、親セルの中断シグナルと実行時間上限のタイマーを連結したシグナル(`AbortSignal.any`)を渡し、abort 時に実行中の子へ `session.abort()` を呼ぶ。`abort()` の完了を待ってから `dispose()` する。セルに `timeout` を指定した場合はセル側の打ち切りが効き、親の中断と上限の区別は連結した側のどちらが発火したかで取る。中断時のセルの結果は tsrepl の既存の中断・timeout のエラーに従う。
 
 ### タイムアウトとコスト上限
 
-- 子セッションに個別 timeout は設けない(中断はユーザ操作/セル timeout に委譲)
+- 1 回の `rlm` 呼び出しの子実行時間に `RLM_MAX_CHILD_DURATION_MS`(既定 120000ms)を設ける。超えた時点で子を中断し、その完了を待ってから、上限の値を含む例外を投げる(セル内で catch でき、`rlm_usage` は `outcome: aborted`、中断時点の tokens、戻りまでの `durationMs` で記録する)。直列化キューの待機時間は上限に含めない(タイマーは自分の番になってから開始する)。上限のタイマーが火を上げた後でも子が `completed` で戻った場合は、その最終回答を返し、`outcome` は `completed` のままにする
 - 1 rlm 呼び出しあたりの子のモデル発行ツール呼び出し回数を `RLM_MAX_TOOL_CALLS`(既定 50)で制限する。`parentToolCallId` を持たない `tool_execution_start` だけを数え、51 回目で子を abort して、上限超過の旨と部分テキストを途中結果サマリとして返す
 
 ### コスト・トークン集計
 
-`rlm` の呼び出し 1 回につき `rlm_usage` カスタムエントリを 1 件、ルートセッションへ記録する。フィールドは `depth`(子の深度。呼び出し側 +1)、`sessionId`、`provider`、`modelId`、`tokens`(input / output / cacheRead / cacheWrite / total)、`cost`、`durationMs`(呼び出し開始から戻るまで。直列化の待機を含む)、`outcome`(`completed` / `aborted` / `budget` / `error`)。子を生成しなかった呼び出しも `error` または `aborted` として記録する。
+`rlm` の呼び出し 1 回につき `rlm_usage` カスタムエントリを 1 件、ルートセッションへ記録する。フィールドは `depth`(子の深度。呼び出し側 +1)、`sessionId`、`provider`、`modelId`、`tokens`(input / output / cacheRead / cacheWrite / total)、`cost`、`durationMs`(呼び出し開始から戻るまで。直列化の待機を含む)、`outcome`(`completed` / `aborted` / `budget` / `error`)。子を生成しなかった呼び出しも `error` または `aborted` として記録する。実行時間上限での中断は `aborted` に入り、上限による中断かどうかは例外の文と `durationMs` で見分ける(`outcome` に新しい値は足さない)。
 
 集計規約は「ルートセッション自身の usage + そのセッションの JSONL にある全 `rlm_usage`」。子は**インメモリ**で自身の usage だけを含むため二重計上は起きない。`rlm_usage` は LLM コンテキストへ送らない。
 
@@ -123,4 +123,4 @@ REPL セル内から子エージェントを同期的に起動できる `rlm()` 
 - **SDK API の変動**(上流は活発開発中)→ spawn.ts を薄いラッパに集中させ、API 差分の吸収を 1 ファイルに限定
 - **子セッションのコスト錯綜**: 親子で同時に課金計上され二重計上に見える可能性 → `rlm_usage` に `depth` を含め、「ルートセッション自身の usage + 全 `rlm_usage`」を集計規約として README 化
 - **直列化による待ち時間の合計**: 複数の `rlm` を呼ぶセルで timeout に達しやすい → 案内文に「直列で待ち時間が合計される」と明記
-- **子の 1 ターンが長い場合**: 既定 timeout 30000ms で足りない可能性 → 案内文と README に `timeout` の拡大(最大 120000ms)を記載
+- **子の 1 ターンが長い場合**: 実行時間上限 120000ms で打ち切られ、消費済みのトークンが無駄に見える可能性 → 案内文に「委譲を分割する」「子に結果をファイルへ書かせてパスだけを返す」を記載し、`outcome: aborted` の `durationMs` と tokens を集計して上限の再設計は非同期化の change に委ねる

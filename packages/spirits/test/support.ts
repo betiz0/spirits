@@ -1,9 +1,11 @@
 import type {
+	CallableToolInfo,
 	ExtensionModelRegistry,
 	ExtensionToolContext,
 	ReadonlySessionManager,
 } from "@earendil-works/pi-coding-agent";
 import type { HostFnScope } from "../src/repl/registry.ts";
+import type { ToolCallRecord } from "../src/repl/metrics.ts";
 
 const EMPTY_SESSION_MANAGER: ReadonlySessionManager = { getBranch: () => [] };
 
@@ -21,6 +23,7 @@ export function makeToolContext(
 		model?: ExtensionToolContext["model"];
 		thinkingLevel?: ExtensionToolContext["thinkingLevel"];
 		executeTool?: ExtensionToolContext["executeTool"];
+		tools?: readonly CallableToolInfo[];
 		sessionManager?: ReadonlySessionManager;
 	} = {},
 ): ExtensionToolContext {
@@ -33,7 +36,7 @@ export function makeToolContext(
 		thinkingLevel: options.thinkingLevel,
 		sessionManager: options.sessionManager ?? EMPTY_SESSION_MANAGER,
 		modelRegistry: EMPTY_MODEL_REGISTRY,
-		tools: [],
+		tools: options.tools ?? [],
 		executeTool:
 			options.executeTool ??
 			(async () => ({ toolCall: {}, result: { content: [], details: undefined }, isError: false })),
@@ -44,6 +47,7 @@ export interface CapturedScope {
 	scope: HostFnScope;
 	printed: string[];
 	state: { value: unknown };
+	toolCalls: ToolCallRecord[];
 }
 
 /** Build a `HostFnScope` that records print/value writes. */
@@ -59,6 +63,7 @@ export function makeScope(
 ): CapturedScope {
 	const printed: string[] = [];
 	const state: { value: unknown } = { value: undefined };
+	const toolCalls: ToolCallRecord[] = [];
 	const scope: HostFnScope = {
 		signal: options.signal ?? new AbortController().signal,
 		toolContext: makeToolContext({
@@ -77,7 +82,10 @@ export function makeScope(
 				state.value = value;
 			}
 		},
+		recordToolCall: (record) => {
+			toolCalls.push(record);
+		},
 		finished: options.finished ?? false,
 	};
-	return { scope, printed, state };
+	return { scope, printed, state, toolCalls };
 }

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
 	DEFAULT_MAX_DEPTH,
+	RLM_MAX_CHILD_DURATION_MS,
 	RLM_MAX_TOOL_CALLS,
 	countsAgainstToolBudget,
 	depthLimitError,
@@ -11,6 +12,10 @@ import {
 test("default max depth", () => {
 	expect(DEFAULT_MAX_DEPTH).toBe(2);
 	expect(RLM_MAX_TOOL_CALLS).toBe(50);
+});
+
+test("child duration limit default", () => {
+	expect(RLM_MAX_CHILD_DURATION_MS).toBe(120000);
 });
 
 test("child max clamps down", () => {

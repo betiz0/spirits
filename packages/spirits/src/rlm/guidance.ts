@@ -6,7 +6,7 @@
  * `depth.ts` to keep the limits in one place.
  */
 
-import { RLM_MAX_TOOL_CALLS } from "./depth.ts";
+import { RLM_MAX_CHILD_DURATION_MS, RLM_MAX_TOOL_CALLS } from "./depth.ts";
 
 export interface RlmGuidanceOptions {
 	/** Closing session depth (root is 0). */
@@ -47,7 +47,8 @@ export function buildRlmGuidance({ depth, maxDepth }: RlmGuidanceOptions): strin
 			'- 子は親の REPL 変数を見られません。必要な情報は prompt か、cwd 配下のファイルで渡してください。子のツールは `tsrepl` だけで、ファイル操作は `use("node:fs")` で行います。',
 			"- 結果が長い場合は、子にファイルへ書かせ、パスだけを返させてください。",
 			"- 文脈量の多い調査や独立した実装は委譲し、単発で既知の検索・編集・コマンドは自分で実行してください。",
-			"- 呼び出しは直列に実行され（Promise.all でも 1 つずつ）、待ち時間は合計されます。セルの timeout が子の実行時間にも適用されるため、`timeout` を大きく指定してください（最大 120000ms）。",
+			`- 呼び出しは直列に実行され（Promise.all でも 1 つずつ）、待ち時間は合計されます。1 回の呼び出しの実行時間には上限（${RLM_MAX_CHILD_DURATION_MS}ms。直列化の待ちは数えません）があり、超えると子セッションを中断して例外になります。`,
+			"- 長い委譲は呼び出しを分割するか、子に結果をファイルへ書かせてパスだけを返してください。セルに `timeout` を指定した場合は、それも子の実行中に適用されます。",
 			`- 再帰の深度上限は ${maxDepth}、現在の深度は ${depth} です。上限に達した層で呼ぶと例外になるので、その層で直接処理してください。\`rlm(prompt, { maxDepth })\` の \`maxDepth\` はルートからの絶対深度で、子孫の上限を下げられます（上げることはできません）。`,
 			`- 子のツール呼び出しが ${RLM_MAX_TOOL_CALLS} 回を超えると打ち切られ、途中結果が返ります。`,
 		].join("\n"),

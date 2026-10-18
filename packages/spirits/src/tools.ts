@@ -8,7 +8,10 @@
 
 import { Type } from "typebox";
 import type { AgentToolResult, ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Repl } from "./repl/cell.ts";
+import { TSREPL_CELL_ENTRY_TYPE } from "./constants.ts";
+import { DEFAULT_SYNC_WATCHDOG, MAX_TIMEOUT, MIN_TIMEOUT, Repl } from "./repl/cell.ts";
+import { OUTPUT_LIMIT } from "./repl/format.ts";
+import type { CellMetrics } from "./repl/metrics.ts";
 import type { ResultDetails } from "./repl/format.ts";
 import { createBuiltinHostFns } from "./repl/hostfns.ts";
 import { HostFnRegistry, type HostFnEntry } from "./repl/registry.ts";
@@ -20,14 +23,32 @@ export const TSREPL_DESCRIPTION = [
 	'- `use("node:fs")` / `use("bun:ffi")` の組込と、cwd 相対の `use("./m.ts")` を import できます。それ以外は拒否されます。',
 	"- `tool(name, args)` で他のツールを呼べます(`tsrepl` 自身は呼べません)。",
 	"- 実行時エラーの行番号と抜粋は、TypeScript を JavaScript へ変換した後のコード基準です。",
-	"- timeout は既定 30000ms で、[500, 120000] にクランプされます。timeout 打ち切り後はコンテキストが不整合になり得るため、必要なら `reset: true` を使ってください。",
+	"- `tool(name, args)` の結果は、非ゼロ終了などのエラー扱いでも、そのツールが `outputSchema` を宣言していれば構造化結果として返ります。bash なら `exit_code` を確認してください。例外になるのは構造化結果の無い失敗だけです。",
+	`- 結果テキストの上限は ${OUTPUT_LIMIT} 文字で、超えると先頭と末尾を残します。切り捨てたときは全文が一時ファイルに保存され、結果にそのパスが出ます(大きい出力は \`return\` 前に加工するか \`full_output_path\` を読んでください)。`,
+	"- 値を返して成功したセルの値は、次のセルで `_` として読めます。エラーになったセルは `_` を変えません。",
+	`- timeout は既定なし(無制限)で、指定時は [${MIN_TIMEOUT}, ${MAX_TIMEOUT}] にクランプされます。最初の \`await\` より前の同期実行には常に同期実行の watchdog(既定 ${DEFAULT_SYNC_WATCHDOG}ms、timeout 指定時はその値との小さい方)が掛かります。打ち切り後はコンテキストが不整合になり得るため、必要なら \`reset: true\` を使ってください。`,
 	"- 既知の制約: `await` の後に始まる同期ループは中断できず、プロセス全体が応答しなくなります。`reset` では回復できません。",
 ].join("\n");
+
+/** One-line entry in the system prompt's tool list. pi omits a custom tool without it. */
+export const TSREPL_PROMPT_SNIPPET =
+	"永続 TypeScript REPL。連続実行・出力の加工・結果を次の手順で使う場合に使う";
+
+/**
+ * Guideline bullets pi appends to the system prompt's rules while tsrepl is active. Only the two
+ * choice rules: pi's own "Use bash for file operations like ls, rg, find" stays in place.
+ */
+export const TSREPL_PROMPT_GUIDELINES: readonly string[] = [
+	"2 つ以上のコマンドを続けて実行する、出力の一部だけを取り出す、または結果を次の手順で使う場合は tsrepl を使う",
+	"1 回だけ実行して出力をそのまま読むコマンドは bash を使う",
+];
 
 const parameters = Type.Object({
 	code: Type.String({ description: "実行する TypeScript セル" }),
 	timeout: Type.Optional(
-		Type.Number({ description: "セル実行の打ち切り(ms)。既定 30000、[500, 120000] にクランプ" }),
+		Type.Number({
+			description: `セル実行の打ち切り(ms)。既定なし、[${MIN_TIMEOUT}, ${MAX_TIMEOUT}] にクランプ。同期実行には ${DEFAULT_SYNC_WATCHDOG}ms の watchdog`,
+		}),
 	),
 	reset: Type.Optional(Type.Boolean({ description: "true なら実行前に永続コンテキストを再生成する" })),
 	description: Type.Optional(Type.String({ description: "このセルの意図(開発時ログ用)" })),
@@ -61,6 +82,17 @@ export interface CreateTsreplToolOptions {
 	dev?: DevLogOptions;
 	/** Additional host functions exposed to cells, registered after the built-ins. */
 	hostFns?: readonly HostFnEntry[];
+	/**
+	 * Replace the guideline bullets this tool contributes to the system prompt. The `rlm` child
+	 * session passes an empty list: a child has no bash, so the bash half of the rule is unusable
+	 * there. Drop this override when children get bash.
+	 */
+	promptGuidelines?: readonly string[];
+	/**
+	 * Session sink for the per-cell `tsrepl_cell` log. The root session passes it; the `rlm` child
+	 * does not (its work is already covered by the root's `rlm_usage`).
+	 */
+	pi?: Pick<ExtensionAPI, "appendEntry">;
 }
 
 /**
@@ -87,6 +119,8 @@ export function createTsreplTool(options: CreateTsreplToolOptions = {}): ToolDef
 		name: "tsrepl",
 		label: "TypeScript REPL",
 		description: buildToolDescription(options.hostFns),
+		promptSnippet: TSREPL_PROMPT_SNIPPET,
+		promptGuidelines: [...(options.promptGuidelines ?? TSREPL_PROMPT_GUIDELINES)],
 		parameters,
 		exposure: "direct",
 		executionMode: "sequential",
@@ -102,6 +136,12 @@ export function createTsreplTool(options: CreateTsreplToolOptions = {}): ToolDef
 				{ code: params.code, timeout: params.timeout, reset: params.reset },
 				ctx,
 			);
+			// One entry per cell. A failed record never changes the cell result.
+			try {
+				options.pi?.appendEntry(TSREPL_CELL_ENTRY_TYPE, entryData(result.metrics));
+			} catch {
+				// The log is measurement, not part of the cell contract.
+			}
 			if (devLog !== undefined) {
 				const kind = result.isError ? "error" : "ok";
 				const label = params.description ?? "";
@@ -116,7 +156,12 @@ export function createTsreplTool(options: CreateTsreplToolOptions = {}): ToolDef
 	};
 }
 
+/** Copy the measurement into entry data, so later mutation of the cell cannot rewrite the log. */
+function entryData(metrics: CellMetrics): CellMetrics {
+	return { ...metrics, toolCalls: metrics.toolCalls.map((call) => ({ ...call })) };
+}
+
 /** Register the tsrepl tool on a pi extension. */
 export function registerTsrepl(pi: ExtensionAPI, options: CreateTsreplToolOptions = {}): void {
-	pi.registerTool(createTsreplTool(options));
+	pi.registerTool(createTsreplTool({ ...options, pi }));
 }

@@ -11,6 +11,12 @@ export const DEFAULT_MAX_DEPTH = 2;
 /** Maximum tool calls a child session may start within one `rlm` call. */
 export const RLM_MAX_TOOL_CALLS = 50;
 
+/**
+ * Wall-clock limit of one child session run, in ms. Waiting for this session's turn in the
+ * serialization queue does not count against it.
+ */
+export const RLM_MAX_CHILD_DURATION_MS = 120000;
+
 /** Clamp a requested limit to the inherited limit. A raise is reduced to the inherited value. */
 export function resolveChildMaxDepth(inherited: number, requested: number | undefined): number {
 	if (requested === undefined) {

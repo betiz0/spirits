@@ -50,7 +50,7 @@ Pi 拡張として「永続 TypeScript REPL ツール」を単体で動作させ
 | フィールド | 型 | 既定 | 意味 |
 |---|---|---|---|
 | `code` | string | 必須 | 実行する TypeScript セル |
-| `timeout` | number(ms) | 30000 | セル実行の打ち切り。[500, 120000] にクランプ |
+| `timeout` | number(ms) | 既定なし | セル全体の打ち切り。[500, 2147483647] にクランプ。未指定では打ち切らない。同期実行には別の watchdog(既定 30000ms)が常にかかる |
 | `reset` | boolean | false | true なら実行前にコンテキストを再生成 |
 | `description` | string | 省略可 | モデルが意図を添える欄(ログ用) |
 
@@ -62,11 +62,11 @@ Pi 拡張として「永続 TypeScript REPL ツール」を単体で動作させ
 2. `cell.ts` が変換結果を async IIFE で包む(トップレベル await 吸収):
    - 構造: `(async (require) => { <変換済みコード> })()` を `vm.Script`(ファイル名 `tsrepl-cell.js`)化し `runInContext` 実行。IIFE の `require` 引数は未指定なので undefined になり、Bun.Transpiler の `typeof require` 畳み込みを打ち消す
    - 戻り値の扱い: セル内で `return <expr>` または `out(<expr>)` を使った場合、その値を結果とする。どちらも無ければ value は undefined(printed のみ返る)。**最終式の自動捕捉はしない**(M5 の採否対象)
-   - 永続の範囲: セルをまたいで残るのは `globalThis` への代入(`globalThis.x = ...` または宣言なしの代入 `x = ...`)だけ。IIFE 内の `const` / `let` / `function` / `class` はセル内に閉じる。この規則はツール説明でもモデルに示す
+   - 永続の範囲: セルをまたいで残るのは `globalThis` への代入(`globalThis.x = ...` または宣言なしの代入 `x = ...`)だけ。加えて、value を返して成功したセルの値を REPL が `globalThis._` へ代入する(value 無しセルと error セルは `_` を変えず、`reset` で消える)。IIFE 内の `const` / `let` / `function` / `class` はセル内に閉じる。この規則はツール説明でもモデルに示す
 3. `use(spec)`: `node:` / `bun:` の組込と、セッション cwd を基準に解決して cwd 配下に収まる `./` / `../` 相対パスだけを許可し、動的 `import()` する。ベア指定子(同梱依存)・絶対パス・cwd 外・リモート URL は拒否し、理由を含む例外をセルへ投げる。M1 では URL 開放の opt-in を設けない(ベア指定子は M2 以降で検討)
-4. `tool(name, args)`: `ctx.executeTool` で呼び出せるツール(direct ツール、codemode ツール、deferred ツール)から `tsrepl` 自身を除いたものを実行する。存在しないツール・実行失敗は、ツールのエラーテキストを含む例外としてセル内へ投げる
-5. 出力捕捉: `print()` は 1 行としてバッファへ追記し、結果の printed として返す。`out(v)` は value を設定する。コンテキストのホストグローバルは `setTimeout` / `clearTimeout` / `fetch` / `URL` / `TextEncoder` / `TextDecoder` / `structuredClone` だけとし、`process` / `Bun` / `require` / `console` は提供しない(console 参照は print に誘導)
-6. タイムアウト: 既定 30000ms、[500, 120000] にクランプ。同期部分は vm の `timeout`、await 中は外側の race で打ち切り、「timeout で打ち切り、部分実行でコンテキストが不整合になり得る、`reset: true` で初期化できる」と返す。**既知の制約**: `await` の後に始まる同期ループは中断できず、プロセス全体が応答しなくなる(`reset` でも回復しない)
+4. `tool(name, args)`: `ctx.executeTool` で呼び出せるツール(direct ツール、codemode ツール、deferred ツール)から `tsrepl` 自身を除いたものを実行する。`outputSchema` の宣言を見るのはエラー扱いのときだけである。成功時は宣言にかかわらず、`structuredContent` があればそれを、無ければテキストを返す。エラー扱い(`isError`)のときは、そのツールが `outputSchema` を宣言していて結果に `structuredContent` が含まれる場合だけ例外にせず構造化結果を返すため、bash の非ゼロ終了はデータとして読める(成否は `exit_code` で確認する)。例外になるのは、構造化結果の無い失敗・`outputSchema` を宣言しないツールの失敗・存在しないツール・呼び出せないツール・`tsrepl` 自身の指定で、いずれもツールのエラーテキストを含む例外としてセル内に投げ、セル内で catch できる
+5. 出力捕捉: `print()` は 1 行としてバッファへ追記し、結果の printed として返す。整形後の結果テキスト全体には §6 の出力上限(51200 文字と全文ファイル)が掛かる。`out(v)` は value を設定する。コンテキストのホストグローバルは `setTimeout` / `clearTimeout` / `fetch` / `URL` / `TextEncoder` / `TextDecoder` / `structuredClone` だけとし、`process` / `Bun` / `require` / `console` は提供しない(console 参照は print に誘導)
+6. タイムアウト: 打ち切りを 2 つに分ける。セル全体の timeout は指定時のみ(既定なし=打ち切らない)で [500, 2147483647] にクランプし、外側の race が待つ。同期実行(最初の `await` より前)には同期 watchdog を常にかけて、既定 30000ms、timeout 指定時は `min(timeout, 30000)` を vm の `timeout` に渡す(大きい timeout を指定しても同期ハングは 30000ms で止まる)。打ち切りメッセージは 2 種を区別できる: vm の `ERR_SCRIPT_EXECUTION_TIMEOUT` は同期実行の上限超過と「処理を `await` を含む単位へ分割する」提案、race は従来の文言。どちらも「打ち切った旨、部分実行でコンテキストが不整合になり得る、`reset: true` で初期化できる」を含める。呼び出し元(Esc)の中断は `toolContext.signal` 経由で timeout 未指定でも効く。**既知の制約**: `await` の後に始まる同期ループは中断できず、プロセス全体が応答しなくなる(`reset` でも回復しない)
 7. 実行モード: `executionMode: "sequential"` に加え、セル評価の入口でもキューで直列化する。実行を終えたセル(timeout 打ち切りを含む)の非同期処理が後から `print` / `out` を呼んでも、その出力や値は他のセルの結果へ混ぜない
 
 ## 6. エラー整形方針(format.ts)
@@ -74,7 +74,7 @@ Pi 拡張として「永続 TypeScript REPL ツール」を単体で動作させ
 - 実行時エラー: 例外の種類とメッセージ + 行番号 + その行の抜粋 + 「次に試すべきこと」の提案 1 文。行番号は `tsrepl-cell.js` のフレーム行番号から 1 を引いた値(元のセル行に対応)で、抜粋は変換後コードの該当行。`console` の参照には `print` を、未定義参照(宣言を後続セルへ持ち越そうとした場合)には `globalThis` への代入を案内する
 - トランスパイルエラー: `Bun.Transpiler` のエラー位置(`position.line - 1`)と `lineText` を提示し、コードは実行しない
 - スタックトレースは `tsrepl-cell.js` のフレームだけを使い、ホスト側内部情報(REPL 実装ファイル、テスト)を含めない
-- 出力上限: 整形後の結果テキスト全体(成功時は value / printed、失敗時は error)に 1 回適用。8,000 文字を超えたら先頭 4,800 + 末尾 3,200 を残して中間を切り捨て、切り捨てた文字数を明記する
+- 出力上限: 整形後の結果テキスト全体(成功時は value / printed、失敗時は error)に 1 回適用。51200 文字を超えたら先頭 30720 + 末尾 20480 を残して中間を切り捨て、切り捨てた文字数を明記する。単位は JavaScript の文字列長(bash の 50KB と同じオーダー)。切り捨てたときは全文を `os.tmpdir()` の `spirits-tsrepl-<hex>.txt`(モード 0600)へ保存し、結果テキストにそのパスを書く。保存に失敗してもセルの成否は変えず、パスの代わりに保存できなかった旨を書く(bash と同じ寿命で、削除は OS の tmp 掃除に任せる)
 
 ## 7. スパイクタスク(M1 冒頭で実施)
 

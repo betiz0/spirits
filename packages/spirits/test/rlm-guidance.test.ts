@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { RLM_MAX_TOOL_CALLS } from "../src/rlm/depth.ts";
+import { RLM_MAX_CHILD_DURATION_MS, RLM_MAX_TOOL_CALLS } from "../src/rlm/depth.ts";
 import { buildRlmGuidance } from "../src/rlm/guidance.ts";
 
 test("guidance root covers await, string, timeout, serial, limits", () => {
@@ -11,6 +11,15 @@ test("guidance root covers await, string, timeout, serial, limits", () => {
 	expect(text).toContain("直列");
 	expect(text).toContain("深度上限は 2");
 	expect(text).toContain(String(RLM_MAX_TOOL_CALLS));
+});
+
+test("guidance mentions the child duration limit", () => {
+	const text = buildRlmGuidance({ depth: 0, maxDepth: 2 });
+	expect(text).toContain(String(RLM_MAX_CHILD_DURATION_MS));
+	expect(text).toContain("実行時間");
+	expect(text).toContain("上限");
+	expect(text).toContain("例外");
+	expect(text).toContain("セルに `timeout`");
 });
 
 test("guidance at depth limit omits usage example", () => {

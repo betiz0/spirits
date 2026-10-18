@@ -74,13 +74,15 @@
 ### code-mode システムプロンプト
 
 - 既定は `src/harness/prompt.ts` の TS 定数としてバイナリに同梱する(repo の `prompts/spirits/` は作らない)
-- `before_agent_start` で `systemPromptOptions.sections` に `spirits` を追加する(forceSystemPrompt は使わず、Pi 既定のプロンプト・ツール一覧を保つ)
+- `before_agent_start` で `systemPromptOptions.sections` に `spirits` を追加する(forceSystemPrompt は使わず、Pi 既定のプロンプト・ツール一覧・規則を保つ。tsrepl は `promptSnippet` でツール一覧に、`promptGuidelines` で規則の2項目を宣言し、`rlm` の子が作る tsrepl は guidelines を空にする(子は bash を持たない)。子の `<tools>` には snippet が載る)
 - 上書きは `<agentDir>/prompts/spirits/code-mode.md`。`prompts/` の直下を避けてテンプレート探索と衝突させない
 - 骨格:
-  1. tsrepl 中心で動くこと(ファイル操作・検索も極力セル内コードで)
+  1. ツール選択の基準に沿って tsrepl を使うこと(2 つ以上のコマンドの連続実行・出力の加工・結果の受け渡しは tsrepl、1 回だけ実行して出力をそのまま読むコマンドは bash)
   2. rlm の使いどころと深度上限の存在(数値は書かず、値は tsrepl のツール説明の `rlm` の項を参照させる)
   3. note / スキル保存の基準(「次のセッションでも役立つ事実か」で判断)と、子へ渡す情報は prompt に含めること
   4. Phase 1 のセル評価ルール(return / out、use の許可範囲)
+  5. `tool()` の使用例と、エラー扱いのツール結果でも構造化結果が返り `exit_code` を確認する必要があること
+- 分担: ツールを選ぶ基準は tsrepl の `promptGuidelines`(`tools.ts` の宣言。Pi 既定の規則に併記される)、`tool("bash")` の使用例はビルトインのプロンプト側にある。上書きファイルがある場合、効かなくなるのはビルトイン側の使用例だけで、基準はツール宣言に残る
 - codemode ツールはモデルへ宣言されないため、名前と引数は `goal` / `note` の `HostFnEntry.description`(tsrepl のツール説明に連結)で案内する(`await tool(name, args)` での呼び出しを必須とする)。`spirits` セクションを上書きしてもこの案内は残る
 
 ### 子セッションへの memory 注入ポリシー(本フェーズで決定)

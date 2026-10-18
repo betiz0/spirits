@@ -168,6 +168,64 @@ test("tool uncaught error", async () => {
 	expect(result.text).toContain("no_such_tool");
 });
 
+test("tool error result with structured content", async () => {
+	const ctx = makeToolContext({
+		tools: [{ name: "sh", outputSchema: { type: "object" } }],
+		executeTool: async () => textResult("boom", { output: "boom", exit_code: 1 }, true),
+	});
+	const { repl } = newRepl(ctx);
+	const result = await repl.run({ code: 'const r = await tool("sh", {}); return r.exit_code' }, ctx);
+	expect(result.isError).toBe(false);
+	expect(result.details.value).toBe("1");
+});
+
+test("tool error result with undeclared schema", async () => {
+	const ctx = makeToolContext({
+		executeTool: async () => textResult("undeclared failed", { exit_code: 1 }, true),
+	});
+	const { repl } = newRepl(ctx);
+	const result = await repl.run({ code: 'await tool("undeclared", {})' }, ctx);
+	expect(result.isError).toBe(true);
+	expect(result.text).toContain("undeclared failed");
+});
+
+test("tool error result without structured content", async () => {
+	const ctx = makeToolContext({
+		tools: [{ name: "plain", outputSchema: { type: "object" } }],
+		executeTool: async () => textResult("plain failed", undefined, true),
+	});
+	const { repl } = newRepl(ctx);
+	const result = await repl.run({ code: 'await tool("plain", {})' }, ctx);
+	expect(result.isError).toBe(true);
+	expect(result.text).toContain("plain failed");
+});
+
+test("tool bash non-zero exit resolves to structured output", async () => {
+	// The shape pi's bash tool returns for a non-zero exit: isError plus a structured result whose
+	// `output` holds the whole command output.
+	const ctx = makeToolContext({
+		tools: [{ name: "bash", outputSchema: { type: "object" } }],
+		executeTool: async () =>
+			textResult(
+				"Command exited with code 1",
+				{ output: "a\nb\nno matches\n", truncated: false, exit_code: 1, wall_time_seconds: 0.02 },
+				true,
+			),
+	});
+	const { repl } = newRepl(ctx);
+	const result = await repl.run(
+		{
+			code:
+				'const r = await tool("bash", { command: "rg nope" });\n' +
+				'return { lines: r.output.split("\\n").length, code: r.exit_code }',
+		},
+		ctx,
+	);
+	expect(result.isError).toBe(false);
+	expect(result.details.value).toContain("code: 1");
+	expect(result.details.value).toContain("lines: 4");
+});
+
 test("tool self call", async () => {
 	let calls = 0;
 	const ctx = makeToolContext({

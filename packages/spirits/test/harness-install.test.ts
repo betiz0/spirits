@@ -121,7 +121,10 @@ test("before_agent_start adds spirits section", async () => {
 	registerContinualHarness(pi, { agentDir, env: {} });
 	const event = makeEvent();
 	await fire(pi, event);
-	expect(event.systemPromptOptions.sections["spirits"]).toContain("tsrepl");
+	const section = event.systemPromptOptions.sections["spirits"] ?? "";
+	// spec "continual-harness / ルートセッションへの適用": pi 既定の実行面である bash を並べて示す。
+	expect(section).toContain("tsrepl");
+	expect(section).toContain("bash");
 });
 
 test("before_agent_start adds memory section", async () => {

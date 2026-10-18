@@ -299,10 +299,21 @@ export interface ModelRoleRegistration {
 	onSelect(role: string, ctx: ExtensionContext): void;
 }
 
+/**
+ * A callable tool as reported on `ExtensionToolContext.tools`. Upstream mirrors it as `AgentTool`
+ * (from `pi-agent-core`, not re-exported by `pi-coding-agent`), so spirits mirrors only the fields
+ * it reads: the name and the `outputSchema` declaration.
+ */
+export interface CallableToolInfo {
+	name: string;
+	/** JSON Schema of `structuredContent`. Absent when the tool declares no machine-readable result. */
+	outputSchema?: unknown;
+}
+
 /** Context passed to tool `execute()`: the extension context plus `executeTool()`. */
 export interface ExtensionToolContext extends ExtensionContext {
 	/** Tools {@link executeTool} can call. */
-	readonly tools: readonly unknown[];
+	readonly tools: readonly CallableToolInfo[];
 	/**
 	 * Run another tool through the same validation, hooks, and permission checks as
 	 * model-issued calls. Never rejects for tool failures.
@@ -476,6 +487,16 @@ export interface AgentSession {
 	readonly messages: readonly AgentMessage[];
 }
 
+/**
+ * pi's built-in bash tool. Only the harness test builds one, to read the `promptSnippet` and
+ * `promptGuidelines` pi shows for it. Spirits never creates built-in tools.
+ */
+export function createBashTool(cwd: string): {
+	name: string;
+	promptSnippet?: string;
+	promptGuidelines?: string[];
+};
+
 /** Session manager. Spirits uses `inMemory`; pi-runtime tests also use the persisted factories. */
 export class SessionManager {
 	static inMemory(cwd?: string): SessionManager;
@@ -492,6 +513,12 @@ export class SessionManager {
 	/** Append a custom extension entry as a child of the current leaf. */
 	appendCustomEntry(customType: string, data?: unknown): string;
 }
+
+/**
+ * Project one session entry into the messages sent to the LLM. Plain custom entries — every entry
+ * spirits writes through `appendEntry` — project to nothing and stay out of the context.
+ */
+export function sessionEntryToContextMessages(entry: SessionEntry): unknown[];
 
 /** Settings manager. Only the methods the pi-runtime pin test calls are mirrored. */
 export class SettingsManager {

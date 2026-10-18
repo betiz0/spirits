@@ -1,0 +1,68 @@
+# Tasks
+
+## 1. tool() の結果契約(pi codemode にそろえる)
+
+- [x] 1.1 `packages/spirits/src/repl/hostfns.ts` の `tool()` で、結果が `isError` のときは、`scope.toolContext.tools` から名前で引いたツールが `outputSchema` を宣言していて、かつ結果に構造化結果が含まれる場合に限り構造化結果を返し、それ以外は従来どおり例外にする判定に書き換える。エラー扱いでない結果は変えない(構造化結果があればそれを、無ければテキストを返す)。検証: `cd packages/spirits && bun test test/hostfns.test.ts` の既存ケース `tool text result` / `tool structured result` / `tool unknown catch` / `tool uncaught error` / `tool self call` がすべて成功すること
+- [x] 1.2 次の 3 ケースを追加する。検証: `test/hostfns.test.ts` の新ケース `tool error result with structured content`(outputSchema を宣言したツール。`exit_code` が読めて error にならない)、`tool error result with undeclared schema`(outputSchema を宣言しないツールが `isError` と構造化結果とテキストを返すと、テキストを含む error になる)、`tool error result without structured content`(エラーテキストを含む error になる)が成功すること
+- [x] 1.3 bash の構造化結果で実際に非ゼロ終了がデータとして返ることを統合で確認する。検証: 新ケース `tool bash non-zero exit resolves to structured output`(`executeTool` の fake が `outputSchema` を宣言した bash 相当のツールの構造化結果を `isError: true` で返し、セルの value がその `output` を加工した値になる)が成功すること
+
+## 2. timeout の分離(セル全体 timeout と同期実行 watchdog)
+
+- [x] 2.1 `packages/spirits/src/repl/cell.ts` に、指定 timeout から「セル全体の timeout」と「同期実行の watchdog」を導く関数(`min(specified ?? 30000, 30000)`、セル全体は 500〜2147483647 にクランプ、未指定は打ち切らない)を追加し、`clampTimeout` の呼び出しを置き換える。数値でない値と `NaN` だけを未指定として扱い、`Infinity` は 2147483647 にクランプする(deep-verify1 W-7)。検証: `cd packages/spirits && bun test test/cell.test.ts` の新ケース `timeout resolution`(未指定 / 0 / 1000 / 120000 / 1e12 / `Infinity` / `NaN` の 7 入力で 2 つの値が仕様どおりになり、未指定と 120000 の watchdog がどちらも 30000 になり、`Infinity` の `cellMs` が 2147483647、`NaN` の `cellMs` が `undefined` になること)が成功すること
+- [x] 2.2 vm には同期実行の watchdog を、外側の race にはセル全体の timeout を渡すようにし、timeout 未指定では race がタイマーを張らないようにする。検証: 既存ケース `timeout sync loop` / `timeout await` / `timeout lower clamp` が成功し、新ケース `no default cell timeout`(timeout なしの 1500ms 待機セルが value を返す)が成功すること
+- [x] 2.3 打ち切りメッセージを分ける。vm の `ERR_SCRIPT_EXECUTION_TIMEOUT` は「同期実行が上限を超えた旨 + 処理を `await` を含む単位へ分割する提案」、race の timeout は従来のメッセージにする。どちらにも timeout の要件の 3 項目(打ち切った旨、不整合になり得る旨、`reset: true` の案内)を残す。検証: 新ケース `sync watchdog message differs from cell timeout message`(`while (true) {}` と 60000ms 待機セルの error 文言が別で、それぞれ「打ち切り」「不整合」「reset: true」を含む)が成功し、既存ケース `timeout sync loop` が成功すること
+- [x] 2.4 timeout 未指定でも呼び出し元の中断が効くことを回帰テストにする。検証: 新ケース `abort without timeout`(60000ms 待機セルの中断シグナルを abort すると `AbortError` 相当の error が返る)が成功すること
+- [x] 2.5 既存の上限クランプのテストを新しい解決関数に合わせ、`test/cell.test.ts` の `timeout upper clamp` を 2147483647 の期待値へ更新する。検証: `bun test test/cell.test.ts` がすべて成功すること
+- [x] 2.6 拡張ロード経由で timeout 省略の実行が打ち切られないことを確認する。検証: `test/tools.test.ts` の新ケース `tsrepl via extension without timeout`(拡張をロードして `{ code: "return 1" }` を呼ぶと、結果テキストに `1` が含まれ、打ち切りの表記が含まれない)が成功すること
+
+## 3. 出力上限の引き上げと全文の一時ファイル
+
+- [x] 3.1 `packages/spirits/src/repl/format.ts` の上限を 51200 文字(先頭 30720 / 末尾 20480)に変更し、切り捨て前に返していた整形後テキスト全体と切り捨て情報を呼び出し側が受け取れる形に拡張する。検証: `cd packages/spirits && bun test test/format.test.ts` の `truncate exact limit` / `truncate over limit` / `cell output truncation` を新しい境界値へ更新し、新ケース `truncate keeps head and tail ratio`(ちょうどは切り捨てなし、1 文字超えで 30720/20480 と切り捨て文字数)が成功すること
+- [x] 3.2 切り捨て時に全文を `os.tmpdir()` へ `spirits-tsrepl-<hex>.txt`(モード 0600、既存ファイルを上書きしない排他作成 `flag: "wx"`)として保存し、結果テキストにパスを追記する。書き出し先は REPL の生成オプションで差し替え可能にして、失敗時はセルの結果を変えずにパスの代わりに理由を書く(deep-verify1 G-2)。検証: 新ケース `truncated output is spilled to a temp file`(結果テキストのパスにファイルが存在し、中身が切り捨て前の結果テキスト全体と一致し、計測値の `truncated` が真で `spill` が `saved`。deep-verify1 W-2)と `spill failure keeps the truncation marker`(失敗を注入すると成功セルのまま理由が出、パスが出ない)が `test/cell.test.ts` で成功すること
+- [x] 3.3 失敗(error)の結果も同じ規則で切り捨てられ、全文が保存されることを確認する。検証: `test/format.test.ts` の `truncate error` を 120000 文字入力で更新し、`test/cell.test.ts` の新ケース `failed cell output is spilled too`(error でも切り捨て表記とパスが出る)が成功すること
+
+## 4. 直前の value の保持(`_`)
+
+- [x] 4.1 `packages/spirits/src/repl/cell.ts` で、成功して value を返したセルの値を永続コンテキストの `_` に代入する(value を返さないセルと error になったセルは代入しない)。ホスト側からの代入が後続セルから読めない場合は、IIFE の内側から `globalThis._` へ代入する形に切り替える。検証: `cd packages/spirits && bun test test/cell.test.ts` の新ケース `underscore holds the last value`(`return 42` の後の `return _` が 42)、`underscore survives a value-less cell`(print のみのセル後も 7 のまま)、`underscore unchanged by a failing cell`(throw の後も 7 のまま)が成功すること
+- [x] 4.2 `reset: true` で `_` も消えること、および許可したホストグローバルの一覧を変えていないことを確認する。検証: `test/cell.test.ts` の新ケース `reset clears the underscore` が成功し、`test/context.test.ts` の `allowed globals` / `hidden globals` が成功すること
+
+## 5. rlm 呼び出しの実行時間上限
+
+- [x] 5.1 `packages/spirits/src/rlm/depth.ts` に実行時間上限の定数(120000ms)を追加し、`packages/spirits/src/rlm/hostfn.ts` の生成オプションにテスト用の注入値を追加する。検証: `cd packages/spirits && bun test test/rlm-depth.test.ts` の新ケース `child duration limit default`(既定値が 120000 であること)と既存ケース `default max depth` / `budget boundary 50 ok 51 exceeded` が成功すること
+- [x] 5.2 `rlm` の呼び出しで、直列化の待機が終わった後にタイマーを開始し、`spawn` へ渡すシグナルを親の中断シグナルと上限タイマーで連結する。上限で打ち切ったときは、上限値を含む例外を投げる。タイマー発火後に `spawn` が `completed` で戻った場合は、その最終回答を返して例外を投げない。`rlm_usage` は `outcome` `aborted` / 中断時点の tokens / 実測 `durationMs` で 1 件記録する(`completed` で戻った場合は `completed`)。検証: `bun test test/rlm-hostfn.test.ts` の新ケース `aborts the child at the duration limit`(resolve しない fake spawn と注入上限で、上限値を含む error になる)、`duration limit error is catchable`(セルの `try/catch` で文言が取れる)、`completion wins over a fired limit timer`(タイマー発火後に completed で戻る fake spawn で最終回答が返り、`outcome` が `completed`)、`does not count queue wait toward the limit`(1 つ目が待たせても 2 つ目は完了)、`parent abort is not reported as the duration limit`(error が呼び出し元の中断の文言になる)、`duration limit records one aborted usage entry`(`rlm_usage` 1 件、tokens と `durationMs` の値)が成功すること
+- [x] 5.3 `packages/spirits/src/rlm/guidance.ts` の制約案内を、セル timeout の指定推奨から「1 回の呼び出しの実行時間上限(超えると例外になる)」と「指定したセル timeout も子に適用される」に書き換える。検証: `bun test test/rlm-guidance.test.ts` の既存ケース `guidance root covers await, string, timeout, serial, limits` が成功し、新ケース `guidance mentions the child duration limit`(`120000`、実行時間の上限である旨、例外になる旨が含まれる)が成功すること
+
+## 6. モデルへの掲載と使用例
+
+- [x] 6.1 `packages/spirits/src/tools.ts` に 1 行の promptSnippet と 2 項目の promptGuidelines を定義し、tsrepl のツール定義に設定する。`createTsreplTool` に promptGuidelines の上書き引数を追加し、`packages/spirits/src/rlm/hostfn.ts` が作る子セッションの tsrepl は空配列を渡す(子は bash を持たない。親セッションで bash の有無は判定しない)。検証: `cd packages/spirits && bun test test/tools.test.ts` の新ケース `tool prompt snippet and guidelines`(snippet が 1 行で空でなく、guidelines が 2 項目)と、新ケース `child tsrepl declares no prompt guidelines`(`createRlmHostFn` が作る tsrepl の promptGuidelines が空で promptSnippet は空でない)が成功すること
+- [x] 6.2 `TSREPL_DESCRIPTION` の timeout 行を新しい上限に直し、`tool()` の結果(エラー扱いでも宣言された構造化結果が返り終了コードを確認する)、出力上限と全文の一時ファイル、`_` の 3 行を追記する。あわせて `tools.ts` の `timeout` パラメータの説明(現行「既定 30000、[500, 120000] にクランプ」)を「既定なし、[500, 2147483647] にクランプ、同期実行には 30000ms の watchdog」に直す。説明文とパラメータ説明の数値は文字列で直書きせず、`OUTPUT_LIMIT`(`repl/format.ts`)、`MIN_TIMEOUT` / `MAX_TIMEOUT` / `DEFAULT_SYNC_WATCHDOG`(`repl/cell.ts`)を埋め込む(`rlm/guidance.ts` の `RLM_MAX_CHILD_DURATION_MS` と同じ書き方。deep-verify1 W-3)。検証: 新ケース `description states the new limits`(`既定なし`、`MAX_TIMEOUT`、`DEFAULT_SYNC_WATCHDOG`、`OUTPUT_LIMIT` の値、`exit_code`、`_` が説明文に含まれる。期待値は定数から作る)と `timeout parameter description matches the new limits`(パラメータ説明に `既定なし` と `MAX_TIMEOUT` の値が含まれ、`120000` が含まれない)が成功し、既存ケース `tool description` が成功すること。あわせて `rg -n "51200|2147483647|30000" packages/spirits/src/tools.ts` が 0 件であること
+- [x] 6.3 `packages/spirits/src/harness/prompt.ts` の `DEFAULT_CODE_MODE_PROMPT` の 1 行目「主要な実行面は `tsrepl` です。」を、`promptGuidelines` の選択基準に沿った記述(連続実行・加工・結果の受け渡しは tsrepl、単発で出力をそのまま読むコマンドは bash)に書き直し、検索・JSON・テストの 3 例(合計 15 行以内、いずれも `exit_code` を確認して値を小さく返す形)を追加する。選択基準の行は `TSREPL_PROMPT_GUIDELINES`(`src/tools.ts`)から組み立て、文言を 2 か所に手書きしない(deep-verify1 W-4)。例のコマンドはシェルのパイプを使わない。pi の bash は `pipefail` を付けないため、`bun test 2>&1 | tail -40` の `exit_code` は `tail` の終了コード(常に 0)になる。末尾の切り出しなどの加工はセル内の JS で行う(deep-verify1 C-1)。検証: `bun test test/harness-prompt.test.ts` の新ケース `default states the tool selection rule`(`bash` を含み、`TSREPL_PROMPT_GUIDELINES` の各項目を含み、「主要な実行面」「最優先」「唯一」を含まない。deep-verify1 W-6)と `default includes tool call examples`(`tool("bash"` と `exit_code` を含み、コード例の行数が 15 以下で、例の `command` 文字列に `|` を含まない)が成功し、既存ケース `default covers code-mode rules` が成功すること。あわせて `rg -n "主要な実行面" packages/spirits openspec/specs docs` が 0 件であること(change 配下の delta は除く。本仕様 `openspec/specs/continual-harness/spec.md` の旧文言は archive で置き換わるため、archive 後に確認する)
+- [x] 6.4 `rlm` を登録しない tsrepl のツール説明の検査を、M1 との一致から `rlm` 固有の案内を含まないことへ置き換える。検証: `bun test test/rlm-cell.test.ts` の `tool description unchanged without host fns` を「`await rlm(`・深度上限の値・子のツール呼び出し回数の上限を含まない」に更新し、`tool description includes rlm guidance` と共に成功すること
+- [x] 6.5 ハーネスのセクション注入と、Pi 既定のプロンプトが残ることを確認する。`test/harness-install.test.ts` の `before_agent_start adds spirits section` に `bash` の含有のアサートを追加する(deep-verify1 W-6)。検証: `bun test test/harness-install.test.ts` がすべて成功し(`spirits` セクションに `tsrepl` と `bash` が含まれ、他のセクションと `forceSystemPrompt` が保たれる)、新ケース `system prompt keeps default tools and rules`(tsrepl と bash が有効なセッションのシステムプロンプトで、`<tools>` に bash と tsrepl の両方が掲載され、`<rules>` に pi 既定の bash でファイル操作を行う規則が残っている)が成功すること
+
+## 7. 正本ドキュメントの更新
+
+- [x] 7.1 `docs/spirits-m1-repl.md` の §4 ツール定義の表の `timeout` 行(「既定 30000 / [500, 120000] にクランプ」)と、§5 の項目4 `tool()` の記述(構造化結果とエラー扱い)、項目6 タイムアウトの記述(既定なし、同期 watchdog、2147483647 のクランプ、既知の制約は残す)を新しい挙動に更新する。項目4 は design Decision 1 に合わせ、`outputSchema` の宣言を見るのはエラー扱いのときだけで、成功時は宣言にかかわらず構造化結果があればそれを、無ければテキストを返すと書く(「pi codemode の `toScriptValue` と同じ契約」とは書かない。deep-verify1 W-1)。出力上限(51200 文字と全文ファイル)は、現状どの節にも記述が無いため §5 の出力捕捉の項目 5 に追記する。検証: `rg -n "51200|既定なし|structuredContent" docs/spirits-m1-repl.md` が該当行を返し、`rg -n "120000" docs/spirits-m1-repl.md` と `rg -n "toScriptValue\` と同じ契約" docs/spirits-m1-repl.md` が 0 件であること
+- [x] 7.2 `docs/spirits-m3-rlm.md` の「タイムアウトとコスト上限」の「子セッションに個別 timeout は設けない」を書き換え、1 回あたり 120000ms の実行時間上限、超過時は例外を投げ `outcome: aborted` で記録すること、直列化の待機を含まないことを記す。検証: `rg -n "120000" docs/spirits-m3-rlm.md` が該当行を返し、`rg -n "個別 timeout は設けない" docs/spirits-m3-rlm.md` が 0 件であること
+- [x] 7.3 `docs/spirits-m4-harness.md` の code-mode プロンプトの骨格 1 を「ツール選択の基準に沿って tsrepl を使う(連続実行・加工・受け渡しは tsrepl、単発は bash)」に書き直し、ツール選択の基準は tsrepl の promptGuidelines(ツール宣言側)、使用例はビルトインのプロンプト側という分担と、上書きファイルがある場合に例だけ効かなくなることを追記する。検証: `rg -n "promptGuidelines" docs/spirits-m4-harness.md` が該当行を返し、`rg -n "極力セル内コード" docs/spirits-m4-harness.md` が 0 件であること
+
+## 8. セル実行ログ(効果測定の基盤)
+
+- [x] 8.1 `packages/spirits/src/repl/cell.ts` が `Repl.run` の結果に計測値(outcome、durationMs、timeoutMs、reset、codeChars / valueChars / printedChars / outputChars、truncated と spill、underscoreSet)を添えて返すようにし、`tool()`(`hostfns.ts`)が `HostFnScope`(`registry.ts`)経由でセルごとの呼び出し記録(name、isError、structured、exitCode、threw)を集めるようにする。コード・value・printed・出力・引数は計測値に入れない。検証: `cd packages/spirits && bun test test/cell.test.ts` の新ケース `cell metrics for success and error`(`outcome` が `ok` / `error`)、`cell metrics distinguish timeouts`(`timeout_sync` と `timeout_cell`)、`cell metrics record tool calls`(`exit_code` 2 の宣言付き構造化エラーと存在しないツールで `toolCalls` が仕様どおり)が成功すること
+- [x] 8.2 `packages/spirits/src/constants.ts` にエントリ種別 `tsrepl_cell` を定義し(追加位置の直前に残った空の「Bundled skills」見出しを削除する。deep-verify1 G-1)、`createTsreplTool` が `pi: Pick<ExtensionAPI, "appendEntry">` を生成オプションで受けて、`execute` の末尾で計測値から `tsrepl_cell` を 1 件記録する(記録の例外は握りつぶしてセルの結果を変えない)。`registerTsrepl` は `pi` を渡し、`rlm` の子の tsrepl には渡さない。検証: `bun test test/tools.test.ts` の新ケース `tsrepl_cell entry is appended per cell`(1 セルにつき 1 件、フィールドが仕様どおり)、`tsrepl_cell entry has no cell contents`(コード・value・printed に使った文字列がエントリのどこにも含まれない)、`tsrepl_cell append failure does not change the result`、`tsrepl without appendEntry records nothing`、`child tsrepl records no tsrepl_cell` が成功すること
+- [x] 8.3 `tsrepl_cell` が LLM コンテキストへ送られないことを確認する。検証: 既存の `rlm_usage` と同じ扱いのテスト方法に合わせた新ケース `tsrepl_cell is not injected into context`(カスタムエントリはコンテキストに含まれない)が成功すること。この change では集計スクリプトと効果測定のテストは追加しない
+
+## 9. 統合確認
+
+- [x] 9.1 `cd packages/spirits && bun test` がすべて成功し(リポジトリルートからの `bun test packages/spirits/` は `packages/spirits/bunfig.toml` の preload を読まないため使わない)、リポジトリルートで `npm run check` が exit 0 であることを確認する
+- [x] 9.2 `openspec validate align-tsrepl-limits-and-guidance --strict` が成功すること
+- [x] 9.3 `.pi/skills/interactive-testing.md` に従い tmux でビルド済みバイナリを対話起動し、(a) `<tools>` に tsrepl が掲載されている、(b) 0 件になる検索を tsrepl 経由で実行して error にならず結果が次のセルで使える、(c) `return <値>` の直後のセルで `_` が読める、(d) timeout 未指定の `while (true) {}` が約 30 秒で打ち切られ、同期実行の上限を超えた旨が出る、(e) 実行後のセッション JSONL に `tsrepl_cell` エントリが追加されている、を目視確認する
+
+## 10. コミット範囲(deep-verify1 W-5)
+
+- [x] 10.1 この change のコミットに、別 change の差分を含めない。対象外: `src/types/pi-coding-agent.d.ts` の `bindExtensions` / `ExtensionBindings` / `getModel` / `modelRuntime` / `noTools` / `sessionStartEvent`、`test/rlm-spawn.test.ts`、`test/routing-integration.test.ts`、`test/routing-register.test.ts`、`test/pi-runtime/routing-record-pin.test.ts`(dual-model-routing 由来)、`.pi/skills/interactive-testing.md`、`scripts/tmux-verify.sh`、`scripts/tmux-verify.test.sh`(harden-verification-cleanup 由来)。`pi-coding-agent.d.ts` は `CallableToolInfo`・`tools` の型・`createBashTool`・`sessionEntryToContextMessages` のハンクだけをステージする。検証: コミット前の `git diff --cached --stat` に対象外のファイルが無く、`git diff --cached packages/spirits/src/types/pi-coding-agent.d.ts` に対象外の宣言が無いこと
+
+## Workflow follow-up
+
+- リリース後、ログが貯まってから `tsrepl_cell` エントリ(と `rlm_usage`)を集計し、`proposal.md` の基準値に対して、出力を加工したセルの割合、1 セル内で bash を複数回呼ぶセルの数、`timeout_cell` / `timeout_sync` で打ち切った件数、`tool()` が例外になった件数と `exitCode` が非 0 だった件数、`rlm` が実行時間上限で `aborted` になった件数を比較する。集計手段(既存の `scripts/` の拡張か新規か)はそのときに決め、結果をもとに改修プランを別の change として立てる。
+- 比較で tsrepl の利用が増えない場合は、対象外にした tsrepl 単独のツールロードアウト(モデルに tsrepl だけ見せるモード)を別の change として起票する。

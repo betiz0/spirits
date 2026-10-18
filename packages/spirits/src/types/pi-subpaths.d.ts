@@ -45,6 +45,24 @@ declare module "@earendil-works/pi-coding-agent/modes/interactive/theme/theme" {
 }
 
 /**
+ * pi's system prompt builder. Only `test/pi-runtime/system-prompt-defaults.test.ts` calls it, to check
+ * that a session with bash and tsrepl active still lists both tools and keeps pi's own rules next to
+ * the ones spirits contributes. pi does not export this from the package root.
+ */
+declare module "@earendil-works/pi-coding-agent/core/system-prompt" {
+	/** The subset of pi's `BuildSystemPromptOptions` the test passes. */
+	export interface SystemPromptBuildOptions {
+		cwd: string;
+		selectedTools?: string[];
+		toolSnippets?: Record<string, string>;
+		toolGuidelines?: Record<string, string[]>;
+		sections?: Record<string, string>;
+	}
+	/** The rendered prompt, with every non-preamble section wrapped in its tag. */
+	export function buildSystemPrompt(input: SystemPromptBuildOptions): string;
+}
+
+/**
  * pi's routing record of a virtual model. Only the pin test
  * `test/pi-runtime/routing-record-pin.test.ts` reads it, to check that the record spirits writes under
  * its mirrored entry type is the one pi reads back for the badge role and the router state.

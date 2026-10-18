@@ -7,6 +7,7 @@
  */
 
 import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type { ToolCallRecord } from "./metrics.ts";
 
 /** Per-cell execution state handed to each entry's `create`. */
 export interface HostFnScope {
@@ -18,6 +19,8 @@ export interface HostFnScope {
 	print(text: string): void;
 	/** Set the cell value; calls after the cell finished are discarded. */
 	setValue(value: unknown): void;
+	/** Record one `tool()` call for the cell's measurement. */
+	recordToolCall(record: ToolCallRecord): void;
 	/** Whether the cell has finished (completed, failed, or timed out). */
 	finished: boolean;
 }

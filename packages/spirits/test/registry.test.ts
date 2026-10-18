@@ -7,6 +7,7 @@ const scope: HostFnScope = {
 	toolContext: {} as ExtensionToolContext,
 	print: () => {},
 	setValue: () => {},
+	recordToolCall: () => {},
 	finished: false,
 };
 

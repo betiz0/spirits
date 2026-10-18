@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import type { HostFnEntry, HostFnScope } from "../src/repl/registry.ts";
+import { createTsreplTool } from "../src/tools.ts";
 import { DEFAULT_MAX_DEPTH } from "../src/rlm/depth.ts";
 import { RLM_ABORTED_NOTICE, createRlmHostFn, type SpawnFn } from "../src/rlm/hostfn.ts";
 import type { RlmRunResult, RlmTokens, SpawnParams } from "../src/rlm/spawn.ts";
@@ -385,7 +386,23 @@ test("signal passed to spawn", async () => {
 	const entry = createRlmHostFn({ pi: new FakePi(), depth: 0, maxDepth: 2, spawn: capturing.spawn });
 	const controller = new AbortController();
 	await callRlm(entry, rlmScope({ signal: controller.signal }), "x");
-	expect(capturing.params[0].signal).toBe(controller.signal);
+
+	// The signal is the caller's combined with the duration-limit timer, so identity is not kept.
+	// What matters is that the caller's abort reaches the child.
+	const passed = capturing.params[0].signal;
+	expect(passed.aborted).toBe(false);
+	controller.abort();
+	expect(passed.aborted).toBe(true);
+});
+
+test("signal passed to spawn is aborted when the caller already aborted", async () => {
+	const capturing = makeCapturingSpawn();
+	const entry = createRlmHostFn({ pi: new FakePi(), depth: 0, maxDepth: 2, spawn: capturing.spawn });
+	const controller = new AbortController();
+	controller.abort();
+	const value = await callRlm(entry, rlmScope({ signal: controller.signal }), "x");
+	expect(value).toBe(RLM_ABORTED_NOTICE);
+	expect(capturing.params.length).toBe(0);
 });
 
 test("abort resolves with notice", async () => {
@@ -462,7 +479,131 @@ test("child rlm not blocked by parent call", async () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4.4 usage recording
+// 4.4 child run duration limit
+// ---------------------------------------------------------------------------
+
+function abortedChild(sessionId = "child-9", input = 0): RlmRunResult {
+	return {
+		outcome: "aborted",
+		text: "子セッションを中断しました。",
+		sessionId,
+		tokens: { input, output: 0, cacheRead: 0, cacheWrite: 0, total: input },
+		cost: 0.01,
+	};
+}
+
+/** A child that never finishes on its own and resolves once the signal handed to it aborts. */
+function hangingSpawn(result: RlmRunResult = abortedChild()): SpawnFn {
+	return (params) =>
+		new Promise((resolve) => {
+			params.signal.addEventListener("abort", () => resolve(result), { once: true });
+		});
+}
+
+test("aborts the child at the duration limit", async () => {
+	const entry = createRlmHostFn({
+		pi: new FakePi(),
+		depth: 0,
+		maxDepth: 2,
+		spawn: hangingSpawn(),
+		maxChildDurationMs: 50,
+	});
+	let message = "";
+	try {
+		await callRlm(entry, rlmScope(), "x");
+	} catch (error) {
+		message = error instanceof Error ? error.message : String(error);
+	}
+	expect(message).toContain("50");
+	expect(message).toContain("実行時間");
+});
+
+test("duration limit error is catchable", async () => {
+	const entry = createRlmHostFn({
+		pi: new FakePi(),
+		depth: 0,
+		maxDepth: 2,
+		spawn: hangingSpawn(),
+		maxChildDurationMs: 50,
+	});
+	const cell = await runCell(createTsreplTool({ hostFns: [entry] }), 'try { await rlm("x") } catch (e) { return String(e) }');
+	expect(cell.isError).toBe(false);
+	expect(cell.value).toContain("50");
+	expect(cell.value).toContain("実行時間");
+});
+
+test("completion wins over a fired limit timer", async () => {
+	const pi = new FakePi();
+	const spawn: SpawnFn = (params) =>
+		new Promise((resolve) => {
+			// The answer lands after the timer already fired.
+			params.signal.addEventListener("abort", () => setTimeout(() => resolve(completedResult("done")), 5), {
+				once: true,
+			});
+		});
+	const entry = createRlmHostFn({ pi, depth: 0, maxDepth: 2, spawn, maxChildDurationMs: 20 });
+
+	expect(await callRlm(entry, rlmScope(), "x")).toBe("done");
+	expect(usageEntries(pi)[0].outcome).toBe("completed");
+});
+
+test("does not count queue wait toward the limit", async () => {
+	const spawn: SpawnFn = (params) =>
+		new Promise((resolve) => {
+			setTimeout(() => resolve(completedResult(params.prompt)), params.prompt === "a" ? 30 : 45);
+		});
+	const entry = createRlmHostFn({ pi: new FakePi(), depth: 0, maxDepth: 2, spawn, maxChildDurationMs: 60 });
+
+	const first = callRlm(entry, rlmScope(), "a");
+	await tick();
+	// `b` waits 30ms for its turn, then needs 45ms of its own: over the limit in wall-clock terms
+	// from the call, inside the limit for the child run itself.
+	const second = callRlm(entry, rlmScope(), "b");
+
+	expect(await first).toBe("a");
+	expect(await second).toBe("b");
+});
+
+test("parent abort is not reported as the duration limit", async () => {
+	const controller = new AbortController();
+	const entry = createRlmHostFn({
+		pi: new FakePi(),
+		depth: 0,
+		maxDepth: 2,
+		spawn: hangingSpawn(),
+		maxChildDurationMs: 5000,
+	});
+	const call = callRlm(entry, rlmScope({ signal: controller.signal }), "x");
+	await tick();
+	controller.abort();
+
+	const value = await call;
+	expect(value).toContain("中断");
+	expect(value).not.toContain("実行時間");
+});
+
+test("duration limit records one aborted usage entry", async () => {
+	const pi = new FakePi();
+	const entry = createRlmHostFn({
+		pi,
+		depth: 0,
+		maxDepth: 2,
+		spawn: hangingSpawn(abortedChild("child-11", 50)),
+		maxChildDurationMs: 40,
+	});
+
+	await expect(callRlm(entry, rlmScope(), "x")).rejects.toThrow("実行時間");
+
+	const entries = usageEntries(pi);
+	expect(entries.length).toBe(1);
+	expect(entries[0].outcome).toBe("aborted");
+	expect(entries[0].sessionId).toBe("child-11");
+	expect(entries[0].tokens.input).toBe(50);
+	expect(entries[0].durationMs).toBeGreaterThanOrEqual(40);
+});
+
+// ---------------------------------------------------------------------------
+// 4.5 usage recording
 // ---------------------------------------------------------------------------
 
 test("rlm_usage appended on completion", async () => {

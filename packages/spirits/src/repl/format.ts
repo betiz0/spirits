@@ -9,9 +9,14 @@
 import type { TranspileFailure } from "./transpile.ts";
 import { isRecord } from "./guards.ts";
 
-export const OUTPUT_LIMIT = 8000;
-export const OUTPUT_HEAD = 4800;
-export const OUTPUT_TAIL = 3200;
+/**
+ * Output limit of one cell result, in JavaScript string length, with the head and tail it keeps.
+ * The same order as bash's 50KB, so a cell can return a search result without cutting it down to a
+ * summary. The middle is cut and the whole text goes to a file (see `spill.ts`).
+ */
+export const OUTPUT_LIMIT = 51200;
+export const OUTPUT_HEAD = 30720;
+export const OUTPUT_TAIL = 20480;
 
 /** Name Bun uses for the vm script; only frames from this file describe cell code. */
 const CELL_FILENAME = "tsrepl-cell.js";
@@ -30,6 +35,8 @@ export interface ResultDetails {
 export interface FormattedResult {
 	text: string;
 	isError: boolean;
+	/** The formatted text before the output limit. `text` is this text cut to the limit. */
+	raw: string;
 	details: ResultDetails;
 }
 
@@ -68,6 +75,7 @@ export function formatSuccess(printed: string, value: unknown): FormattedResult 
 	const limited = applyOutputLimit(raw);
 	return {
 		text: limited.text,
+		raw,
 		isError: false,
 		details: {
 			...(printed !== "" ? { printed } : {}),
@@ -83,6 +91,7 @@ export function formatFailure(errorText: string): FormattedResult {
 	const limited = applyOutputLimit(raw);
 	return {
 		text: limited.text,
+		raw,
 		isError: true,
 		details: {
 			error: errorText,

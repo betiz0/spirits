@@ -10,6 +10,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { formatValue } from "./format.ts";
 import { isRecord } from "./guards.ts";
+import { readExitCode, type ToolCallRecord } from "./metrics.ts";
 import type { HostFnCallable, HostFnEntry, HostFnScope } from "./registry.ts";
 
 export const BUILTIN_HOST_FN_NAMES = ["out", "print", "use", "tool"] as const;
@@ -69,21 +70,64 @@ function toolEntry(): HostFnEntry {
 		create(scope: HostFnScope): HostFnCallable {
 			return async (name: unknown, args: unknown): Promise<unknown> => {
 				const toolName = String(name);
-				if (toolName === "tsrepl") {
-					throw new Error('tool("tsrepl") is not allowed: tsrepl cannot call itself');
+				// The record is written as the call is decided, so a cell cut off mid-call still shows
+				// the call it started. Arguments and tool output never enter it.
+				const record: ToolCallRecord = {
+					name: toolName,
+					isError: false,
+					structured: false,
+					exitCode: null,
+					threw: false,
+				};
+				scope.recordToolCall(record);
+				try {
+					return await runTool(scope, toolName, args, record);
+				} catch (error) {
+					record.threw = true;
+					throw error;
 				}
-				const outcome = await scope.toolContext.executeTool(toolName, args, { signal: scope.signal });
-				const text = collectText(outcome.result);
-				if (outcome.isError) {
-					throw new Error(text !== "" ? text : `tool("${toolName}") failed`);
-				}
-				if (outcome.result.structuredContent !== undefined) {
-					return outcome.result.structuredContent;
-				}
-				return text;
 			};
 		},
 	};
+}
+
+/**
+ * One `tool()` call through the host pipeline, filling `record` on the way out.
+ *
+ * An error result is data when the tool declared an outputSchema and produced a structured result
+ * (a non-zero bash exit, a failed test run). Same rule as pi codemode's `toScriptValue`. Every other
+ * failure stays an exception the cell can catch.
+ */
+async function runTool(
+	scope: HostFnScope,
+	toolName: string,
+	args: unknown,
+	record: ToolCallRecord,
+): Promise<unknown> {
+	if (toolName === "tsrepl") {
+		throw new Error('tool("tsrepl") is not allowed: tsrepl cannot call itself');
+	}
+	const outcome = await scope.toolContext.executeTool(toolName, args, { signal: scope.signal });
+	const structured = outcome.result.structuredContent;
+	record.isError = outcome.isError;
+	record.structured = structured !== undefined;
+	record.exitCode = readExitCode(structured);
+	if (outcome.isError) {
+		if (structured !== undefined && declaresOutputSchema(scope, toolName)) {
+			return structured;
+		}
+		const text = collectText(outcome.result);
+		throw new Error(text !== "" ? text : `tool("${toolName}") failed`);
+	}
+	if (structured !== undefined) {
+		return structured;
+	}
+	return collectText(outcome.result);
+}
+
+/** Whether the named callable tool declares an `outputSchema`. Unknown tools declare nothing. */
+function declaresOutputSchema(scope: HostFnScope, name: string): boolean {
+	return scope.toolContext.tools.some((tool) => tool.name === name && tool.outputSchema !== undefined);
 }
 
 /** Decide what `use(spec)` may import. See design Decision 9. */
