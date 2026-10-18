@@ -2,7 +2,7 @@
  * spirits startup header for interactive mode.
  *
  * `installBrandingHeader` replaces pi's built-in header through `ctx.ui.setHeader`, showing the
- * spirits wordmark, embedded version, key hints, and onboarding text. It only runs in TUI mode
+ * spirits ASCII art, wordmark, embedded version, key hints, and onboarding text. It only runs in TUI mode
  * and leaves sessions with `quietStartup: true` on pi's built-in (empty) header. Colors use
  * theme tokens so the header follows the user's theme.
  */
@@ -11,7 +11,7 @@ import { keyHint, keyText, rawKeyHint } from "@earendil-works/pi-coding-agent";
 import { resolveSpiritsVersion } from "../version.ts";
 
 /** Theme colors the header uses. */
-export type HeaderThemeColor = "accent" | "dim" | "muted";
+export type HeaderThemeColor = "accent" | "border" | "dim" | "muted";
 
 /** Theme façade the header reads. */
 export interface HeaderTheme {
@@ -75,6 +75,18 @@ function compactHints(): string {
 	].join(" · ");
 }
 
+/**
+ * Spirits ASCII art shown at the top of the startup header, one entry per line. Every line uses a
+ * theme token that differs from the other lines (`border` frame, `accent` wordmark line,
+ * `dim` and `muted` tail); all four resolve to distinct colors in the built-in themes.
+ */
+export const ART_LINES: ReadonlyArray<{ readonly text: string; readonly color: HeaderThemeColor }> = [
+	{ text: ".--------.", color: "border" },
+	{ text: "| Spirits \\__", color: "accent" },
+	{ text: "| __| --------", color: "dim" },
+	{ text: "| : ~~~~~", color: "muted" },
+];
+
 /** One-line description of what spirits offers. */
 const ONBOARDING =
 	"spirits is a persistent TypeScript REPL agent; ask it to run code with tsrepl, delegate with rlm, or take notes with note().";
@@ -97,13 +109,14 @@ export class SpiritsHeader implements HeaderComponent {
 	invalidate(): void {}
 
 	render(_width: number): string[] {
+		const art = ART_LINES.map((line) => this.theme.fg(line.color, line.text));
 		const wordmark = `${this.theme.fg("accent", "spirits")} ${this.theme.fg("dim", `v${resolveSpiritsVersion()}`)}`;
 		const onboarding = this.theme.fg("dim", ONBOARDING);
 		if (this.expanded) {
-			return [wordmark, ...expandedHints(), "", onboarding];
+			return [...art, wordmark, ...expandedHints(), "", onboarding];
 		}
 		const collapsed = this.theme.fg("dim", `Press ${keyText("app.tools.expand")} to show full startup help.`);
-		return [wordmark, compactHints(), collapsed, "", onboarding];
+		return [...art, wordmark, compactHints(), collapsed, "", onboarding];
 	}
 }
 

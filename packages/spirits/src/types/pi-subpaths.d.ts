@@ -27,3 +27,42 @@ declare module "@earendil-works/pi-coding-agent/modes/interactive/model-command-
 	}
 	export function parseModelCommandArgs(args: string, roles?: readonly string[]): ModelCommandArgs;
 }
+
+/**
+ * pi's theme loader and the color-mode union. Only the pin test
+ * `test/pi-runtime/branding-art-colors.test.ts` reads them, to check that the art lines of the
+ * startup header resolve to distinct colors in the built-in themes.
+ */
+declare module "@earendil-works/pi-coding-agent/modes/interactive/theme/theme" {
+	/** pi's terminal color modes. */
+	export type TerminalColorMode = "256color" | "truecolor";
+	/** The subset of pi's `Theme` the pin test reads. */
+	export interface Theme {
+		fg(color: string, text: string): string;
+	}
+	/** Load a theme JSON file, overriding the terminal color mode. */
+	export function loadThemeFromPath(themePath: string, mode?: TerminalColorMode): Theme;
+}
+
+/**
+ * pi's routing record of a virtual model. Only the pin test
+ * `test/pi-runtime/routing-record-pin.test.ts` reads it, to check that the record spirits writes under
+ * its mirrored entry type is the one pi reads back for the badge role and the router state.
+ */
+declare module "@earendil-works/pi-coding-agent/core/virtual-models" {
+	/** pi's custom entry type of the routing record. */
+	export const VIRTUAL_MODEL_STATE_ENTRY: string;
+	/** Data of a routing record. `role` is absent on a record written before roles existed. */
+	export interface VirtualModelStateData {
+		provider: string;
+		modelId: string;
+		state?: unknown;
+		role?: string;
+	}
+	/** The latest routing record of the given virtual model on a session branch. */
+	export function getVirtualModelEntry(
+		branch: readonly unknown[],
+		provider: string,
+		modelId: string,
+	): VirtualModelStateData | undefined;
+}
