@@ -260,6 +260,11 @@ test("locks the role a /model selection reports", async () => {
 	pi.modelRoles?.onSelect(MODEL_ROLE_STRONG, ctx);
 	expect(decision()).toBe("strong:claude-opus-4-7");
 
+	// spec "dual-model-routing / /model によるロールのロック": ロック設定だけではバッジが変わらない。
+	// The badge reads the recorded role, so locking writes nothing: the next request is what records it.
+	expect(pi.entries).toEqual([]);
+
 	pi.modelRoles?.onSelect(MODEL_ROLE_NORMAL, ctx);
 	expect(decision()).toBe("normal:claude-sonnet-4-5");
+	expect(pi.entries).toEqual([]);
 });

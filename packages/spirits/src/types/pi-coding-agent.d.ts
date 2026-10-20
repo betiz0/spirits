@@ -483,8 +483,17 @@ export interface AgentSession {
 	getSessionStats(): SessionStats;
 	subscribe(listener: (event: AgentSessionEvent) => void): () => void;
 	dispose(): void;
+	/** Bind the loaded extensions, which fires `session_start`. The pin test binds an empty set. */
+	bindExtensions(bindings: ExtensionBindings): Promise<void>;
 	readonly sessionId: string;
 	readonly messages: readonly AgentMessage[];
+}
+
+/** Bindings `AgentSession.bindExtensions()` accepts. Every field is optional. */
+export interface ExtensionBindings {
+	uiContext?: ExtensionUIContext;
+	mode?: ExtensionMode;
+	abortHandler?: () => void;
 }
 
 /**
@@ -568,6 +577,11 @@ export class ModelRuntime {
 	refresh(options?: { allowNetwork?: boolean }): Promise<unknown>;
 	/** Models available for selection, virtual entries included. */
 	getAvailable(): Promise<PiModel[]>;
+	/**
+	 * A catalog entry by provider and id, or undefined. Only the pin tests need a model to select, and
+	 * `PiModel` is enough for a selection: pi reads the provider and id off it.
+	 */
+	getModel(provider: string, modelId: string): PiModel | undefined;
 }
 
 /** Result of `discoverAndLoadExtensions()`. Only the members the pin test hands to the runner are mirrored. */
@@ -634,6 +648,12 @@ export interface CreateAgentSessionOptions {
 	customTools?: readonly ToolDefinition[];
 	sessionManager?: SessionManager;
 	resourceLoader?: DefaultResourceLoader;
+	/** Runtime to build the session on. The pin test brings its own, so no credential file is read. */
+	modelRuntime?: ModelRuntime;
+	/** Start with no tools enabled. */
+	noTools?: "all" | "builtin";
+	/** The `session_start` reason extensions receive, the way the CLI passes it. */
+	sessionStartEvent?: SessionStartEvent;
 }
 
 /** Result of `createAgentSession()`. Only the fields spirits reads are mirrored. */

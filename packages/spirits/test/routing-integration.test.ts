@@ -66,6 +66,27 @@ test("keeps the locked role across a target skill run", async () => {
 	]);
 });
 
+// spec "dual-model-routing / /model によるロールのロック": run の実行中に指定したロールは直ちに効く
+test("applies a role locked during a target skill run to the rest of that run", async () => {
+	const { pi, ctx, notices, decision } = harness();
+
+	await pi.fire("input", makeInputEvent(`${SKILL_COMMAND_PREFIX}sprt-opsx-verify-deep add-model-role-setting`), ctx);
+	const decisions = [decision()];
+	// `/model spirits/auto normal` while the run is in flight: pi calls back after it applied the model,
+	// so the lock and the role of the run change together (design Decision 2).
+	pi.modelRoles?.onSelect(MODEL_ROLE_NORMAL, ctx);
+	decisions.push(decision());
+	await pi.fire("agent_settled", makeSettledEvent(), ctx);
+	decisions.push(decision());
+
+	expect(decisions).toEqual([
+		"strong:claude-opus-4-7",
+		"normal:claude-sonnet-4-5",
+		"normal:claude-sonnet-4-5",
+	]);
+	expect(notices).toEqual([]);
+});
+
 // spec "dual-model-routing / strong フェーズの開始": ロック中の入力はロックを解除しない
 test("keeps the locked role across a plain input run", async () => {
 	const { pi, ctx, decision } = harness();

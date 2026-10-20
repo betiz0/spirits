@@ -69,6 +69,9 @@ class FakeSession implements AgentSession {
 		this.disposeCalls++;
 	}
 
+	/** Bound by interactive mode only; the rlm host never binds extensions on a child session. */
+	async bindExtensions(): Promise<void> {}
+
 	emit(event: AgentSessionEvent): void {
 		for (const listener of [...this.#listeners]) {
 			listener(event);
