@@ -7,7 +7,7 @@ compatibility: OpenSpec CLI が必要です。
 metadata:
   author: openspec
   version: "1.0"
-  generatedBy: "1.13.2"
+  generatedBy: "1.14.1"
 ---
 
 ユーザーを初めての完全な OpenSpec ワークフローサイクルへ案内してください。これは学習体験です。各ステップを説明しながら、実際にユーザーのコードベースで作業します。

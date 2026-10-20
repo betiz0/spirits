@@ -7,7 +7,7 @@ compatibility: OpenSpec CLI が必要です。
 metadata:
   author: openspec
   version: "1.0"
-  generatedBy: "1.13.2"
+  generatedBy: "1.14.1"
 ---
 
 変更の仕様差分を本仕様へ同期します。

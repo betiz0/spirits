@@ -7,7 +7,7 @@ compatibility: OpenSpec CLI が必要です。
 metadata:
   author: openspec
   version: "1.0"
-  generatedBy: "1.13.2"
+  generatedBy: "1.14.1"
 ---
 
 探索モードに入ります。深く考え、自由に視覚化し、会話がどこへ向かってもその流れを追ってください。

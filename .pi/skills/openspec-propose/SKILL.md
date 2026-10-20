@@ -7,7 +7,7 @@ compatibility: OpenSpec CLI が必要です。
 metadata:
   author: openspec
   version: "1.0"
-  generatedBy: "1.13.2"
+  generatedBy: "1.14.1"
 ---
 
 新しい変更を提案します。変更を作成し、必要なアーティファクトを 1 ステップで生成します。

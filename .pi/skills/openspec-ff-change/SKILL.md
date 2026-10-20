@@ -7,7 +7,7 @@ compatibility: OpenSpec CLI が必要です。
 metadata:
   author: openspec
   version: "1.0"
-  generatedBy: "1.13.2"
+  generatedBy: "1.14.1"
 ---
 
 アーティファクトの作成を早送り - 実装を開始するために必要なものをすべて一度に生成します。
