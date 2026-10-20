@@ -8,10 +8,10 @@
 
 import { mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { RELEASE_ARTIFACT_NAME, UPDATE_TEMP_DIR_PREFIX } from "../constants.ts";
-import { applyVerifiedBinary } from "./apply.ts";
+import { RELEASE_ARTIFACT_NAME, THEME_ASSET_NAMES, UPDATE_TEMP_DIR_PREFIX } from "../constants.ts";
+import { applyVerifiedBinary, applyVerifiedThemeAssets, type ThemeAssetPlacement } from "./apply.ts";
 import { cleanStaleTempDirs, guardTempDir } from "./cleanup.ts";
-import { downloadVerifiedBinary } from "./download.ts";
+import { downloadVerifiedArtifact } from "./download.ts";
 import {
 	checkRuntimeSupport,
 	formatFailureMessage,
@@ -20,7 +20,8 @@ import {
 	isDirectoryWritable,
 	isOfflineEnv,
 } from "./guards.ts";
-import { releaseArtifactUrl, resolveLatestStableRelease, resolveReleaseBaseUrl } from "./release.ts";
+import { releaseArtifactUrl, resolveLatestStableRelease, resolveReleaseBaseUrl, type SpiritsRelease } from "./release.ts";
+import { hasThemeAssets, themeAssetPath, themeDirFor } from "./theme.ts";
 import { resolveIdleTimeoutMs } from "./timeout.ts";
 import type { EnvLike, FetchLike } from "./types.ts";
 import { decideUpdate } from "./version.ts";
@@ -105,6 +106,73 @@ async function runExtensionUpdate(
 	}
 }
 
+/** Create this run's temporary directory; `undefined` after reporting the failure. */
+async function createTempDir(installDir: string, io: UpdateIo): Promise<string | undefined> {
+	const tempDir = join(installDir, `${UPDATE_TEMP_DIR_PREFIX}${process.pid}`);
+	try {
+		await mkdir(tempDir, { recursive: true });
+	} catch (error) {
+		io.err(formatFailureMessage(`Could not create the temporary directory: ${errorMessage(error)}`));
+		return undefined;
+	}
+	return tempDir;
+}
+
+/** Download and verify every built-in theme asset into `tempDir`. */
+async function downloadThemeAssets(options: {
+	fetch: FetchLike;
+	tempDir: string;
+	release: SpiritsRelease;
+	releaseBaseUrl: string;
+	timeoutMs: number;
+}): Promise<ThemeAssetPlacement[]> {
+	const assets: ThemeAssetPlacement[] = [];
+	for (const assetName of THEME_ASSET_NAMES) {
+		const url = releaseArtifactUrl(options.release.tag, assetName, options.releaseBaseUrl);
+		const downloadedPath = themeAssetPath(options.tempDir, assetName);
+		await downloadVerifiedArtifact({
+			fetch: options.fetch,
+			artifactUrl: url,
+			checksumUrl: `${url}.sha256`,
+			destinationPath: downloadedPath,
+			timeoutMs: options.timeoutMs,
+		});
+		assets.push({ downloadedPath, assetName });
+	}
+	return assets;
+}
+
+/** Repair missing theme assets on the current version without touching the binary. */
+async function repairThemeAssets(options: {
+	run: RunUpdateOptions;
+	io: UpdateIo;
+	release: SpiritsRelease;
+	themeDir: string;
+	timeoutMs: number;
+}): Promise<UpdateResult> {
+	const tempDir = await createTempDir(dirname(options.run.execPath), options.io);
+	if (tempDir === undefined) return { exitCode: 1, replaced: false };
+	const guard = guardTempDir(tempDir);
+	try {
+		const assets = await downloadThemeAssets({
+			fetch: options.run.fetch,
+			tempDir,
+			release: options.release,
+			releaseBaseUrl: resolveReleaseBaseUrl(options.run.env),
+			timeoutMs: options.timeoutMs,
+		});
+		await applyVerifiedThemeAssets({ themeDir: options.themeDir, assets });
+	} catch (error) {
+		options.io.err(formatFailureMessage(`Update failed: ${errorMessage(error)}`));
+		return { exitCode: 1, replaced: false };
+	} finally {
+		guard.dispose();
+		await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+	}
+	options.io.out(`spirits ${options.run.installedVersion} is already up to date; repaired the missing theme assets`);
+	return { exitCode: await runExtensionUpdate(options.run, options.io), replaced: false };
+}
+
 /**
  * Update the installed binary, then optionally update extensions.
  *
@@ -152,9 +220,13 @@ export async function runSelfUpdate(options: RunUpdateOptions): Promise<UpdateRe
 	}
 
 	const decision = decideUpdate(options.installedVersion, release.version, options.force);
+	const themeDir = themeDirFor(options.execPath);
 	if (decision === "up-to-date") {
-		io.out(`spirits ${options.installedVersion} is already up to date`);
-		return { exitCode: await runExtensionUpdate(options, io), replaced: false };
+		if (await hasThemeAssets(themeDir)) {
+			io.out(`spirits ${options.installedVersion} is already up to date`);
+			return { exitCode: await runExtensionUpdate(options, io), replaced: false };
+		}
+		return repairThemeAssets({ run: options, io, release, themeDir, timeoutMs });
 	}
 	if (decision === "newer") {
 		io.out(
@@ -163,24 +235,28 @@ export async function runSelfUpdate(options: RunUpdateOptions): Promise<UpdateRe
 		return { exitCode: await runExtensionUpdate(options, io), replaced: false };
 	}
 
-	const tempDir = join(installDir, `${UPDATE_TEMP_DIR_PREFIX}${process.pid}`);
-	try {
-		await mkdir(tempDir, { recursive: true });
-	} catch (error) {
-		io.err(formatFailureMessage(`Could not create the temporary directory: ${errorMessage(error)}`));
-		return { exitCode: 1, replaced: false };
-	}
+	const tempDir = await createTempDir(installDir, io);
+	if (tempDir === undefined) return { exitCode: 1, replaced: false };
 	const guard = guardTempDir(tempDir);
 	try {
 		const releaseBaseUrl = resolveReleaseBaseUrl(options.env);
 		const binaryUrl = releaseArtifactUrl(release.tag, RELEASE_ARTIFACT_NAME, releaseBaseUrl);
-		await downloadVerifiedBinary({
+		await downloadVerifiedArtifact({
 			fetch: options.fetch,
-			binaryUrl,
+			artifactUrl: binaryUrl,
 			checksumUrl: `${binaryUrl}.sha256`,
 			destinationPath: join(tempDir, RELEASE_ARTIFACT_NAME),
 			timeoutMs,
 		});
+		// Themes first, binary last: a placement failure leaves the installed executable in place.
+		const assets = await downloadThemeAssets({
+			fetch: options.fetch,
+			tempDir,
+			release,
+			releaseBaseUrl,
+			timeoutMs,
+		});
+		await applyVerifiedThemeAssets({ themeDir, assets });
 		await applyVerifiedBinary({
 			tempDir,
 			downloadedPath: join(tempDir, RELEASE_ARTIFACT_NAME),

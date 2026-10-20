@@ -12,7 +12,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { UPDATE_TEMP_DIR_PREFIX } from "../../src/constants.ts";
 import { guardTempDir } from "../../src/update/cleanup.ts";
-import { downloadVerifiedBinary } from "../../src/update/download.ts";
+import { downloadVerifiedArtifact } from "../../src/update/download.ts";
 
 /** Long enough that only the signal ends the request; the fixture never completes it. */
 const IDLE_TIMEOUT_MS = 600_000;
@@ -23,9 +23,9 @@ await mkdir(tempDir, { recursive: true });
 const guard = guardTempDir(tempDir);
 
 try {
-	await downloadVerifiedBinary({
+	await downloadVerifiedArtifact({
 		fetch,
-		binaryUrl,
+		artifactUrl: binaryUrl,
 		checksumUrl,
 		destinationPath: join(tempDir, "spirits-linux-x64"),
 		timeoutMs: IDLE_TIMEOUT_MS,

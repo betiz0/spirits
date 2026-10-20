@@ -76,7 +76,7 @@ OpenSpec 工作流中只有两个步骤需要更强的模型：评审变更的 `
 
   只写模型 ID(`"claude-opus-4-7"`)时，用当时的默认 provider 解析。`models` 是 spirits 的键，pi 保存其他设置时会保留它。
 - propose、apply、verify、archive 走 normal，路由到默认 provider 与默认模型。默认无法解析时改用最近一次成功响应的模型，并提示一次。运行 `sprt-opsx-review-change` 或 `sprt-opsx-verify-deep` 期间的请求走 strong，run settle 后回到**当前锁定的角色**(Escape 中断或出错也会回到)。
-- 用 `/model <model> [level] normal|strong` 锁定角色：Enter 只作用于当前会话，CTRL+S 还会把它保存为默认角色(设置里的 `models.role`)。锁定在后续输入中持续生效，用 `/model <model> normal` 解除。`/reload` 会重新读取 `models.role`，只按 Enter 未保存的锁定会回到默认角色。直接选择物理模型时不会分流，锁定只体现在徽章上。
+- 用 `/model <model> [level] normal|strong` 锁定角色：Enter 只作用于当前会话，CTRL+S 还会把它保存为默认角色(设置里的 `models.role`)。锁定在后续输入中持续生效，用 `/model <model> normal` 解除。`/reload` 会重新读取 `models.role`，只按 Enter 未保存的锁定会回到默认角色。选择物理模型期间既不分流也没有徽章；锁定从切回 `spirits/auto` 之后的请求开始生效。
 - `defaultProvider` / `defaultModel` 里保留**物理**模型。virtual model 永远不会成为 normal 的目标：把 `spirits/auto` 存为默认后，normal 没有可解析的目标，新会话的第一个请求会以错误结束。
 - 没有 `models.strong` 时静默保持 normal。已配置但不可用的目标(ID 不存在、provider 没有凭据)会回退到 normal，并在同一个 run 内只提示一次。
 - 页脚在模型名前显示 `[normal]` 或 `[strong]`。徽章表示**最近一次请求所用的角色**，因此滞后一个请求：刚启动技能时仍是 `[normal]`，技能刚结束时在下一次请求前仍是 `[strong]`。
@@ -84,7 +84,7 @@ OpenSpec 工作流中只有两个步骤需要更强的模型：评审变更的 `
 ## 已知限制
 
 - 在 `await` 之后开始的同步循环无法中断：timeout 不会触发，整个进程会失去响应（需要重启）。
-- 仅支持 Linux x86_64；不内置主题、资源、HTML 导出和 native prebuilds。
+- 仅支持 Linux x86_64；内置主题以 `theme/` 目录随可执行文件一同发布，资源、HTML 导出和 native prebuilds 不内置。
 - 没有自动更新。升级需要重新运行安装器；`spirits update` 会提示重新运行安装器，而不是 Pi 的发布页面。
 - `rlm` 是同步且串行的。异步 fan-out 将在 M5 评估。
 - 配置、会话与认证位于 `~/.spirits/agent/`（若设置了 `SPIRITS_CODING_AGENT_DIR` 则以该变量为准）。外部扩展放在 `~/.spirits/agent/extensions/`。

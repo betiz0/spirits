@@ -27,6 +27,11 @@ TAG_PREFIX="spirits-v"
 INSTALL_DIR="$HOME/.spirits/bin"
 INSTALLED_BINARY="$INSTALL_DIR/spirits"
 
+# Built-in themes pi reads from <install dir>/theme. Shared contract with the self-update code
+# (packages/spirits/src/constants.ts).
+THEME_DIR="$INSTALL_DIR/theme"
+THEME_ASSETS="dark.json light.json"
+
 # Data directory applied through PI_CODING_AGENT_DIR by the compiled binary (bin/env-defaults.ts).
 AGENT_DIR="$HOME/.spirits/agent"
 
@@ -161,6 +166,15 @@ installed_version() {
 	printf '%s\n' "$version"
 }
 
+# Both built-in theme files must be present as regular files. A missing directory or a
+# directory named like an asset counts as missing.
+theme_assets_present() {
+	for name in $THEME_ASSETS; do
+		[ -f "$THEME_DIR/$name" ] || return 1
+	done
+	return 0
+}
+
 # --- Main -----------------------------------------------------------------------------------
 
 # Fail on an unsupported platform before reporting missing helper commands.
@@ -168,6 +182,7 @@ check_platform
 
 if [ "${1:-}" = "--uninstall" ]; then
 	printf 'To remove the spirits binary:\n  rm -f %s\n' "$INSTALLED_BINARY"
+	printf 'To remove the installed theme assets:\n  rm -rf %s\n' "$THEME_DIR"
 	printf 'To remove the data directory (settings, sessions, extensions):\n  rm -rf %s\n' "$AGENT_DIR"
 	printf 'If you added %s to your PATH, remove that line from your shell rc.\n' "$INSTALL_DIR"
 	exit 0
@@ -182,17 +197,19 @@ tag=$(resolve_tag)
 new_version=${tag#"$TAG_PREFIX"}
 
 # `VERSION` requests an explicit placement (repair/reinstall) and always downloads. Without it,
-# a same-version install is skipped; an unreadable `--version` falls through to the download.
+# a same-version install with both theme assets is skipped; a same-version install with missing
+# theme assets repairs only the assets; an unreadable `--version` falls through to the download.
 version_specified=0
 if [ -n "${VERSION:-}" ]; then version_specified=1; fi
+repair_only=0
 old_version=$(installed_version) || old_version=""
 if [ "$version_specified" = 0 ] && [ -n "$old_version" ] && [ "$old_version" = "$new_version" ]; then
-	printf 'spirits %s is already up to date\n' "$new_version"
-	exit 0
+	if theme_assets_present; then
+		printf 'spirits %s is already up to date\n' "$new_version"
+		exit 0
+	fi
+	repair_only=1
 fi
-
-binary_url="$RELEASE_BASE_URL/$OWNER/$REPO/releases/download/$tag/$ARTIFACT"
-checksum_url="$binary_url.sha256"
 
 mkdir -p "$INSTALL_DIR" || fail "Failed to create $INSTALL_DIR."
 tmpdir="$INSTALL_DIR/$TMP_PREFIX$$"
@@ -209,12 +226,45 @@ trap 'rm -rf "$tmpdir"' EXIT
 trap on_interrupt INT
 trap on_terminate TERM
 
-log "Downloading $tag from $binary_url..."
-curl -fsSL -o "$tmpdir/$ARTIFACT" "$binary_url" || fail "Failed to download $binary_url."
-curl -fsSL -o "$tmpdir/$ARTIFACT.sha256" "$checksum_url" || fail "Failed to download $checksum_url."
+log "Downloading theme assets for $tag..."
+for name in $THEME_ASSETS; do
+	asset_url="$RELEASE_BASE_URL/$OWNER/$REPO/releases/download/$tag/$name"
+	curl -fsSL -o "$tmpdir/$name" "$asset_url" || fail "Failed to download $asset_url."
+	curl -fsSL -o "$tmpdir/$name.sha256" "$asset_url.sha256" || fail "Failed to download $asset_url.sha256."
+done
 
-log "Verifying checksum..."
-(cd "$tmpdir" && sha256sum -c "$ARTIFACT.sha256" >&2) || fail "Checksum verification failed; nothing was installed."
+if [ "$repair_only" = 0 ]; then
+	binary_url="$RELEASE_BASE_URL/$OWNER/$REPO/releases/download/$tag/$ARTIFACT"
+	checksum_url="$binary_url.sha256"
+	log "Downloading $tag from $binary_url..."
+	curl -fsSL -o "$tmpdir/$ARTIFACT" "$binary_url" || fail "Failed to download $binary_url."
+	curl -fsSL -o "$tmpdir/$ARTIFACT.sha256" "$checksum_url" || fail "Failed to download $checksum_url."
+fi
+
+log "Verifying checksums..."
+for name in $THEME_ASSETS; do
+	(cd "$tmpdir" && sha256sum -c "$name.sha256" >&2) ||
+		fail "Checksum verification failed; nothing was installed."
+done
+if [ "$repair_only" = 0 ]; then
+	(cd "$tmpdir" && sha256sum -c "$ARTIFACT.sha256" >&2) ||
+		fail "Checksum verification failed; nothing was installed."
+fi
+
+# Theme assets first, binary last: a failure leaves the installed executable in place.
+mkdir -p "$THEME_DIR" || fail "Failed to create $THEME_DIR."
+for name in $THEME_ASSETS; do
+	chmod 644 "$tmpdir/$name" || fail "Failed to make $tmpdir/$name readable."
+	mv -f "$tmpdir/$name" "$THEME_DIR/$name" || fail "Failed to install $THEME_DIR/$name."
+done
+
+if [ "$repair_only" = 1 ]; then
+	rm -rf "$tmpdir"
+	trap - EXIT INT TERM
+	printf 'spirits %s is already up to date; restored the missing theme assets\n' "$new_version"
+	printf 'Theme assets installed to %s\n' "$THEME_DIR"
+	exit 0
+fi
 
 chmod 755 "$tmpdir/$ARTIFACT" || fail "Failed to mark $tmpdir/$ARTIFACT executable."
 mv -f "$tmpdir/$ARTIFACT" "$INSTALLED_BINARY" || fail "Failed to install $INSTALLED_BINARY."
@@ -227,6 +277,7 @@ else
 	printf 'Installed spirits %s\n' "$new_version"
 fi
 printf 'Installed to %s\n' "$INSTALLED_BINARY"
+printf 'Installed theme assets to %s\n' "$THEME_DIR"
 printf 'Start it with:\n  %s\n' "$INSTALLED_BINARY"
 
 case ":$PATH:" in

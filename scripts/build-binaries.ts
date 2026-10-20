@@ -9,7 +9,9 @@
  */
 
 import { readFileSync } from "node:fs";
+import { copyFile, mkdir, rm } from "node:fs/promises";
 import { basename, resolve } from "node:path";
+import { THEME_ASSET_NAMES, THEME_ASSETS_DIR_NAME } from "../packages/spirits/src/constants.ts";
 import { replacePiVersion } from "./replace-pi-version.ts";
 
 /** Repository root. */
@@ -28,6 +30,10 @@ const ENTRYPOINTS = [
 	resolve(ROOT, "packages/coding-agent/src/utils/image-resize-worker.ts"),
 	resolve(ROOT, "packages/coding-agent/src/extensions/codemode/worker.ts"),
 ];
+
+/** Source of pi's built-in themes and their output directory next to the binary. */
+const THEME_SOURCE_DIR = resolve(ROOT, "packages/coding-agent/src/modes/interactive/theme");
+const THEME_DIST_DIR = resolve(DIST_DIR, THEME_ASSETS_DIR_NAME);
 
 /** Root tsconfig whose `paths` resolve pi workspace source (design Decision 1, candidate a). */
 const TSCONFIG = resolve(ROOT, "tsconfig.json");
@@ -123,11 +129,22 @@ async function buildBinary(version: string, piVersion: string): Promise<void> {
 	}
 }
 
-async function writeChecksum(): Promise<void> {
+async function writeChecksum(path: string): Promise<void> {
 	const hasher = new Bun.CryptoHasher("sha256");
-	hasher.update(await Bun.file(OUTFILE).arrayBuffer());
-	const line = `${hasher.digest("hex")}  ${basename(OUTFILE)}\n`;
-	await Bun.write(`${OUTFILE}.sha256`, line);
+	hasher.update(await Bun.file(path).arrayBuffer());
+	const line = `${hasher.digest("hex")}  ${basename(path)}\n`;
+	await Bun.write(`${path}.sha256`, line);
+}
+
+/** Copy pi's built-in themes and write each checksum, replacing stale files from earlier builds. */
+async function writeThemeAssets(): Promise<void> {
+	await rm(THEME_DIST_DIR, { recursive: true, force: true });
+	await mkdir(THEME_DIST_DIR, { recursive: true });
+	for (const name of THEME_ASSET_NAMES) {
+		const destination = resolve(THEME_DIST_DIR, name);
+		await copyFile(resolve(THEME_SOURCE_DIR, name), destination);
+		await writeChecksum(destination);
+	}
 }
 
 async function main(): Promise<void> {
@@ -135,8 +152,10 @@ async function main(): Promise<void> {
 	const piVersion = readPiVersion();
 	console.log(`Building ${basename(OUTFILE)} (spirits ${version}, pi ${piVersion})`);
 	await buildBinary(version, piVersion);
-	await writeChecksum();
+	await writeChecksum(OUTFILE);
+	await writeThemeAssets();
 	console.log(`Built ${OUTFILE} and ${OUTFILE}.sha256`);
+	console.log(`Copied theme assets to ${THEME_DIST_DIR}`);
 }
 
 await main();

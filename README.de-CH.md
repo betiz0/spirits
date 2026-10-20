@@ -76,7 +76,7 @@ Im OpenSpec-Workflow verlangen nur zwei Schritte ein stärkeres Modell: die Vorp
 
   Nur die Modell-ID (`"claude-opus-4-7"`) wird über den jeweils aktuellen Standard-Provider aufgelöst. `models` ist ein spirits-Schlüssel; pi behält ihn, wenn es andere Einstellungen speichert.
 - propose, apply, verify und archive laufen als **normal** auf Standard-Provider und Standardmodell. Lässt sich das Standardmodell nicht auflösen, übernimmt das Modell der letzten erfolgreichen Antwort mit einem Hinweis. Anfragen während `sprt-opsx-review-change` oder `sprt-opsx-verify-deep` laufen als **strong**, und die Rolle zurück nach der **gesperrten Rolle**, sobald der Run settled – auch nach Escape-Abbruch oder Fehler.
-- Rolle mit `/model <model> [level] normal|strong` sperren: Enter gilt nur für die aktuelle Sitzung, CTRL+s speichert sie zusätzlich als Standardrolle (`models.role` in den Einstellungen). Die Sperre bleibt bei späteren Eingaben bestehen und löst sich mit `/model <model> normal`. Ein `/reload` liest `models.role` neu – eine nur mit Enter gesetzte Sperre fällt auf die Standardrolle zurück. Ein direkt gewähltes physikalisches Modell wird nie geroutet, dort erscheint die Sperre nur im Badge.
+- Rolle mit `/model <model> [level] normal|strong` sperren: Enter gilt nur für die aktuelle Sitzung, CTRL+s speichert sie zusätzlich als Standardrolle (`models.role` in den Einstellungen). Die Sperre bleibt bei späteren Eingaben bestehen und löst sich mit `/model <model> normal`. Ein `/reload` liest `models.role` neu – eine nur mit Enter gesetzte Sperre fällt auf die Standardrolle zurück. Solange ein physikalisches Modell gewählt ist, gibt es weder Routing noch Badge: die Sperre wirkt ab den Anfragen, die nach der Rückkehr auf `spirits/auto` gestellt werden.
 - Als Standardmodell (`defaultProvider` / `defaultModel`) ein **physisches** Modell belassen. Ein virtuelles Modell ist nie ein normal-Ziel: Wer `spirits/auto` als Standard speichert, lässt dem normal-Zweig nichts aufzulösen übrig, und die erste Anfrage einer neuen Sitzung endet mit einem Fehler.
 - Ohne `models.strong` bleibt alles still als normal. Ein konfiguriertes, aber unbenutzbares strong-Ziel (unbekannte ID, Provider ohne Zugangsdaten) fällt auf normal zurück und meldet das genau einmal pro Run.
 - Die Fußzeile zeigt `[normal]` oder `[strong]` vor dem Modellnamen. Das Badge nennt die Rolle der **letzten Anfrage** und hinkt deshalb eine Anfrage hinterher: direkt nach dem Start eines Skills steht noch `[normal]`, direkt nach dessen Ende noch `[strong]`, bis die nächste Anfrage kommt.
@@ -84,7 +84,7 @@ Im OpenSpec-Workflow verlangen nur zwei Schritte ein stärkeres Modell: die Vorp
 ## Bekannte Einschränkungen
 
 - Eine synchrone Schleife, die nach einem `await` startet, lässt sich nicht unterbrechen: Der Timeout greift nicht, und der ganze Prozess reagiert nicht mehr (Neustart nötig).
-- Nur Linux x86_64; Themes, Assets, HTML-Export und native Prebuilds sind nicht enthalten.
+- Nur Linux x86_64; die integrierten Themes werden als `theme/` neben der Binärdatei ausgeliefert, Assets, HTML-Export und native Prebuilds sind nicht enthalten.
 - Keine automatischen Updates. Zum Aktualisieren den Installer erneut ausführen; `spirits update` verweist auf den Installer statt auf Pi's Release-URL.
 - `rlm` ist synchron und serialisiert. Asynchrones Fan-out wird in M5 beurteilt.
 - Konfiguration, Sitzungen und Authentifizierung liegen in `~/.spirits/agent/` (oder in `SPIRITS_CODING_AGENT_DIR`). Externe Erweiterungen gehören nach `~/.spirits/agent/extensions/`.

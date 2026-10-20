@@ -52,6 +52,7 @@ M1 の成果を含む spirits 全体を `bun build --compile` で単一バイナ
 - `packages/ai/src/providers/data/*.json` は gitignore 対象のため、ビルド前に `bun packages/ai/scripts/generate-models.ts --strict --data-only` で hydrate する(タスク 5.2 のリモート実行で検出)
 - バージョンは `--version` 引数 / `SPIRITS_VERSION` / `git describe --tags --match 'spirits-v*'` の順で解決して `define` で埋め込む
 - pi コアの `VERSION` を `packages/coding-agent/package.json` の version へ置換する(置換対象が無ければビルド失敗)
+- pi の組み込みテーマ `packages/coding-agent/src/modes/interactive/theme/{dark,light}.json` を `dist/theme/` へコピーし、各ファイルの `.sha256` を生成する。`dist/theme` は毎回作り直し、過去のビルドの残骸を混入させない
 - 同時に `spirits-linux-x64.sha256` を `<hex>  <basename>` 形式で生成
 
 ### lockfile
@@ -63,6 +64,7 @@ root に `bun.lock` を導入し、リリース workflow は `bun install --froz
 - トリガ: `spirits-v*` タグ push のみ(手動起動は持たない)
 - ランナー: ubuntu-latest のみ、Bun は 1.4.2 でピン留め(設計書 §8)
 - 手順: `bun install --frozen-lockfile` → `bun packages/ai/scripts/generate-models.ts --strict --data-only`(モデルデータ hydrate) → `bun test` → ビルド → チェックサム → スモーク → 専用 GitHub Release へ添付 → リリースノートに内包 Bun バージョン記載
+- 添付物は `spirits-linux-x64`、`spirits-linux-x64.sha256`、`theme/dark.json`、`theme/dark.json.sha256`、`theme/light.json`、`theme/light.json.sha256`。スモークでは全チェックサムと、自己更新後のテーマ配置・同版修復を検証する
 - バージョン部に `-` を含むタグ(例: `spirits-v0.3.0-rc.1`)の Release は prerelease として公開する
 
 ## 6. install.sh 仕様
@@ -71,14 +73,15 @@ POSIX sh 準拠。`curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/m
 
 1. `uname -s` が Linux、`uname -m` が x86_64 であることを検査(依存コマンド検査より先)。不一致は「このバージョンは Linux x86_64 専用」と表示して exit 1
 2. バージョン決定: `VERSION=0.1.0` 形式の指定があればタグ `spirits-v0.1.0` を使う。無ければ Releases API の一覧(`per_page=100`)から draft と prerelease を除き、`tag_name` が `spirits-v` で始まる先頭を latest として解決する(pi の `v*` リリースは無視)
-3. `spirits-linux-x64` と `.sha256` を一時ディレクトリへダウンロード
-4. `sha256sum -c` で検証。**検証失敗時は絶対に配置しない**(一時ファイル削除して exit 1)
-5. `~/.spirits/bin/spirits` へ配置し実行ビット付与(上書き=アップグレード、冪等)
-6. `~/.spirits/bin` が PATH に無ければ shell rc への追記行を案内(自動編集はしない)
-7. 成功時に利用開始コマンドと、実行環境の `bun --version` を表示(無ければ拡張の依存解決に別途 Bun が必要な旨)。`bun` の有無で成否は変えない
-8. `--uninstall` 指定時は、バイナリとデータディレクトリの削除コマンドを案内(ファイルは自動削除しない)。依存コマンドとネットワークは要求せず、終了コード 0
+3. `spirits-linux-x64` と組込みテーマ `dark.json` / `light.json`、それぞれの `.sha256` を一時ディレクトリへダウンロード
+4. `sha256sum -c` で全成果物を検証。**検証失敗時は絶対に配置しない**(一時ファイル削除して exit 1)
+5. `~/.spirits/bin/spirits` へ実行ビット付きで、テーマを `~/.spirits/bin/theme/` へ 0644 で配置する(上書き=アップグレード、冪等)。テーマを先、バイナリを最後に rename し、途中失敗では実行ファイルを置換しない
+6. `VERSION` を指定しない実行でインストール済みが解決版と同じ場合、テーマが揃っていればダウンロードを省略し、欠けていれば実行ファイルを変更せずテーマだけを修復する。`VERSION` 指定時は常に再配置する
+7. `~/.spirits/bin` が PATH に無ければ shell rc への追記行を案内(自動編集はしない)
+8. 成功時に利用開始コマンドと、実行環境の `bun --version` を表示(無ければ拡張の依存解決に別途 Bun が必要な旨)。`bun` の有無で成否は変えない
+9. `--uninstall` 指定時は、バイナリ、テーマ資産 `~/.spirits/bin/theme/`、データディレクトリの削除コマンドを案内(ファイルは自動削除しない)。依存コマンドとネットワークは要求せず、終了コード 0
 
-owner/repo(`betiz0/spirits`)、API 基底 URL、ダウンロード基底 URL は定数とし、テスト用に `SPIRITS_API_BASE_URL` / `SPIRITS_RELEASE_BASE_URL` で上書きできる。README には「pipe to sh が不安な向きには、バイナリと .sha256 を手動ダウンロードして検証する手順」を併記する。
+owner/repo(`betiz0/spirits`)、API 基底 URL、ダウンロード基底 URL は定数とし、テスト用に `SPIRITS_API_BASE_URL` / `SPIRITS_RELEASE_BASE_URL` で上書きできる。README には「pipe to sh が不安な向きには、バイナリとテーマ資産、.sha256 を手動ダウンロードして検証する手順」を併記する。テーマ資産を持たないリリース(0.6.0 以前)は、そのタグの `install.sh` を使う必要がある旨も書く。
 
 ## 7. スパイクタスク(M2 冒頭で実施)
 
@@ -96,13 +99,16 @@ owner/repo(`betiz0/spirits`)、API 基底 URL、ダウンロード基底 URL は
 ## 8. 完了条件
 
 - クリーンな linux-x64 環境(Docker コンテナ等)で install.sh → `spirits` 起動 → `tsrepl` が動く
-- チェックサム検証を壊した場合に配置されないことを手動確認
+- チェックサム検証を壊した場合に配置されないこと(バイナリ・テーマとも)を手動確認
 - スパイク記録済み
-- theme / assets / export-html 非同梱の制約(依存解決には別途 Bun が必要)が README に記載されている
+- インストール後に組み込みテーマが `theme/` へ配置され、`/settings` が `ENOENT` を出さずに `system` / `dark` / `light` を選択肢に出す
+- テーマ資産名の出所(`packages/spirits/src/constants.ts`)と、シェル / YAML 側の複製(`install.sh`、`self-update-smoke.sh`、`install.test.sh`、`spirits-release.yml`)が一致することを `packages/spirits/test/theme-assets-contract.test.ts` が検査し、CI で通る
+- theme 以外の assets / export-html 非同梱の制約(依存解決には別途 Bun が必要)が README に記載されている
 
 ## 9. リスク
 
 - **上流のコンパイル機構の変動**: 上流がバイナリ配布をやめた/方式変更した場合に追随コストが出る → bin エントリを上流のエントリへの薄い委譲に留めて影響を局所化
 - **glibc 依存**: bun-linux-x64 バイナリは glibc 環境前提。musl(Alpine)は対象外と README 明記(追加ターゲット化は要望が出てから)
-- **theme / assets 非同梱による機能劣化**: テーマ切替や HTML エクスポートが system テーマ等へフォールバックする → README に制約を明記し、必要になった時点で assets 同梱を別 change とする
+- **theme の非互換**: テーマのファイル名・配置先は pi の内部契約で、上流変更で `/settings` が再び壊れる → 名前の出所を `packages/spirits/src/constants.ts` に集約し、シェル / YAML 側の複製との一致を `packages/spirits/test/theme-assets-contract.test.ts` で検査する。リリース smoke が見るのはチェックサム、`--version`、テーマ内容の一致までとし、`/settings` の表示はリリース前の手動 tmux 確認(tasks 5.2)で確かめる
+- **theme 以外の assets 非同梱による機能劣化**: HTML エクスポート等が制限される → README に制約を明記し、必要になった時点で assets 同梱を別 change とする
 - **外部拡張の依存不足**: 起動時に拡張パス付きエラーで非ゼロ終了する(pi 上流の diagnostics 処理) → README に記載し、依存解決には別途 Bun が必要な旨を案内する

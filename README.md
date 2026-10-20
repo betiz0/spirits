@@ -45,6 +45,8 @@ spirits update --force   # re-download even when already latest
 
 Re-running `install.sh` still works: with latest resolution it skips the download when the installed version matches, and prints `spirits <version> is already up to date`. Use `VERSION=x.y.z` to force a re-download and placement. The 0.1.0 binary predates self-update, so upgrading from 0.1.0 requires one `install.sh` run; after that, `spirits update` works.
 
+Built-in themes ship next to the binary in `~/.spirits/bin/theme/`. Both `spirits update` and `install.sh` repair missing theme files: when the installed version already matches the latest stable release, they fetch `dark.json` and `light.json` without touching the binary (`spirits update` reports that it repaired the missing theme assets). Updaters from releases that did not ship themes yet (0.6.0 and earlier) place only the binary, so run `spirits update` once from the new binary to fill in the themes. Installing such an older release with the current `install.sh` fails before changing anything, because the current installer requires the theme assets; use the `install.sh` from that release's tag instead.
+
 The installer resolves the newest `spirits-v*` release. If no release is published yet, build from source (see [Development](#development)).
 
 ## Quick start
@@ -92,7 +94,7 @@ Only two OpenSpec workflow steps ask for a stronger model: the change review ski
 
   A bare model id (`"claude-opus-4-7"`) resolves against the current default provider. `models` is a spirits key, and pi keeps it when it saves other settings.
 - propose, apply, verify, and archive run as **normal** on the default provider and model. If the default cannot be resolved, the model of the latest successful response takes over with one notice. Requests made while `sprt-opsx-review-change` or `sprt-opsx-verify-deep` runs go as **strong**, and the role returns to the locked role when the run settles, including after an Escape abort or an error.
-- Lock a role with `/model <model> [level] normal|strong`: Enter locks it for the current session, CTRL+s also saves it as the default role (`models.role` in settings). The lock holds for later prompts and releases on `/model <model> normal`; a `/reload` re-reads `models.role`, so a lock that was only pressed with Enter returns to the default role. With a physical model as the target nothing is routed, so the lock shows up in the badge only.
+- Lock a role with `/model <model> [level] normal|strong`: Enter locks it for the current session, CTRL+s also saves it as the default role (`models.role` in settings). The lock holds for later prompts and releases on `/model <model> normal`; a `/reload` re-reads `models.role`, so a lock that was only pressed with Enter returns to the default role. While a physical model is selected there is no routing and no badge; the lock takes effect from the requests made after switching back to `spirits/auto`.
 - Keep a **physical** model in `defaultProvider` / `defaultModel`. A virtual model is never a normal target, so saving `spirits/auto` as the default leaves normal with nothing to resolve and the first request of a new session ends in an error.
 - Without `models.strong` everything stays normal in silence. A configured strong target that cannot be used (unknown id, provider without credentials) falls back to normal and says so once per run.
 - The footer shows `[normal]` or `[strong]` in front of the model name. The badge reports the role of the **latest request**, so it lags one request: right after starting a skill it still reads `[normal]`, and right after the skill settles it still reads `[strong]` until the next request.
@@ -100,7 +102,7 @@ Only two OpenSpec workflow steps ask for a stronger model: the change review ski
 ## Known limitations
 
 - A synchronous loop that starts after an `await` cannot be interrupted: timeout does not fire and the whole process stops responding (restart required).
-- Linux x86_64 only; themes, assets, HTML export, and native prebuilds are not bundled.
+- Linux x86_64 only. Built-in themes are bundled as `theme/` next to the executable; assets, HTML export, and native prebuilds are not bundled.
 - Updates replace the binary in place (`spirits update`) or via the installer; there is no background or startup update check.
 - `rlm` is synchronous and serialized. Async fan-out is evaluated in M5.
 - Configuration, sessions, and auth live in `~/.spirits/agent/` (or `SPIRITS_CODING_AGENT_DIR`). External extensions go to `~/.spirits/agent/extensions/`.

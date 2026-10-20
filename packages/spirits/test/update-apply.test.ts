@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyVerifiedBinary } from "../src/update/apply.ts";
+import { applyVerifiedBinary, applyVerifiedThemeAssets } from "../src/update/apply.ts";
 
 const workDirs: string[] = [];
 
@@ -62,8 +62,7 @@ test("keeps the original file and exec bit when rename fails", async () => {
 	}
 });
 
-test("leaves a complete verified file when two applies run concurrently", async () => {
-	const work = await makeWorkDir();
+test("leaves a complete verified file when two applies run concurrently", async () => {	const work = await makeWorkDir();
 	const targetPath = join(work, "spirits");
 	const tempA = join(work, ".spirits-tmp-a");
 	const tempB = join(work, ".spirits-tmp-b");
@@ -84,4 +83,28 @@ test("leaves a complete verified file when two applies run concurrently", async 
 	expect(await isExecutable(targetPath)).toBe(true);
 	await expect(stat(tempA)).rejects.toThrow();
 	await expect(stat(tempB)).rejects.toThrow();
+});
+
+test("places theme files and sets the file mode", async () => {
+	const work = await makeWorkDir();
+	const tempDir = join(work, ".spirits-tmp-3");
+	const themeDir = join(work, "theme");
+	await mkdir(tempDir);
+	const darkSource = join(tempDir, "dark.json");
+	const lightSource = join(tempDir, "light.json");
+	await writeFile(darkSource, '{"name":"dark"}');
+	await writeFile(lightSource, '{"name":"light"}');
+
+	await applyVerifiedThemeAssets({
+		themeDir,
+		assets: [
+			{ downloadedPath: darkSource, assetName: "dark.json" },
+			{ downloadedPath: lightSource, assetName: "light.json" },
+		],
+	});
+
+	expect(await readFile(join(themeDir, "dark.json"), "utf8")).toBe('{"name":"dark"}');
+	expect(await readFile(join(themeDir, "light.json"), "utf8")).toBe('{"name":"light"}');
+	expect((await stat(join(themeDir, "dark.json"))).mode & 0o777).toBe(0o644);
+	expect((await stat(join(themeDir, "light.json"))).mode & 0o777).toBe(0o644);
 });

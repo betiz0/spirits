@@ -80,7 +80,7 @@ OpenSpec ワークフローでより強いモデルを要求するのは 2 ス�
 
   モデル ID だけ(`"claude-opus-4-7"`)を書いた場合は、その時点の既定 provider で解決します。`models` は spirits のキーで、pi は他の設定を保存するときにもこのキーを保持します。
 - propose / apply / verify / archive は normal で、既定 provider と既定モデルへルートします。既定が解決できないときは直近の成功レスポンスのモデルに寄り、1 回通知します。`sprt-opsx-review-change` または `sprt-opsx-verify-deep` の実行中のリクエストは strong へ、run が settled すれば**ロックしているロール**に戻します(Escape の中断でもエラーでも戻します)。
-- `/model <model> [level] normal|strong` でロールをロックできます。Enter は現在のセッションにだけ反映し、CTRL+s は既定ロール(`settings.json` の `models.role`)としても保存します。ロックはあとの入力でも続き、`/model <model> normal` で解除します。`/reload` は `models.role` を読み直すので、Enter だけで保存しなかったロックは既定ロールに戻ります。物理モデルを選んでいると振り分けしないため、ロックはバッジにだけ現れます。
+- `/model <model> [level] normal|strong` でロールをロックできます。Enter は現在のセッションにだけ反映し、CTRL+s は既定ロール(`settings.json` の `models.role`)としても保存します。ロックはあとの入力でも続き、`/model <model> normal` で解除します。`/reload` は `models.role` を読み直すので、Enter だけで保存しなかったロックは既定ロールに戻ります。物理モデルを選んでいる間は振り分けもバッジも無く、ロックは `spirits/auto` に戻した後のリクエストから効きます。
 - 既定モデル(`defaultProvider` / `defaultModel`)には物理モデルを置いてください。virtual model は normal の対象にならないため、`spirits/auto` を既定に保存すると normal が解決できるモデルを失い、新しいセッションの最初のリクエストがエラーになります。
 - `models.strong` が無いときは黙って normal のままです。設定済みなのに使えない(知らない ID、資格情報のない provider)場合は normal にフォールバックし、同一 run で 1 回だけ通知します。
 - フッターはモデル名の前に `[normal]` / `[strong]` を出します。バッジは**直近のリクエストが通ったロール**を示すので 1 リクエスト遅れます。スキル起動直後は `[normal]` のまま、スキル終了直後は次のリクエストまで `[strong]` のままです。
@@ -88,7 +88,7 @@ OpenSpec ワークフローでより強いモデルを要求するのは 2 ス�
 ## 既知の制約
 
 - `await` の後に始まる同期ループは中断できず、timeout も効かずプロセス全体が応答しなくなります(再起動が必要)。
-- 対応は Linux x86_64 のみ。theme / assets / HTML エクスポート / native prebuilds は同梱しません。
+- 対応は Linux x86_64 のみ。組み込みテーマは実行ファイルと同じディレクトリの `theme/` に同梱し、assets / HTML エクスポート / native prebuilds は同梱しません。
 - 自動アップデートはありません。更新はインストーラの再実行です。`spirits update` は Pi のリリース URL ではなくインストーラの再実行を案内します。
 - `rlm` は同期・直列です。非同期 fan-out は M5 で採否判断します。
 - 設定・セッション・認証は `~/.spirits/agent/`(`SPIRITS_CODING_AGENT_DIR` 指定時はそちら)。外部拡張は `~/.spirits/agent/extensions/` に置きます。

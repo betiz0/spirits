@@ -36,6 +36,12 @@ export const RELEASE_TAG_PREFIX = "spirits-v";
 /** Release artifact name produced by scripts/build-binaries.ts. */
 export const RELEASE_ARTIFACT_NAME = "spirits-linux-x64";
 
+/** Directory next to the installed executable that pi reads built-in themes from. Shared with scripts/install.sh. */
+export const THEME_ASSETS_DIR_NAME = "theme";
+
+/** Built-in theme asset file names distributed with the executable. Shared with scripts/install.sh. */
+export const THEME_ASSET_NAMES: readonly string[] = ["dark.json", "light.json"];
+
 /** Base URL of the GitHub API. The environment override exists for fixtures. */
 export const DEFAULT_GITHUB_API_BASE_URL = "https://api.github.com";
 export const ENV_UPDATE_API_BASE_URL = "SPIRITS_API_BASE_URL";

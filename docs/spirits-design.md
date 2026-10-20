@@ -64,7 +64,7 @@ spirits は、エージェント型コーディングツール **Pi**(`earendil-
 │  ├─ rlm/    子エージェント起動(SDK createAgentSession)│
 │  └─ harness/ goal / memory / skill CRUD / code-mode  │
 │      (code-mode プロンプトも同梱)                            │
-│  配布: bun build --compile → 単一バイナリ `spirits`    │
+│  配布: bun build --compile → 実行ファイル + `theme/`  │
 │        (Linux x86_64 のみ)                            │
 └──────────────────────────────────────────────────────┘
 ```
@@ -151,7 +151,7 @@ import 許可範囲:
 - エンドユーザ環境に Bun / Node は一切不要(バイナリがランタイムを内包)
 - Pi 上流がコンパイルバイナリ向けに用意している仮想モジュール機構(拡張から pi パッケージを import する経路)をそのまま利用する
 - ビルドはソースから直接行う(`scripts/build-binaries.ts` の `Bun.build`)。pi の `dist` は使わず、root `tsconfig.json` の `paths` で pi ワークスペースのソースを解決し、pi コアの `VERSION` はビルド時に `packages/coding-agent/package.json` の version へ置換する
-- theme / assets / export-html / native prebuilds は同梱しない。テーマは system テーマへフォールバックし、HTML エクスポート等の一部機能が劣化する(README に明記)
+- theme はバイナリと同じリリースで `theme/` として配布し、assets / export-html / native prebuilds は同梱しない。組み込みテーマ `dark.json` / `light.json` は実行ファイルと同じディレクトリの `theme/` に配置され、無いと `/settings` が `ENOENT` で失敗する。HTML エクスポート等の一部機能は劣化する(README に明記)
 
 #### バージョンゲート
 

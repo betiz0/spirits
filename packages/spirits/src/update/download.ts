@@ -1,7 +1,7 @@
 /**
  * Artifact download with streamed SHA256 verification.
  *
- * The checksum is fetched first; the binary is then written to `destinationPath` while the hash
+ * The checksum is fetched first; the artifact is then written to `destinationPath` while the hash
  * is computed. A mismatch (or any download failure) removes the partial file before throwing.
  */
 
@@ -15,13 +15,13 @@ const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/i;
 /** Fields in a `sha256sum`-style checksum file are separated by whitespace. */
 const CHECKSUM_FIELD_SEPARATOR = /\s+/;
 
-/** Permission bits for the partial download; `apply` raises them to the exec bit. */
+/** Permission bits for the partial download; the caller raises them for executables or assets. */
 const PARTIAL_FILE_MODE = 0o600;
 
-/** Options accepted by `downloadVerifiedBinary`. */
-export interface DownloadVerifiedBinaryOptions {
+/** Options accepted by `downloadVerifiedArtifact`. */
+export interface DownloadVerifiedArtifactOptions {
 	fetch: FetchLike;
-	binaryUrl: string;
+	artifactUrl: string;
 	checksumUrl: string;
 	/** Path of the partial file; the caller owns its parent directory. */
 	destinationPath: string;
@@ -47,19 +47,19 @@ async function fetchOk(fetchImpl: FetchLike, url: string, timeoutMs: number): Pr
 }
 
 /**
- * Download the binary and its checksum, verify the streamed hash, and keep the verified file.
+ * Download an artifact and its checksum, verify the streamed hash, and keep the verified file.
  *
  * Throws on a non-OK response, an invalid checksum file, a mismatch, or an idle timeout. The
  * partial file is removed on every failure path.
  */
-export async function downloadVerifiedBinary(options: DownloadVerifiedBinaryOptions): Promise<void> {
+export async function downloadVerifiedArtifact(options: DownloadVerifiedArtifactOptions): Promise<void> {
 	const checksumResponse = await fetchOk(options.fetch, options.checksumUrl, options.timeoutMs);
 	const expected = parseChecksumFile(await checksumResponse.text());
 	if (expected === undefined) {
 		throw new Error("The checksum file does not contain a SHA256 digest.");
 	}
 
-	const response = await fetchOk(options.fetch, options.binaryUrl, options.timeoutMs);
+	const response = await fetchOk(options.fetch, options.artifactUrl, options.timeoutMs);
 	if (response.body === null) {
 		throw new Error("The artifact download returned an empty response body.");
 	}

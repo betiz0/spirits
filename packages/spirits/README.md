@@ -2,7 +2,7 @@
 
 Pi の拡張として動作する spirits のパッケージ。M1 では永続 TypeScript REPL ツール `tsrepl` を提供する。
 
-`packages/spirits` はルートの npm workspace から除外した自己完結の Bun パッケージ。ルートの npm / vitest / CI の対象外で、`bun test` と `bun run check` で検証する。配布は Linux x86_64 向けの単一バイナリ + `scripts/install.sh`。
+`packages/spirits` はルートの npm workspace から除外した自己完結の Bun パッケージ。ルートの npm / vitest / CI の対象外で、`bun test` と `bun run check` で検証する。配布は Linux x86_64 向けの実行ファイル + 組み込みテーマ資産 + `scripts/install.sh`。
 
 ## インストール
 
@@ -26,6 +26,18 @@ curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/main/scripts/install
 export PATH="$HOME/.spirits/bin:$PATH"
 ```
 
+インストーラはバイナリと同じリリースの組み込みテーマを `~/.spirits/bin/theme/dark.json` と `~/.spirits/bin/theme/light.json` にも配置する。pi はこの 2 ファイルを `/settings` のテーマ一覧に使うため、バイナリだけを配置すると `/settings` が `ENOENT` で失敗する。
+
+### テーマ資産を持たないリリースの導入
+
+0.6.0 以前のリリースはテーマ資産(`dark.json` / `light.json`)を含まない。`main` の `install.sh` はテーマ資産を必須とするため、これらの版を指定すると配置前に失敗する。該当版を導入する場合は、そのタグの `install.sh` を使う:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/spirits-v0.6.0/scripts/install.sh | VERSION=0.6.0 sh
+```
+
+テーマ資産を必須にした `install.sh` が `main` に載ってから次のリリースが出るまでの間は、最新として解決されるリリースがまだテーマ資産を持たない。この窓の間は `VERSION` を指定しない再実行も、同版修復の取得先が無いため配置前に失敗する(変更前は「already up to date」で成功していた)。窓が閉じた後は通常どおり再実行で修復できる。
+
 ## 手動ダウンロードと検証
 
 pipe to sh を使いたくない場合:
@@ -35,11 +47,21 @@ VERSION=0.1.0
 BASE="https://github.com/betiz0/spirits/releases/download/spirits-v${VERSION}"
 curl -fsSL -o /tmp/spirits-linux-x64 "$BASE/spirits-linux-x64"
 curl -fsSL -o /tmp/spirits-linux-x64.sha256 "$BASE/spirits-linux-x64.sha256"
+mkdir -p /tmp/spirits-theme
+for name in dark.json light.json; do
+  curl -fsSL -o "/tmp/spirits-theme/$name" "$BASE/$name"
+  curl -fsSL -o "/tmp/spirits-theme/$name.sha256" "$BASE/$name.sha256"
+done
 (cd /tmp && sha256sum -c spirits-linux-x64.sha256)
-mkdir -p ~/.spirits/bin
+(cd /tmp/spirits-theme && sha256sum -c dark.json.sha256 && sha256sum -c light.json.sha256)
+mkdir -p ~/.spirits/bin/theme
 mv /tmp/spirits-linux-x64 ~/.spirits/bin/spirits
 chmod 755 ~/.spirits/bin/spirits
+mv /tmp/spirits-theme/dark.json /tmp/spirits-theme/light.json ~/.spirits/bin/theme/
+chmod 644 ~/.spirits/bin/theme/dark.json ~/.spirits/bin/theme/light.json
 ```
+
+すべての checksum を検証してから配置する。失敗した場合は何も配置しない。
 
 ## バージョン確認
 
@@ -58,13 +80,21 @@ spirits update --all     # 置き換えの後、インストール済みの拡�
 spirits update --force   # インストール済みが最新でも再取得して置き換える
 ```
 
-置き換えは SHA256 検証の後、インストール先と同じディレクトリ内の一時領域から rename で行う。同版なら `spirits <version> is already up to date` を表示して何もしない。インストール済みが最新 stable より新しい場合(prerelease など)も置き換えない。`PI_OFFLINE` が `1` / `true` / `yes`(大文字小文字を区別しない)のときはネットワークにアクセスせず拒否する。
+置き換えは SHA256 検証の後、インストール先と同じディレクトリ内の一時領域から rename で行う。実行ファイルと同じリリースの `dark.json` / `light.json` も取得・検証し、先に `theme/` へ配置してからバイナリを置き換える。テーマの取得・検証・配置に失敗した場合はバイナリを置き換えない。
+
+同版で `theme/` の 2 ファイルが揃っていれば `spirits <version> is already up to date` を表示して何も取得しない。同版でテーマが欠けている場合は、実行ファイルを置き換えずにテーマだけを修復する。インストール済みが最新 stable より新しい場合(prerelease など)も置き換えず、テーマ資産も取得しない。`PI_OFFLINE` が `1` / `true` / `yes`(大文字小文字を区別しない)のときはネットワークにアクセスせず拒否する。
 
 更新の HTTP 要求は無通信が 10 秒続くと失敗する。`SPIRITS_UPDATE_IDLE_TIMEOUT_SECONDS` に正の整数(秒)を設定すると上限を変更できる。未設定または正の整数でない値は 10 秒になる。
 
-`install.sh` の再実行も引き続き更新手段。最新解決時はインストール済みの `--version` を確認し、同版ならダウンロードを省略して `spirits <version> is already up to date` を表示する。判定できない場合と版が異なる場合は配置する。修復や意図的な再配置には `VERSION=x.y.z` を指定する(同版でも常に再ダウンロードする)。
+`install.sh` の再実行も引き続き更新手段。最新解決時はインストール済みの `--version` を確認し、同版でテーマ資産が揃っていればダウンロードを省略して `spirits <version> is already up to date` を表示する。同版でテーマが欠けている場合はテーマ資産だけを修復する。判定できない場合と版が異なる場合は実行ファイルとテーマ資産を配置する。修復や意図的な再配置には `VERSION=x.y.z` を指定する(同版でも常に再ダウンロードする)。
 
 0.1.0 のバイナリは `spirits update` を持たないため、0.1.0 からは `install.sh` の再実行が 1 回必要。それ以降は `spirits update` が使える。
+
+0.6.0 以前の `spirits update` はバイナリだけを置き換えるため、その直後は `theme/` が欠けたままになり `/settings` が壊れる。新しいバイナリで `spirits update` をもう一度実行するか、`install.sh` を再実行すると、実行ファイルを変更せずにテーマだけが修復される。prerelease を導入した場合は、`VERSION` を指定した `install.sh` が同じ版のテーマ資産を配置する:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/main/scripts/install.sh | VERSION=0.4.0-rc.1 sh
+```
 
 ## アンインストール
 
@@ -74,7 +104,7 @@ spirits update --force   # インストール済みが最新でも再取得し�
 curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/main/scripts/install.sh | sh -s -- --uninstall
 ```
 
-出力される `rm` コマンドでバイナリとデータディレクトリ `~/.spirits/agent/` を削除する。データディレクトリには設定・セッション・外部拡張が含まれるため、必要ならバックアップしてから削除する。`~/.spirits/bin` を `PATH` に追加した行は shell rc から手動で消す。
+出力される `rm` コマンドでバイナリ、組み込みテーマ `~/.spirits/bin/theme/`、データディレクトリ `~/.spirits/agent/` を削除する。データディレクトリには設定・セッション・外部拡張が含まれるため、必要ならバックアップしてから削除する。`~/.spirits/bin` を `PATH` に追加した行は shell rc から手動で消す。
 
 ## 設定ディレクトリ
 
@@ -233,7 +263,7 @@ LLM は `manage_todos` ツールで、現在のセッションの現在のブラ
 
 ## 単一バイナリの制約
 
-- theme / assets / export-html / native prebuilds を同梱しない。テーマは system テーマへフォールバックし、HTML エクスポートなどの一部機能が劣化する。
+- バイナリは組み込みテーマだけを同梱する。テーマは実行ファイルと同じディレクトリの `theme/` に配置され、`/settings` のテーマ一覧に使われる。`theme/` が無い、または片方だけの場合は `/settings` が `ENOENT` で失敗するため、バイナリだけをコピーしない。assets / export-html / native prebuilds は同梱せず、HTML エクスポートなどの一部機能が劣化する。
 - 実行ファイルはパッケージマネージャを内包しない。外部拡張が独自の node_modules 依存を必要とする場合、依存解決には別途 Bun が必要。依存不足の外部拡張があると、起動時に拡張パス付きのエラーを stderr に出して非ゼロで終了する。
 - 対象は Linux x86_64(glibc)のみ。macOS / Windows / musl(Alpine)は対象外。
 - 更新は `spirits update` による自己置換と `install.sh` の再実行の 2 経路。起動時チェックと自動アップデートは持たない。

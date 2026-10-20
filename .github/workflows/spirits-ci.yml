@@ -15,6 +15,7 @@ on:
       - scripts/replace-pi-version.ts
       - scripts/install.sh
       - scripts/install.test.sh
+      - scripts/self-update-smoke.sh
       - .github/workflows/spirits-ci.yml
       - .github/workflows/spirits-release.yml
   pull_request:
@@ -31,6 +32,7 @@ on:
       - scripts/replace-pi-version.ts
       - scripts/install.sh
       - scripts/install.test.sh
+      - scripts/self-update-smoke.sh
       - .github/workflows/spirits-ci.yml
       - .github/workflows/spirits-release.yml
 
@@ -70,7 +72,10 @@ jobs:
           bun run check
 
       - name: Check installer syntax
-        run: sh -n scripts/install.sh
+        run: |
+          set -euo pipefail
+          sh -n scripts/install.sh
+          sh -n scripts/self-update-smoke.sh
 
       - name: Test installer
         run: sh scripts/install.test.sh

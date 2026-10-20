@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { downloadVerifiedBinary, parseChecksumFile } from "../src/update/download.ts";
+import { downloadVerifiedArtifact, parseChecksumFile } from "../src/update/download.ts";
 
 const BINARY_CONTENT = "fake spirits binary";
 const ARTIFACT_NAME = "spirits-linux-x64";
@@ -55,9 +55,9 @@ test("downloads and verifies a matching artifact", async () => {
 	const fixture = startArtifactServer(`${sha256Hex(BINARY_CONTENT)}  ${ARTIFACT_NAME}\n`);
 	const work = await makeWorkDir();
 	const destination = join(work, ARTIFACT_NAME);
-	await downloadVerifiedBinary({
+	await downloadVerifiedArtifact({
 		fetch,
-		binaryUrl: `${fixture.baseUrl}/${ARTIFACT_NAME}`,
+		artifactUrl: `${fixture.baseUrl}/${ARTIFACT_NAME}`,
 		checksumUrl: `${fixture.baseUrl}/${ARTIFACT_NAME}.sha256`,
 		destinationPath: destination,
 		timeoutMs: 2000,
@@ -71,9 +71,9 @@ test("removes the partial file when the checksum does not match", async () => {
 	const work = await makeWorkDir();
 	const destination = join(work, ARTIFACT_NAME);
 	await expect(
-		downloadVerifiedBinary({
+		downloadVerifiedArtifact({
 			fetch,
-			binaryUrl: `${fixture.baseUrl}/${ARTIFACT_NAME}`,
+			artifactUrl: `${fixture.baseUrl}/${ARTIFACT_NAME}`,
 			checksumUrl: `${fixture.baseUrl}/${ARTIFACT_NAME}.sha256`,
 			destinationPath: destination,
 			timeoutMs: 2000,
@@ -87,9 +87,9 @@ test("rejects a malformed checksum file without downloading the artifact", async
 	const work = await makeWorkDir();
 	const destination = join(work, ARTIFACT_NAME);
 	await expect(
-		downloadVerifiedBinary({
+		downloadVerifiedArtifact({
 			fetch,
-			binaryUrl: `${fixture.baseUrl}/${ARTIFACT_NAME}`,
+			artifactUrl: `${fixture.baseUrl}/${ARTIFACT_NAME}`,
 			checksumUrl: `${fixture.baseUrl}/${ARTIFACT_NAME}.sha256`,
 			destinationPath: destination,
 			timeoutMs: 2000,
@@ -113,9 +113,9 @@ test("keeps an existing destination when the checksum is invalid", async () => {
 	const destination = join(work, ARTIFACT_NAME);
 	await writeFile(destination, "original");
 	await expect(
-		downloadVerifiedBinary({
+		downloadVerifiedArtifact({
 			fetch,
-			binaryUrl: `${fixture.baseUrl}/${ARTIFACT_NAME}`,
+			artifactUrl: `${fixture.baseUrl}/${ARTIFACT_NAME}`,
 			checksumUrl: `${fixture.baseUrl}/${ARTIFACT_NAME}.sha256`,
 			destinationPath: destination,
 			timeoutMs: 2000,

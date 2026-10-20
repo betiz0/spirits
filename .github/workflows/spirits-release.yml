@@ -58,11 +58,16 @@ jobs:
           set -euo pipefail
           test -x dist/spirits-linux-x64
           test -f dist/spirits-linux-x64.sha256
+          test -f dist/theme/dark.json
+          test -f dist/theme/dark.json.sha256
+          test -f dist/theme/light.json
+          test -f dist/theme/light.json.sha256
 
       - name: Smoke test
         run: |
           set -euo pipefail
           (cd dist && sha256sum -c spirits-linux-x64.sha256)
+          (cd dist/theme && sha256sum -c dark.json.sha256 && sha256sum -c light.json.sha256)
           version="${GITHUB_REF_NAME#spirits-v}"
           first_line=$(dist/spirits-linux-x64 --version | head -n 1)
           case "$first_line" in
@@ -88,6 +93,10 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             dist/spirits-linux-x64 \
             dist/spirits-linux-x64.sha256 \
+            dist/theme/dark.json \
+            dist/theme/dark.json.sha256 \
+            dist/theme/light.json \
+            dist/theme/light.json.sha256 \
             --title "spirits ${version}" \
             --notes "Embedded Bun: ${bun_version}" \
             "${prerelease_args[@]}"

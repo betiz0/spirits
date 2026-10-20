@@ -2,22 +2,31 @@
 #
 # End-to-end self-update smoke test for compiled binaries.
 #
-#   sh scripts/self-update-smoke.sh <old-binary> <new-binary> <expected-version>
+#   sh scripts/self-update-smoke.sh <old-binary> <new-binary> <expected-version> [theme-dir]
 #
-# Serves a fixture release (the new binary listed as the latest stable) over HTTP, copies the old
-# binary into a temporary install directory, and runs `update` against the fixture. Fails unless
-# the exit code is 0, `--version` contains the expected version, and no temp directory is left.
+# Serves a fixture release (the new binary and its theme assets listed as the latest stable) over
+# HTTP, copies the old binary into a temporary install directory, and runs `update` against the
+# fixture. Fails unless the exit code is 0, `--version` contains the expected version, the theme
+# assets were placed, and no temp directory is left. It then removes `theme/` to reproduce the
+# state an older updater leaves behind and runs `update` again to check the repair path.
+#
+# `theme-dir` defaults to `<dir of new-binary>/theme`.
 #
 # Used by the release workflow and for local smoke tests.
 
 set -eu
 
-OLD_BINARY=${1:?usage: self-update-smoke.sh <old-binary> <new-binary> <expected-version>}
-NEW_BINARY=${2:?usage: self-update-smoke.sh <old-binary> <new-binary> <expected-version>}
-EXPECTED_VERSION=${3:?usage: self-update-smoke.sh <old-binary> <new-binary> <expected-version>}
+OLD_BINARY=${1:?usage: self-update-smoke.sh <old-binary> <new-binary> <expected-version> [theme-dir]}
+NEW_BINARY=${2:?usage: self-update-smoke.sh <old-binary> <new-binary> <expected-version> [theme-dir]}
+EXPECTED_VERSION=${3:?usage: self-update-smoke.sh <old-binary> <new-binary> <expected-version> [theme-dir]}
+THEME_SOURCE_DIR=${4:-$(dirname "$NEW_BINARY")/theme}
 
 [ -f "$OLD_BINARY" ] || { echo "Error: old binary not found: $OLD_BINARY" >&2; exit 1; }
 [ -f "$NEW_BINARY" ] || { echo "Error: new binary not found: $NEW_BINARY" >&2; exit 1; }
+for name in dark.json light.json; do
+	[ -f "$THEME_SOURCE_DIR/$name" ] ||
+		{ echo "Error: theme asset not found: $THEME_SOURCE_DIR/$name" >&2; exit 1; }
+done
 
 # Release contract shared with install.sh and the updater.
 OWNER="betiz0"
@@ -43,6 +52,10 @@ printf '[{"tag_name":"%s","draft":false,"prerelease":false}]\n' "$NEW_TAG" \
 	>"$SERVER_ROOT/repos/$OWNER/$REPO/releases"
 cp "$NEW_BINARY" "$SERVER_ROOT/$OWNER/$REPO/releases/download/$NEW_TAG/$ARTIFACT"
 (cd "$SERVER_ROOT/$OWNER/$REPO/releases/download/$NEW_TAG" && sha256sum "$ARTIFACT" >"$ARTIFACT.sha256")
+for name in dark.json light.json; do
+	cp "$THEME_SOURCE_DIR/$name" "$SERVER_ROOT/$OWNER/$REPO/releases/download/$NEW_TAG/$name"
+	(cd "$SERVER_ROOT/$OWNER/$REPO/releases/download/$NEW_TAG" && sha256sum "$name" >"$name.sha256")
+done
 
 PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')
 python3 -m http.server "$PORT" --bind 127.0.0.1 --directory "$SERVER_ROOT" >"$WORK_DIR/server.log" 2>&1 &
@@ -79,9 +92,45 @@ case "$version_line" in
 		;;
 esac
 
+for name in dark.json light.json; do
+	if ! cmp -s "$THEME_SOURCE_DIR/$name" "$INSTALL_DIR/theme/$name"; then
+		echo "Error: theme asset not placed or differs: $INSTALL_DIR/theme/$name" >&2
+		exit 1
+	fi
+done
+
 leftover=$(find "$INSTALL_DIR" -maxdepth 1 -name '.spirits-tmp-*' | head -n 1)
 if [ -n "$leftover" ]; then
 	echo "Error: temporary directory left behind: $leftover" >&2
+	exit 1
+fi
+
+# Reproduce the state an older updater leaves behind: same version, missing theme assets.
+rm -rf "$INSTALL_DIR/theme"
+echo "Running self-update again to repair the missing theme assets..." >&2
+if ! SPIRITS_API_BASE_URL="$BASE_URL" SPIRITS_RELEASE_BASE_URL="$BASE_URL" \
+	"$INSTALL_DIR/spirits" update >"$WORK_DIR/repair.out" 2>"$WORK_DIR/repair.err"; then
+	cat "$WORK_DIR/repair.out" >&2 || true
+	cat "$WORK_DIR/repair.err" >&2 || true
+	echo "Error: theme repair update exited non-zero." >&2
+	exit 1
+fi
+
+for name in dark.json light.json; do
+	if ! cmp -s "$THEME_SOURCE_DIR/$name" "$INSTALL_DIR/theme/$name"; then
+		echo "Error: theme asset not repaired: $INSTALL_DIR/theme/$name" >&2
+		exit 1
+	fi
+done
+
+grep -q "repaired the missing theme assets" "$WORK_DIR/repair.out" || {
+	echo "Error: repair run did not report the theme repair." >&2
+	exit 1
+}
+
+leftover=$(find "$INSTALL_DIR" -maxdepth 1 -name '.spirits-tmp-*' | head -n 1)
+if [ -n "$leftover" ]; then
+	echo "Error: temporary directory left behind after repair: $leftover" >&2
 	exit 1
 fi
 
