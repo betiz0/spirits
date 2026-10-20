@@ -30,15 +30,17 @@
 ## Impact
 
 - 影響コード:
-  - `packages/spirits/src/routing/`（`phase.ts` のロック化、`register.ts` の開始時の適用とロール語彙の登録、`router.ts` のロール読み取り）
+  - `packages/spirits/src/routing/`（`phase.ts` のロック化、`register.ts` の開始時の適用とロール語彙の登録。`router.ts` は変更しない（`phase.current()` をそのまま読む））
   - `packages/spirits/src/config.ts`、`packages/spirits/src/constants.ts`（既定ロールの読み取りと設定キー）
-  - `packages/spirits/test/`（`config.test.ts`、`routing-phase.test.ts`、`routing-register.test.ts`、`routing-router.test.ts`、`routing-integration.test.ts`）
-  - `packages/coding-agent/src/core/extensions/`（`types.ts`、`loader.ts`、`runner.ts` にロール語彙の登録 API）
+  - `packages/spirits/src/types/`（`pi-coding-agent.d.ts`、`pi-subpaths.d.ts`: 登録 API と pin テスト用の型）
+  - `packages/spirits/test/`（`config.test.ts`、`routing-phase.test.ts`、`routing-register.test.ts`、`routing-router.test.ts`、`routing-integration.test.ts`、`routing/fake-pi.ts`、`pi-runtime/model-roles-api.test.ts`、`harness-install.test.ts`、`todo-tool.test.ts`）
+  - `packages/coding-agent/src/core/extensions/`（`types.ts`、`loader.ts`、`runner.ts`、`index.ts` にロール語彙の登録 API）
+  - `packages/coding-agent/src/index.ts`（登録 API の型の export）
   - `packages/coding-agent/src/modes/interactive/model-command-args.ts`（末尾語のロール解析、2 語目補完）
   - `packages/coding-agent/src/modes/interactive/interactive-mode.ts`（ロールの拡張への通知、保存、ステータス表示）
   - `packages/coding-agent/src/core/settings-manager.ts`（既定ロールの保存）
   - `packages/coding-agent/src/core/slash-commands.ts`（`/model` の引数ヒント）
-  - `packages/coding-agent/test/`（`model-command-args.test.ts`、`interactive-mode-model-command.test.ts`、`settings-manager.test.ts`、`custom-editor-submit-shortcut.test.ts`、`virtual-models.test.ts`）
+  - `packages/coding-agent/test/`（`model-command-args.test.ts`、`interactive-mode-model-command.test.ts`、`settings-manager.test.ts`、`custom-editor-submit-shortcut.test.ts`、`model-roles.test.ts`、`interactive-mode-status.test.ts`）
   - `packages/coding-agent/docs/extensions.md`（登録 API の説明）
   - `docs/spirits-core-diffs.md`（`[spirits]` コミットの登録簿）
   - `README.md` / `README.ja.md` / `README.de-CH.md` / `README.zh.md`（使い方と解除方法）

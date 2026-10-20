@@ -10,7 +10,7 @@
 - [x] 2.1 `packages/spirits/src/constants.ts` に `SETTINGS_KEY_ROLE = "role"`（`SETTINGS_KEY_MODELS` の下のキー）と、 ロール語彙 `MODEL_ROLES = [MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG]` を追加する。検証: `cd packages/spirits && bun test test/config.test.ts` の `既定ロールの読み取り` ケースが 2.2 で成功する
 - [x] 2.2 `packages/spirits/src/config.ts` の `readRoutingSettings` に `defaultRole` を追加し、 `models.role` を `readStrongModelSetting` と同じ規則（非文字列・空は未設定）で読み、 大文字小文字を区別せずに `normal` / `strong` へ解決し、 それ以外は未設定にする。検証: `cd packages/spirits && bun test test/config.test.ts` の `既定ロールの読み取り` ケース（strong / STRONG / 未設定 / `banana` / 空）が成功する
 - [x] 2.3 `packages/spirits/src/routing/phase.ts` にロックを追加する。`RoutingPhase` へ `setRole(role)` を持ち、 idle 入力はロックをロールとし、 対象スキル入力だけ strong にし、 `settle()` は normal ではなくロックへ戻す。検証: `cd packages/spirits && bun test test/routing-phase.test.ts` の `ロック中の入力はロックを解除しない` と `ロックしたロールへ戻る` ケースが成功する
-- [x] 2.4 `packages/spirits/src/routing/register.ts` で `session_start` を受け、 reason を問わず既定ロール（未設定なら normal）を `phase.setRole` でロックに設定する。reason が `new`、 または `startup` で分岐に entry が無く、 既定ロールが設定され、 現在のモデルが `spirits/auto` のときだけ、 `ctx.sessionManager` で最新の `pi.virtual-model-state` entry を読み、 `state` を引き継いだうえで `appendEntry` に `role` を追記する。`session_tree` は扱わない。検証: `cd packages/spirits && bun test test/routing-register.test.ts` の `既定ロールで開始する` / `物理モデルで開始するときは記録しない` / `復帰では既定ロールを記録しない` / `再読み込みでは既定ロールに戻る` / `分岐間の移動ではロックを維持する` / `state を引き継ぐ` ケースが成功する
+- [x] 2.4 `packages/spirits/src/routing/register.ts` で `session_start` を受け、 reason を問わず既定ロール（未設定なら normal）を `phase.setRole` でロックに設定する。reason が `new`、 または `startup` で分岐に message entry が無く（pi が `session_start` 前に書く `model_change` / `thinking_level_change` は数えない。design Decision 6）、 既定ロールが設定され、 現在のモデルが `spirits/auto` のときだけ、 `ctx.sessionManager` で最新の `pi.virtual-model-state` entry を読み、 `state` を引き継いだうえで `appendEntry` に `role` を追記する。`session_tree` は扱わない。検証: `cd packages/spirits && bun test test/routing-register.test.ts` の `既定ロールで開始する` / `物理モデルで開始するときは記録しない` / `復帰では既定ロールを記録しない` / `再読み込みでは既定ロールに戻る` / `分岐間の移動ではロックを維持する` / `state を引き継ぐ` ケースが成功する
 - [x] 2.5 `packages/spirits/src/routing/router.ts` が `phase.current()` をそのまま使うことを保ち、 ロック strong のリクエストが strong の対象へルートされることを検証する。検証: `cd packages/spirits && bun test test/routing-router.test.ts test/routing-integration.test.ts` が成功する
 
 ## 3. pi コアの変更（`[spirits]` プレフィックスのコミットで分離）
@@ -47,3 +47,11 @@
 - [x] 6.5 strong をロックした状態で `/skill:sprt-opsx-verify-deep` を走らせ、 run 中も run の後も strong の対象モデルへルートされ続けることを確認する。続いて `/model spirits/auto normal` で normal に戻ることを確認する
 - [x] 6.6 strong をロックした状態で対象スキル以外の入力（通常のプロンプト）を送り、 ロックが解除されないことを確認する
 - [x] 6.7 既定ロール未設定で `/model spirits/auto strong` を Enter し、 `/tree` で別の分岐へ移動してもロックが保たれること、 `/reload` 後は normal に戻ることを確認する。`models.role` を strong にした場合は `/reload` 後も strong であることを確認する
+
+## 7. verify2 の指摘への対応
+
+- [x] 7.1 `packages/spirits/test/routing-integration.test.ts` に、 対象スキルの run 中に `onSelect("normal")` を呼ぶと、 同じ run の以降のリクエストと settle 後のリクエストが normal へルートされるテストを追加する（spec `run の実行中に指定したロールは直ちに効く`）。検証: `cd packages/spirits && bun test test/routing-integration.test.ts` が成功する
+- [x] 7.2 `README.md` / `README.ja.md` / `README.de-CH.md` / `README.zh.md` の「物理モデル選択中はロックがバッジにだけ現れる」旨の文を、 「物理モデルを選んでいる間は振り分けもバッジも無く、 ロックは `spirits/auto` に戻した後のリクエストから効く」に差し替える。検証: 4 ファイルで当該旨の文が `grep` で見つからない
+- [x] 7.3 `packages/spirits/test/routing-register.test.ts` の `locks the role a /model selection reports` に、 `onSelect` の後も `pi.entries` が空であることのアサートを足す（spec `ロック設定だけではバッジが変わらない`）。検証: `cd packages/spirits && bun test test/routing-register.test.ts` が成功する
+- [x] 7.4 `packages/spirits/test/pi-runtime/` に pin テストを足す。(1) pi の仮想モデル状態の entry 型名が `ROUTING_STATE_ENTRY_TYPE` と一致すること（pi が定数を export していなければ、 pi の `getVirtualModelEntry` 相当の読み取りで spirits が書いた entry の role が読めること）、 (2) 新規セッションの `session_start` 時点で分岐に message entry が無いこと。検証: `cd packages/spirits && bun test test/pi-runtime/` が成功する
+- [x] 7.5 `cd packages/spirits && bun test`、 `./test.sh`、 `npm run check` が成功する
