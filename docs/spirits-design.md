@@ -310,3 +310,9 @@ M1 では開発ループを壊さないため、先に「上流 pi を bun で�
 - Prime Agent(参照アーキテクチャ): `https://github.com/PrimeIntellect-ai/prime-agent`(MIT)
 - Bun 1.4 リリース: `https://bun.com/blog/bun-v1.4`、Node 互換性: `https://bun.com/docs/runtime/nodejs-compat`、Transpiler: `https://bun.com/docs/runtime/transpiler`
 - pi-agenticoding パッケージ: `https://pi.dev/packages/pi-agenticoding`
+
+## managed-pi 実験経路
+
+既定配布とは別に、公式 Pi の固定 artifact と事前 bundle した spirits 拡張を 1 組として明示的に起動する実験経路を `spirits managed-pi` として追加する。詳細は `docs/spirits-managed-pi.md`。既定の compiled binary、`spirits update`、install.sh、保存先は変更しない。
+
+この経路は role、`/clear`、`/model` の既存目的を削除しない。公式 Pi 1.5.0 で不足する API は限定互換モードとして記録し、role 登録、role バッジ、`/model ... role`、同一セッション ID を保つ `/clear` の代替実装は後続 change の判断とする。

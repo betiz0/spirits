@@ -11,6 +11,9 @@
 
 import { homedir } from "node:os";
 import { SPIRITS_APP_NAME } from "../src/constants.ts";
+import { classifyManagedPiArgs, type ManagedPiAction } from "../src/managed-pi/classify.ts";
+import { runManagedCommand } from "../src/managed-pi/command.ts";
+import { managedRoot } from "../src/managed-pi/layout.ts";
 import { classifyUpdateArgs, type UpdateClassification } from "../src/update/classify.ts";
 import { formatUncompiledMessage } from "../src/update/guards.ts";
 import { runSelfUpdate } from "../src/update/run.ts";
@@ -28,8 +31,14 @@ function applyEnvDefaults(): void {
 	}
 }
 
+/** One run's classification of the explicit routes. */
+interface StartupClassification {
+	update: UpdateClassification;
+	managed: ManagedPiAction;
+}
+
 /** Run the synchronous pre-pi startup and classify the CLI arguments. */
-function run(): UpdateClassification {
+function run(): StartupClassification {
 	const gate = checkBunVersion(Bun.version, isCompiledRun());
 	if (gate.decision === "reject") {
 		console.error(gate.message);
@@ -43,15 +52,29 @@ function run(): UpdateClassification {
 		console.log(formatVersionLine(resolveSpiritsVersion(), Bun.version));
 		process.exit(0);
 	}
-	const classification = classifyUpdateArgs(process.argv.slice(2));
-	if (!isCompiledRun() && classification.target !== "pass-through") {
+	const update = classifyUpdateArgs(process.argv.slice(2));
+	const managed = classifyManagedPiArgs(process.argv.slice(2));
+	if (!isCompiledRun() && (update.target !== "pass-through" || managed.kind !== "none")) {
 		console.error(formatUncompiledMessage());
 		process.exit(1);
 	}
-	return classification;
+	return { update, managed };
 }
 
-const classification = run();
+const { update: classification, managed } = run();
+
+// The explicit experimental route is handled before pi is imported. Its launch form never falls
+// through to the default compiled spirits path.
+if (managed.kind !== "none") {
+	const exitCode = await runManagedCommand({
+		root: managedRoot(homedir()),
+		action: managed,
+		env: process.env,
+		fetch,
+		home: homedir(),
+	});
+	process.exit(exitCode);
+}
 
 // Everything else (help, extensions-only update, invalid combinations) falls through to pi.
 const target = classification.target;

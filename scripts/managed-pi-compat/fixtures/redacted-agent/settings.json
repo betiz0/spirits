@@ -1,0 +1,5 @@
+{
+	"defaultProvider": "compat-fake",
+	"defaultModel": "fake-model",
+	"theme": "dark"
+}

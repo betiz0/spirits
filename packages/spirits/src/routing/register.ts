@@ -74,8 +74,26 @@ function isUnaskedSession(event: SessionStartEvent, branch: readonly SessionEntr
 	return !branch.some((entry) => entry.type === "message");
 }
 
+/** What the host supported when the routing was registered. */
+export interface RoutingRegistrationResult {
+	/** True when the optional role registration API exists on this host. */
+	roleApi: boolean;
+}
+
+/** The optional piece of the host API the official Pi 1.5.0 does not provide. */
+type RoleCapablePi = Pick<ExtensionAPI, "registerModelRoles">;
+
+/** Read the optional role API without pretending it exists. */
+function getRegisterModelRoles(pi: ExtensionAPI): RoleCapablePi["registerModelRoles"] | undefined {
+	const candidate = (pi as Partial<RoleCapablePi>).registerModelRoles;
+	return typeof candidate === "function" ? candidate.bind(pi) : undefined;
+}
+
+const DEGRADED_ROLE_NOTICE =
+	"spirits: host has no role API. Model routing and skill-driven strong phases work; /model role, saved default roles, and the role badge are unavailable.";
+
 /** Register `spirits/auto` and wire the skill phase, the `/model` roles, and the default role to it. */
-export function registerDualModelRouting(pi: ExtensionAPI): void {
+export function registerDualModelRouting(pi: ExtensionAPI): RoutingRegistrationResult {
 	const phase = createRoutingPhase();
 	const guard = createNotificationGuard();
 
@@ -93,19 +111,30 @@ export function registerDualModelRouting(pi: ExtensionAPI): void {
 	});
 
 	// pi passes the role of `/model <model> [level] <role>` back here after it applied the model, for
-	// a physical model as well as for `spirits/auto` (design Decision 7).
-	pi.registerModelRoles({
-		roles: MODEL_ROLES,
-		settingsKey: { field: SETTINGS_KEY_MODELS, key: SETTINGS_KEY_ROLE },
-		onSelect: (role) => phase.setRole(role),
-	});
+	// a physical model as well as for `spirits/auto` (design Decision 7). A host without the role API
+	// still gets the virtual model and the phase; only this registration and the badge record are lost.
+	const registerModelRoles = getRegisterModelRoles(pi);
+	if (registerModelRoles) {
+		registerModelRoles({
+			roles: MODEL_ROLES,
+			settingsKey: { field: SETTINGS_KEY_MODELS, key: SETTINGS_KEY_ROLE },
+			onSelect: (role) => phase.setRole(role),
+		});
+	}
 
+	let degradedNoticeSent = false;
 	pi.on("session_start", (event, ctx) => {
 		// Every start, `/reload` included, replaces the lock: an Enter-set lock is not saved, so it
 		// ends here and the default role takes over (design Decision 10).
 		const { defaultRole } = readRoutingSettings(pi.getSettings());
 		phase.setRole(defaultRole ?? MODEL_ROLE_NORMAL);
-		if (!defaultRole) return;
+		if (!registerModelRoles && !degradedNoticeSent) {
+			degradedNoticeSent = true;
+			ctx.ui.notify(DEGRADED_ROLE_NOTICE, "warning");
+		}
+		// Do not write a role field when the host has no role surface: it would imply the badge and
+		// `/model ... role` work. The routing phase still applies to the request.
+		if (!registerModelRoles || !defaultRole) return;
 
 		// Record the role only where a request would otherwise be the first badge on a new session:
 		// `spirits/auto` selected on a branch that carries no role yet (design Decision 6).
@@ -131,4 +160,5 @@ export function registerDualModelRouting(pi: ExtensionAPI): void {
 		phase.settle();
 		guard.settle();
 	});
+	return { roleApi: registerModelRoles !== undefined };
 }

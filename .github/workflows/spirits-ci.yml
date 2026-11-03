@@ -12,6 +12,8 @@ on:
       - packages/spirits/**
       - docs/architecture/**
       - scripts/build-binaries.ts
+      - scripts/build-managed-pi-inputs.ts
+      - scripts/managed-pi-compat/**
       - scripts/replace-pi-version.ts
       - scripts/install.sh
       - scripts/install.test.sh
@@ -29,6 +31,8 @@ on:
       - packages/spirits/**
       - docs/architecture/**
       - scripts/build-binaries.ts
+      - scripts/build-managed-pi-inputs.ts
+      - scripts/managed-pi-compat/**
       - scripts/replace-pi-version.ts
       - scripts/install.sh
       - scripts/install.test.sh

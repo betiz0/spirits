@@ -53,6 +53,11 @@ jobs:
           set -euo pipefail
           bun scripts/build-binaries.ts --version "${GITHUB_REF_NAME#spirits-v}"
 
+      - name: Build managed Pi inputs
+        run: |
+          set -euo pipefail
+          bun scripts/build-managed-pi-inputs.ts --version "${GITHUB_REF_NAME#spirits-v}" --out dist
+
       - name: Verify artifacts
         run: |
           set -euo pipefail
@@ -62,6 +67,10 @@ jobs:
           test -f dist/theme/dark.json.sha256
           test -f dist/theme/light.json
           test -f dist/theme/light.json.sha256
+          test -f dist/spirits-managed-pi-extension.js
+          test -f dist/spirits-managed-pi-extension.js.sha256
+          test -f dist/spirits-managed-pi-manifest.json
+          test -f dist/spirits-managed-pi-manifest.json.sha256
 
       - name: Smoke test
         run: |
@@ -97,6 +106,10 @@ jobs:
             dist/theme/dark.json.sha256 \
             dist/theme/light.json \
             dist/theme/light.json.sha256 \
+            dist/spirits-managed-pi-extension.js \
+            dist/spirits-managed-pi-extension.js.sha256 \
+            dist/spirits-managed-pi-manifest.json \
+            dist/spirits-managed-pi-manifest.json.sha256 \
             --title "spirits ${version}" \
             --notes "Embedded Bun: ${bun_version}" \
             "${prerelease_args[@]}"

@@ -5,7 +5,8 @@
  * `test/fixtures/architecture/`: each fixture has its own `package.json`,
  * `tsconfig.json`, `packages/`, and registry, and is checked through the same entry
  * point as the real repository. The real repository scan runs once in `beforeAll` and
- * is shared; the hook and every test carry an explicit 30 second timeout (decision 5).
+ * is shared; the hook and every test carry an explicit timeout (decision 5). The real-repo hook
+ * and root-discovery test use 60/120 seconds until CI Bun 1.4.2 timing is measured (task 11.17).
  */
 import { beforeAll, expect, test } from "bun:test";
 import { join, relative } from "node:path";
@@ -28,7 +29,7 @@ let realReport: CheckReport;
 beforeAll(async () => {
 	realScan = await scanRepository(REAL_ROOT);
 	realReport = await checkArchitectureConventions(REAL_ROOT);
-}, 30_000);
+}, 60_000);
 
 async function checkFixture(name: string, registryRelPath = "docs/architecture/convention-registry.md"): Promise<CheckReport> {
 	const root = fixtureRoot(name);
@@ -133,7 +134,7 @@ test("root discovery: same root from another cwd", async () => {
 	} finally {
 		process.chdir(previousCwd);
 	}
-}, 30_000);
+}, 120_000);
 
 // --------------------------------------------------------------- 1.2 registry
 
@@ -669,4 +670,28 @@ test("duplication: dev duplicates are not counted", async () => {
 test("fixtures: no test-like filenames in the fixtures directory", async () => {
 	const output = await Bun.$`find ${FIXTURES_DIR} -name '*.test.*' -o -name '*_test.*' -o -name '*.spec.*' -o -name '*_spec.*'`.text();
 	expect(output.trim()).toBe("");
+}, 30_000);
+
+// managed-pi design decision 13: the experimental route is its own sibling layer.
+test("managed-pi layer is recognized", async () => {
+	const { assigned } = await analyzeFixture("managed-pi");
+	expect(assigned.layerOf.get("packages/spirits/src/managed-pi/good.ts")).toBe("spirits:managed-pi");
+	const report = await checkFixture("managed-pi");
+	expect(
+		report.violations.filter((v) => v.ruleId === "ARCH-LAYER-UNKNOWN" && v.message.includes("managed-pi")),
+	).toEqual([]);
+}, 30_000);
+
+test("managed-pi sibling dependency is rejected", async () => {
+	const report = await checkFixture("managed-pi");
+	expect(
+		report.violations.some(
+			(v) => v.ruleId === "ARCH-SPIRITS-LAYER" && v.message.includes("managed-pi/bad.ts"),
+		),
+	).toBe(true);
+	expect(
+		report.violations.filter(
+			(v) => v.ruleId === "ARCH-SPIRITS-LAYER" && v.message.includes("managed-pi/good.ts"),
+		),
+	).toEqual([]);
 }, 30_000);

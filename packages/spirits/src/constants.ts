@@ -202,3 +202,57 @@ export const NOTIFY_KEY_PREVIOUS_FALLBACK = "routing-previous-fallback";
 
 /** Days a non-current bundled version directory is kept before cleanup. Unit: days. */
 export const BUNDLED_SKILLS_STALE_AFTER_DAYS = 7;
+
+// ---------------------------------------------------------------------------
+// Managed Pi experimental route (`spirits managed-pi`)
+// ---------------------------------------------------------------------------
+
+/** Managed root under `~/.spirits`; deliberately separate from bin/ and agent/. */
+export const MANAGED_PI_ROOT_NAME = "managed-pi";
+
+/** Release set directory under the managed root. */
+export const MANAGED_PI_RELEASES_DIR_NAME = "releases";
+
+/** Symlink under the managed root that points at the current verified set. */
+export const MANAGED_PI_CURRENT_LINK_NAME = "current";
+
+/** Only platform the managed route ships for. */
+export const MANAGED_PI_PLATFORM = "linux-x64";
+
+/** First Pi version supported by the managed route. */
+export const MANAGED_PI_FIRST_PI_VERSION = "1.5.0";
+
+/** Official Pi release artifact for the first supported set. */
+export const MANAGED_PI_FIRST_ARTIFACT_NAME = "pi-linux-x64.tar.gz";
+
+/** SHA256 of the official Pi 1.5.0 linux-x64 artifact (from the release SHA256SUMS file). */
+export const MANAGED_PI_FIRST_ARTIFACT_SHA256 =
+	"df870ba0e344cb7b3358d8d8f19397b8b8d225a8669784736ad68a5c2169d53b";
+
+/** SHA256 of the overlay package.json generated from the first official artifact. */
+export const MANAGED_PI_FIRST_OVERLAY_SHA256 =
+	"883b0b1462dd22bbcfa5c5020aeb79979b74adc39d059d6dbc8fa8318135a6ad";
+
+/** Overlay version recorded for the first supported set. */
+export const MANAGED_PI_FIRST_OVERLAY_VERSION = "1.5.0-spirits.1";
+
+/** Extension bundle release asset name. */
+export const MANAGED_PI_EXTENSION_ASSET_NAME = "spirits-managed-pi-extension.js";
+
+/** Manifest release asset name. */
+export const MANAGED_PI_MANIFEST_ASSET_NAME = "spirits-managed-pi-manifest.json";
+
+/** Prefix of the temporary directory inside the managed root. Reuses the self-update contract. */
+export const MANAGED_PI_TEMP_DIR_PREFIX = ".spirits-tmp-";
+
+/** Environment variable the official Pi reads for the agent directory after the overlay rename. */
+export const ENV_MANAGED_AGENT_DIR = "SPIRITS_CODING_AGENT_DIR";
+
+/** Old agent-dir name that must not select the managed route's data. */
+export const ENV_OLD_AGENT_DIR = "PI_CODING_AGENT_DIR";
+
+/** Pi's package-dir override; the wrapper pins it to the managed package. */
+export const ENV_PACKAGE_DIR = "PI_PACKAGE_DIR";
+
+/** Base URLs for the managed manifest; fixtures override them through the existing release URL vars. */
+export const ENV_MANAGED_PI_MANIFEST_URL = "SPIRITS_MANAGED_PI_MANIFEST_URL";

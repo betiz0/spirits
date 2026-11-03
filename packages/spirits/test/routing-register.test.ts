@@ -268,3 +268,11 @@ test("locks the role a /model selection reports", async () => {
 	expect(decision()).toBe("normal:claude-sonnet-4-5");
 	expect(pi.entries).toEqual([]);
 });
+
+// managed-pi spec "不足 API の限定互換モード": role API があるホストでは既存経路のまま
+test("uses the existing role registration when available", () => {
+	const pi = new FakePi();
+	const result = registerDualModelRouting(pi);
+	expect(result.roleApi).toBe(true);
+	expect(pi.modelRoles).toBeDefined();
+});

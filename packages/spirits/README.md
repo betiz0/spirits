@@ -331,3 +331,20 @@ SPIRITS_DEV=1 bun packages/coding-agent/src/cli.ts -e packages/spirits/src/index
 - `await` の後に始まる同期ループは中断できない。timeout も効かず、プロセス全体が応答しなくなる。`reset` では回復できず、プロセスの再起動が必要。
 - 実行時エラーの行番号と抜粋は、TypeScript を JavaScript へ変換した後のコード基準。元の TS の行番号とは一致しない場合がある。
 - `use()` が許可するのは `node:` / `bun:` の組込と、セッション cwd 配下に収まる `./` / `../` の相対パスだけ。リモート URL と同梱依存(ベア指定子)は M1 では未対応。
+
+## managed-pi experimental route
+
+`spirits managed-pi` installs a pinned official Pi release plus a prebundled spirits extension in a
+separate `~/.spirits/managed-pi` root and launches it by absolute path. It is an experiment, not the
+default route. The default `spirits` binary, `spirits update`, install.sh, and `~/.spirits/agent`
+keep their existing behavior.
+
+```sh
+spirits managed-pi install
+spirits managed-pi update
+spirits managed-pi repair
+spirits managed-pi -- --help
+```
+
+Rollback is removing `~/.spirits/managed-pi` after exiting the experimental route. See
+`docs/spirits-managed-pi.md` for the manifest, compatibility matrix, and runner.

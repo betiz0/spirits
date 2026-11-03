@@ -46,19 +46,29 @@ async function fetchOk(fetchImpl: FetchLike, url: string, timeoutMs: number): Pr
 	return response;
 }
 
-/**
- * Download an artifact and its checksum, verify the streamed hash, and keep the verified file.
- *
- * Throws on a non-OK response, an invalid checksum file, a mismatch, or an idle timeout. The
- * partial file is removed on every failure path.
- */
-export async function downloadVerifiedArtifact(options: DownloadVerifiedArtifactOptions): Promise<void> {
-	const checksumResponse = await fetchOk(options.fetch, options.checksumUrl, options.timeoutMs);
-	const expected = parseChecksumFile(await checksumResponse.text());
-	if (expected === undefined) {
-		throw new Error("The checksum file does not contain a SHA256 digest.");
-	}
+/** Options accepted by `downloadArtifactWithDigest`. */
+export interface DownloadArtifactWithDigestOptions {
+	fetch: FetchLike;
+	artifactUrl: string;
+	/** Expected SHA256 hex digest; the manifest path reads it directly instead of a checksum URL. */
+	expectedSha256: string;
+	/** Path of the partial file; the caller owns its parent directory. */
+	destinationPath: string;
+	/** Idle timeout for each request. Unit: milliseconds. */
+	timeoutMs: number;
+}
 
+/**
+ * Download an artifact, verify it against a digest the caller already has, and keep it.
+ *
+ * This is the shared half of `downloadVerifiedArtifact`: the streamed hash and the partial-file
+ * cleanup live here so the manifest path and the checksum-URL path cannot drift.
+ */
+export async function downloadArtifactWithDigest(options: DownloadArtifactWithDigestOptions): Promise<void> {
+	if (!SHA256_HEX_PATTERN.test(options.expectedSha256)) {
+		throw new Error("The expected SHA256 digest is malformed.");
+	}
+	const expected = options.expectedSha256.toLowerCase();
 	const response = await fetchOk(options.fetch, options.artifactUrl, options.timeoutMs);
 	if (response.body === null) {
 		throw new Error("The artifact download returned an empty response body.");
@@ -87,4 +97,25 @@ export async function downloadVerifiedArtifact(options: DownloadVerifiedArtifact
 		await rm(options.destinationPath, { force: true }).catch(() => {});
 		throw new Error(`Checksum mismatch: expected ${expected}, got ${actual}.`);
 	}
+}
+
+/**
+ * Download an artifact and its checksum, verify the streamed hash, and keep the verified file.
+ *
+ * Throws on a non-OK response, an invalid checksum file, a mismatch, or an idle timeout. The
+ * partial file is removed on every failure path.
+ */
+export async function downloadVerifiedArtifact(options: DownloadVerifiedArtifactOptions): Promise<void> {
+	const checksumResponse = await fetchOk(options.fetch, options.checksumUrl, options.timeoutMs);
+	const expected = parseChecksumFile(await checksumResponse.text());
+	if (expected === undefined) {
+		throw new Error("The checksum file does not contain a SHA256 digest.");
+	}
+	await downloadArtifactWithDigest({
+		fetch: options.fetch,
+		artifactUrl: options.artifactUrl,
+		expectedSha256: expected,
+		destinationPath: options.destinationPath,
+		timeoutMs: options.timeoutMs,
+	});
 }
