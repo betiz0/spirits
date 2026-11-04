@@ -20,7 +20,7 @@ import {
 import { fetchManagedJson } from "./artifact.ts";
 import type { ManagedPiAction } from "./classify.ts";
 import { installManagedSet, type ManagedIo } from "./install.ts";
-import { launchManagedPi, MANAGED_PI_HELP } from "./launch.ts";
+import { launchManagedPi, MANAGED_PI_HELP, type ManagedSpawn } from "./launch.ts";
 import { parseManagedManifest, type ManagedManifest } from "./manifest.ts";
 import { repairManagedSet } from "./repair.ts";
 import { readCurrentSet } from "./layout.ts";
@@ -35,6 +35,8 @@ export interface ManagedCommandOptions {
 	home: string;
 	cwd?: string;
 	io?: ManagedIo;
+	/** Test-only spawn seam handed to the launch path; production uses the real spawner. */
+	spawn?: ManagedSpawn;
 }
 
 /** Resolved manifest plus the base URL its relative assets use. */
@@ -156,6 +158,7 @@ export async function runManagedCommand(options: ManagedCommandOptions): Promise
 				home: options.home,
 				cwd: options.cwd,
 				io,
+				spawn: options.spawn,
 			});
 			return result.exitCode;
 		}

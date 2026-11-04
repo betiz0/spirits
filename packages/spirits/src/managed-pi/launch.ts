@@ -7,6 +7,12 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+	assertManagedLaunchArgs,
+	ensureManagedAgentDir,
+	ManagedAgentGuardError,
+	resolveManagedAgentPaths,
+} from "./agent-dir.ts";
 import { applyChildEnv, computeManagedEnv, type ManagedEnv } from "./environment.ts";
 import { managedRoot, readCurrentSet } from "./layout.ts";
 import {
@@ -76,11 +82,18 @@ async function resolveLaunchSetId(root: string, explicitSetId?: string): Promise
 	return setId;
 }
 
-/** Launch the managed Pi. A failure prints the reason and returns non-zero without fallback. */
+/**
+ * Launch the managed Pi. A failure prints the reason and returns non-zero without fallback.
+ *
+ * The isolated agent dir is resolved, guarded, and created after the set and platform checks and
+ * before the environment is computed, so a path or explicit-directory rejection never spawns Pi and
+ * never creates the directory.
+ */
 export async function launchManagedPi(options: LaunchManagedPiOptions): Promise<LaunchManagedPiResult> {
 	const io = options.io ?? DEFAULT_IO;
 	const home = options.home ?? homedir();
 	const root = options.root ?? managedRoot(home);
+	const env = options.env ?? process.env;
 	try {
 		const setId = await resolveLaunchSetId(root, options.setId);
 		const verified = await verifyManagedSet(root, setId);
@@ -89,17 +102,15 @@ export async function launchManagedPi(options: LaunchManagedPiOptions): Promise<
 			options.platform ?? process.platform,
 			options.arch ?? process.arch,
 		);
+		const paths = await resolveManagedAgentPaths({ home, root, env });
+		assertManagedLaunchArgs(options.args, paths);
+		await ensureManagedAgentDir(paths);
 		// Spawn through the `current` link so the launched path is exactly the selected set, and a
 		// concurrent update cannot leave the wrapper using a path that is no longer current.
 		const currentDir = join(root, "current");
 		const packageDir = join(currentDir, "pi");
-		const env = computeManagedEnv({
-			env: options.env ?? process.env,
-			home,
-			packageDir,
-		});
-		const childEnv: Record<string, string | undefined> = { ...process.env };
-		applyChildEnv(childEnv, env);
+		const childEnv: Record<string, string | undefined> = {};
+		applyChildEnv(childEnv, computeManagedEnv({ env, packageDir, agentDir: paths.agentDir }));
 		const command = [join(packageDir, "pi"), "-e", join(currentDir, "spirits-extension.js"), ...options.args];
 		const spawn = options.spawn ?? spawnManagedProcess;
 		const exitCode = await spawn({
@@ -112,6 +123,10 @@ export async function launchManagedPi(options: LaunchManagedPiOptions): Promise<
 		});
 		return { exitCode, launched: true };
 	} catch (error) {
+		if (error instanceof ManagedAgentGuardError) {
+			io.err(error.message);
+			return { exitCode: 1, launched: false };
+		}
 		const reason = error instanceof Error ? error.message : String(error);
 		io.err(managedSetFailureMessage(reason));
 		return { exitCode: 1, launched: false };
@@ -130,4 +145,5 @@ export const MANAGED_PI_HELP = [
 	"",
 	"This route is experimental and is not the default spirits launch path.",
 	"It never falls back to the system pi or the compiled spirits binary.",
+	"It writes only to the isolated agent directory under the managed root, never to ~/.spirits/agent.",
 ].join("\n");

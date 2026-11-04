@@ -6,7 +6,7 @@ import { runManagedCommand } from "../src/managed-pi/command.ts";
 import { installManagedSet } from "../src/managed-pi/install.ts";
 import { readCurrentSet } from "../src/managed-pi/layout.ts";
 import type { FetchLike } from "../src/update/types.ts";
-import { cleanupManagedFixture, makeManagedFixture, type ManagedFixture } from "./managed-pi-fixtures.ts";
+import { cleanupManagedFixture, directoryExists, makeManagedFixture, type ManagedFixture } from "./managed-pi-fixtures.ts";
 
 const fixtures: ManagedFixture[] = [];
 afterAll(async () => {
@@ -79,6 +79,22 @@ test("repair uses the installed manifest", async () => {
 	});
 	expect(exitCode).toBe(0);
 	expect(await Bun.file(join(value.root, "current", "spirits-extension.js")).exists()).toBe(true);
+});
+
+test("help does not create an agent directory", async () => {
+	const value = await fixture();
+	const { sink } = io();
+	const exitCode = await runManagedCommand({
+		root: value.root,
+		action: { kind: "help" },
+		env: {},
+		fetch,
+		home: value.work,
+		io: sink,
+	});
+	expect(exitCode).toBe(0);
+	expect(await directoryExists(join(value.root, "agent"))).toBe(false);
+	expect(await directoryExists(join(value.work, ".spirits", "agent"))).toBe(false);
 });
 
 test("help prints the experimental route", async () => {

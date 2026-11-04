@@ -339,6 +339,22 @@ separate `~/.spirits/managed-pi` root and launches it by absolute path. It is an
 default route. The default `spirits` binary, `spirits update`, install.sh, and `~/.spirits/agent`
 keep their existing behavior.
 
+The experimental route writes only to its own agent directory, `~/.spirits/managed-pi/agent` (mode
+`0700`), and never reads or writes the existing `~/.spirits/agent`. No copy, migration, sync, or
+backup of existing data is performed, and there is no force switch: an explicit
+`SPIRITS_CODING_AGENT_DIR` is accepted only when it resolves to that fixed directory, and paths that
+are relative, tilde-based, symlinked, outside the managed root, equal to or containing the existing
+agent directory, or not a directory are refused before Pi is spawned. Session storage is pinned to
+`~/.spirits/managed-pi/agent/sessions`, and `--session`, `--fork`, `--session-dir`, and `--export`
+are refused for the same reason. `install`, `update`, `repair`, and wrapper `help` create neither
+agent directory.
+
+Write compatibility with existing data has **not** been verified. Read success in the compatibility
+runner is not write compatibility; switching the default route or continuing existing data without
+manual steps requires a separate change that proves both directions. See
+`openspec/changes/archive/2026-11-03-add-managed-pi-route/completion-correction.md` for the
+correction of the archived completion record.
+
 ```sh
 spirits managed-pi install
 spirits managed-pi update
@@ -346,5 +362,8 @@ spirits managed-pi repair
 spirits managed-pi -- --help
 ```
 
-Rollback is removing `~/.spirits/managed-pi` after exiting the experimental route. See
-`docs/spirits-managed-pi.md` for the manifest, compatibility matrix, and runner.
+Rollback is removing `~/.spirits/managed-pi` after exiting the experimental route; this leaves
+`~/.spirits/agent` in place. These guards choose the agent and session directories before spawn; they
+are not an OS sandbox, and they do not restrict file access through `bash`, `read`, `write`, `edit`,
+extensions, or absolute paths. See `docs/spirits-managed-pi.md` for the manifest, compatibility
+matrix, and runner.

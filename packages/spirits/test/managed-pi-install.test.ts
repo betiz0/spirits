@@ -10,7 +10,7 @@ import {
 	managedSetDir,
 	readCurrentSet,
 } from "../src/managed-pi/layout.ts";
-import { cleanupManagedFixture, makeManagedFixture, type ManagedFixture } from "./managed-pi-fixtures.ts";
+import { cleanupManagedFixture, directoryExists, makeManagedFixture, type ManagedFixture } from "./managed-pi-fixtures.ts";
 
 const fixtures: ManagedFixture[] = [];
 afterAll(async () => {
@@ -22,6 +22,13 @@ async function fixture(options: { setId?: string; extensionBody?: string } = {})
 	fixtures.push(value);
 	return value;
 }
+
+test("install does not create the managed agent directory", async () => {
+	const value = await fixture();
+	await installManagedSet({ root: value.root, manifest: value.manifest, fetch, timeoutMs: 2000 });
+	expect(await directoryExists(join(value.root, "agent"))).toBe(false);
+	expect(await directoryExists(join(value.work, ".spirits", "agent"))).toBe(false);
+});
 
 test("install places a verified set", async () => {
 	const value = await fixture();

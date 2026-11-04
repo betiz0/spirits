@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createOverlayPackageJson, sha256Hex } from "../src/managed-pi/overlay.ts";
@@ -72,6 +72,15 @@ export async function makeManagedFixture(
 export async function cleanupManagedFixture(fixture: ManagedFixture): Promise<void> {
 	fixture.server.stop(true);
 	await rm(fixture.work, { recursive: true, force: true });
+}
+
+/** True when the path exists as a directory. Used to pin the absence of an agent dir. */
+export async function directoryExists(path: string): Promise<boolean> {
+	try {
+		return (await lstat(path)).isDirectory();
+	} catch {
+		return false;
+	}
 }
 
 /** A tiny RPC-speaking stand-in for the official Pi executable. */

@@ -12,13 +12,13 @@
 import { homedir } from "node:os";
 import { SPIRITS_APP_NAME } from "../src/constants.ts";
 import { classifyManagedPiArgs, type ManagedPiAction } from "../src/managed-pi/classify.ts";
-import { runManagedCommand } from "../src/managed-pi/command.ts";
 import { managedRoot } from "../src/managed-pi/layout.ts";
 import { classifyUpdateArgs, type UpdateClassification } from "../src/update/classify.ts";
 import { formatUncompiledMessage } from "../src/update/guards.ts";
 import { runSelfUpdate } from "../src/update/run.ts";
 import { checkBunVersion } from "./bun-gate.ts";
 import { computeEnvDefaults } from "./env-defaults.ts";
+import { copyCallerEnv, runManagedStartup } from "./startup.ts";
 import { VERSION_FLAGS, formatVersionLine, isCompiledRun, resolveSpiritsVersion } from "./version.ts";
 
 function applyEnvDefaults(): void {
@@ -61,15 +61,20 @@ function run(): StartupClassification {
 	return { update, managed };
 }
 
+// Taken before `run()` applies the normal route's defaults, so the wrapper's own
+// `SPIRITS_CODING_AGENT_DIR` injection is never read as an explicit managed selection. The normal
+// route keeps using the defaulted `process.env`; only this copy reaches the managed command.
+const snapshotEnv = copyCallerEnv(process.env);
+
 const { update: classification, managed } = run();
 
 // The explicit experimental route is handled before pi is imported. Its launch form never falls
 // through to the default compiled spirits path.
 if (managed.kind !== "none") {
-	const exitCode = await runManagedCommand({
-		root: managedRoot(homedir()),
+	const exitCode = await runManagedStartup({
+		snapshot: snapshotEnv,
 		action: managed,
-		env: process.env,
+		root: managedRoot(homedir()),
 		fetch,
 		home: homedir(),
 	});

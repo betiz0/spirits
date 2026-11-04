@@ -210,6 +210,9 @@ export const BUNDLED_SKILLS_STALE_AFTER_DAYS = 7;
 /** Managed root under `~/.spirits`; deliberately separate from bin/ and agent/. */
 export const MANAGED_PI_ROOT_NAME = "managed-pi";
 
+/** Isolated agent directory under the managed root (`<managed root>/agent`). */
+export const MANAGED_PI_AGENT_DIR_NAME = "agent";
+
 /** Release set directory under the managed root. */
 export const MANAGED_PI_RELEASES_DIR_NAME = "releases";
 
@@ -250,6 +253,24 @@ export const ENV_MANAGED_AGENT_DIR = "SPIRITS_CODING_AGENT_DIR";
 
 /** Old agent-dir name that must not select the managed route's data. */
 export const ENV_OLD_AGENT_DIR = "PI_CODING_AGENT_DIR";
+
+/** Session directory name under the isolated agent dir. */
+export const MANAGED_PI_SESSION_DIR_NAME = "sessions";
+
+/** Environment variable pi reads for the session directory (derived from the app name). */
+export const ENV_MANAGED_SESSION_DIR = "SPIRITS_CODING_AGENT_SESSION_DIR";
+
+/** Old session-dir name that must not redirect managed sessions outside the isolated agent dir. */
+export const ENV_OLD_SESSION_DIR = "PI_CODING_AGENT_SESSION_DIR";
+
+/** App-name override; the managed route pins it to the overlay identity. */
+export const ENV_APP_NAME = "PI_APP_NAME";
+
+/** Project config directory override; the managed route pins it to the bundle identity. */
+export const ENV_CONFIG_DIR = "PI_CONFIG_DIR";
+
+/** Config directory name the managed overlay package.json declares. */
+export const MANAGED_PI_CONFIG_DIR_NAME = ".pi";
 
 /** Pi's package-dir override; the wrapper pins it to the managed package. */
 export const ENV_PACKAGE_DIR = "PI_PACKAGE_DIR";

@@ -105,3 +105,10 @@ verify2 で、タスク 6.2-6.4, 6.6, 7.1-7.3, 8.1-8.2, 9.2-9.3 の検証が「�
 - [x] 11.15 fixture の managed root で `install` → `update` → `launch` → 互換性ランナーを最後まで実行する統合テストを追加する。検証: `bun test test/managed-pi-integration.test.ts` が成功し、既定 `spirits` と `spirits update` の既存テストが変わらず成功すること
 - [x] 11.16 design D12 の依存見直しを決着させる。`src/managed-pi/command.ts` の manifest URL 解決を `src/managed-pi/` へ移し、`src/update/release.ts` への依存をなくす。または manifest と bundle を同じ release から取る契約を D12 の再利用資産として明記する。検証: 前者なら `grep -R "update/release" packages/spirits/src/managed-pi` が空で `bun test test/managed-pi-command.test.ts` が成功し、後者なら design D12 に 3 関数と理由が記載されていること
 - [x] 11.17 既存テストの timeout 引き上げを CI 条件で見直す。CI の Bun 1.4.2 で `test/architecture-conventions.fixtures.test.ts` が 30 秒設定のまま成功するなら元に戻し、戻せない場合は理由を design に記録する。検証: CI 相当のコマンドで同テストが成功し、差分に理由が残っていること
+
+## 完了記録の訂正
+
+この change の `- [x]` は書き換えていない。再実行で確認できた範囲、以前の完了チェックを裏付けられない
+項目、実測で未達と判明した項目、後続 change で対応する範囲は
+[completion-correction.md](./completion-correction.md) に記録する。既存データの読み書き互換は本 change
+で実証していないため、既定経路の切り替えや既存データの継続利用には別 change での実証が必要である。

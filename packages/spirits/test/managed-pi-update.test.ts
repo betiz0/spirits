@@ -1,10 +1,11 @@
 import { afterAll, expect, test } from "bun:test";
 import { stat } from "node:fs/promises";
+import { join } from "node:path";
 import { installManagedSet } from "../src/managed-pi/install.ts";
 import { managedSetDir, readCurrentSet } from "../src/managed-pi/layout.ts";
 import { launchManagedPi } from "../src/managed-pi/launch.ts";
 import { updateManagedSet } from "../src/managed-pi/update.ts";
-import { cleanupManagedFixture, makeManagedFixture, type ManagedFixture } from "./managed-pi-fixtures.ts";
+import { cleanupManagedFixture, directoryExists, makeManagedFixture, type ManagedFixture } from "./managed-pi-fixtures.ts";
 
 const fixtures: ManagedFixture[] = [];
 afterAll(async () => {
@@ -16,6 +17,15 @@ async function fixture(setId?: string): Promise<ManagedFixture> {
 	fixtures.push(value);
 	return value;
 }
+
+test("update does not create the managed agent directory", async () => {
+	const value = await fixture();
+	await installManagedSet({ root: value.root, manifest: value.manifest, fetch, timeoutMs: 2000 });
+	const result = await updateManagedSet({ root: value.root, manifest: value.manifest, fetch, timeoutMs: 2000 });
+	expect(result.exitCode).toBe(0);
+	expect(await directoryExists(join(value.root, "agent"))).toBe(false);
+	expect(await directoryExists(join(value.work, ".spirits", "agent"))).toBe(false);
+});
 
 test("update switches after verification", async () => {
 	const first = await fixture("set-a");
@@ -54,6 +64,7 @@ test("update does not check the network on launch", async () => {
 	const result = await launchManagedPi({
 		root: first.root,
 		args: ["--version"],
+		home: first.work,
 		spawn: async () => {
 			requested++;
 			return 0;

@@ -1,6 +1,6 @@
 # managed-pi 実験経路
 
-`spirits managed-pi` は、公式 Pi の固定成果物と事前 bundle した spirits 拡張を 1 組として導入し、通常の `spirits` とは別に起動する実験経路である。既定経路ではない。通常の `spirits`、`spirits update`、install.sh、`~/.spirits/bin`、`~/.spirits/agent` の契約は変更しない。
+`spirits managed-pi` は、公式 Pi の固定成果物と事前 bundle した spirits 拡張を 1 組として導入し、通常の `spirits` とは別に起動する実験経路である。既定経路ではない。実験期間中の保存先は `<managed root>/agent`(既定は `~/.spirits/managed-pi/agent`)に固定し、既存の `~/.spirits/agent` は読み書きしない。通常の `spirits`、`spirits update`、install.sh、`~/.spirits/bin`、`~/.spirits/agent` の契約は変更しない。
 
 ## コマンド
 
@@ -15,10 +15,10 @@ spirits managed-pi help
 - `install`: 最新の spirits release から manifest を取得し、記録された Pi artifact、拡張 bundle、アセットを取得・検証して `~/.spirits/managed-pi/releases/<set-id>/` に配置する。成功時だけ `current` を切り替える。
 - `update`: 新しい manifest を取得して同じ検証付き導入を行う。完了するまで `current` は旧 set を指す。
 - `repair`: 導入済み set の manifest を使って同じ組を再導入する。bundle の欠落や破損から復旧する。
-- 引数なしまたは `--` 以降: 管理された Pi を絶対パスで起動する。PATH 上の `pi` や既定の compiled spirits へ fallback しない。
+- 引数なしまたは `--` 以降: 管理された Pi を絶対パスで起動する。PATH 上の `pi` や既定の compiled spirits へ fallback しない。起動前に隔離 agent dir を確定し、既存 agent dir には触れない。
 - `help`: この経路の wrapper help を表示する。Pi の help は `spirits managed-pi --help` または `spirits managed-pi -- --help` で起動する。
 
-未導入、破損、checksum 不一致、非対応プラットフォームでは理由と `spirits managed-pi install` を表示して非ゼロで終了する。
+未導入、破損、checksum 不一致、非対応プラットフォームでは理由と `spirits managed-pi install` を表示して非ゼロで終了する。隔離 agent dir のパス検査または起動引数の拒否でも非ゼロで終了し、通常経路へは fallback しない。
 
 ## 対応表 (manifest)
 
@@ -46,11 +46,37 @@ manifest は release 資産 `spirits-managed-pi-manifest.json` として配布�
     manifest.json
     installed.json
   current -> releases/<set-id>
+  agent/            # 実験専用の隔離 agent dir (0700)
+    sessions/
 ```
 
 導入と更新は同じ managed root 内の `.spirits-tmp-<pid>` で行い、全 checksum の検証後に `releases/` へ移す。`current` は symlink の rename で切り替える。失敗時は一時ディレクトリだけを削除し、旧 set を起動可能なまま残す。
 
-ロールバックは実験経路を終了して `~/.spirits/managed-pi` を削除する。既定の `spirits` とそのデータはそのまま残る。`install` と `update` は `~/.spirits/bin` と `~/.spirits/agent` を置換しない。
+隔離 agent dir を作成するのは Pi 起動経路だけである。`install`、`update`、`repair`、wrapper の `help` は既存 agent dir と隔離 agent dir のどちらを作成・変更しない。これら release 操作は `releases/` と `current` だけを扱う。
+
+安全な実験開始は `SPIRITS_CODING_AGENT_DIR` を未設定のまま `spirits managed-pi install` を実行し、続けて `spirits managed-pi` を起動する。リセットは実験経路を終了してから `~/.spirits/managed-pi/agent` を削除する(managed root 全体を削除してもよい)。どちらでも `~/.spirits/agent` は削除されない。ロールバックは実験経路を終了して `~/.spirits/managed-pi` を削除すること。既定の `spirits` とそのデータはそのまま残る。`install` と `update` は `~/.spirits/bin` と `~/.spirits/agent` を置換しない。
+
+## 隔離 agent dir と起動前ガード
+
+実験期間中、managed 経路の保存先は `<managed root>/agent`(既定は `~/.spirits/managed-pi/agent`)に固定する。既存の `~/.spirits/agent` は読み書きせず、通常の `spirits` 経路だけがそれを使う。自動コピー・移行・同期・バックアップ・削除は行わず、force や警告承認でこの判定を解除する機構もない。
+
+Pi を spawn する前に次を拒否し、理由・固定の隔離 agent dir・拒否した値または引数・既存 agent dir を変更していない旨・安全な開始手順・fallback しない旨を表示して非ゼロで終了する。拒否時に隔離 agent dir は作成しないし、通常経路へ fallback もしない。
+
+| 拒否 | 表示する理由 |
+|---|---|
+| 隔離 agent dir が既存 agent dir と一致、または一方が他方を包含 | `existing agent directory containment` |
+| 隔離 agent dir の経路に symlink が含まれる | `symlink in the managed agent path` |
+| 解決結果が managed root の外へ出る | `outside the managed root` |
+| 隔離 agent dir がディレクトリ以外の実体として存在する | `not a directory` |
+| 既存の隔離 agent dir が現在のユーザー所有でない(プラットフォームが所有権を公開する場合) | `owned by another user` |
+| `SPIRITS_CODING_AGENT_DIR` が固定の隔離 agent dir と異なる(相対パス・`~` 指定・managed root 外を含む) | `explicit agent directory is not the managed agent directory` |
+| 既存データや外部 session を指せる引数 | `unsupported managed-pi argument` と引数名 |
+
+明示指定は受理しない。`SPIRITS_CODING_AGENT_DIR` は正規化とパス安全性の検査の後、固定の隔離 agent dir と実体パスが一致する場合だけ受け付ける。wrapper が通常経路向けに注入する既定値は明示指定ではない。この区別のため、wrapper は `applyEnvDefaults()` より前に環境の独立コピーを取得し、managed コマンドへはそのコピーだけを渡す(通常経路は既定適用後の `process.env` を使う)。
+
+拒否する引数は `--session`、`--fork`、`--session-dir`、`--export`。これらは既存 session や隔離領域外の保存先を指せる。`--continue`、`--resume`、`--session-id`、`--no-session` は固定した隔離 session dir の範囲に収まるため許可する。引数の書き換えはしない。
+
+このガードは起動前のパス検査であり、OS レベルのサンドボックスではない。検査後のファイルシステム変化、`bash` / `read` / `write` / `edit`・拡張機能・`@file`・絶対パスによる任意のファイルアクセスは制限しない。保護の対象は agent dir と session dir の選択に限る。
 
 ## identity と保存先
 
@@ -60,15 +86,25 @@ overlay `package.json` は公式 artifact の `name` と `version` を保ち、`
 { "piConfig": { "configDir": ".pi", "name": "spirits" } }
 ```
 
-wrapper は起動前に次を設定する。
+wrapper は起動前に次を設定する。値は解決済みの隔離 agent dir から計算し、呼び出し側の agent dir 指定は読まない。
 
-- `SPIRITS_CODING_AGENT_DIR`: 明示値があれば保持し、なければ `~/.spirits/agent`。
-- `PI_CODING_AGENT_DIR`: 子プロセス環境から除去する。
+- `SPIRITS_CODING_AGENT_DIR`: `<managed root>/agent` に固定する。
+- `SPIRITS_CODING_AGENT_SESSION_DIR`: `<managed root>/agent/sessions` に固定する。
+- `PI_APP_NAME`: `spirits` に固定する。
+- `PI_CONFIG_DIR`: `.pi` に固定する。
+- `PI_CODING_AGENT_DIR` と `PI_CODING_AGENT_SESSION_DIR`: 子プロセス環境から除去する。
 - `PI_PACKAGE_DIR`: 管理された Pi の package dir に固定する。
-- `PI_SKIP_VERSION_CHECK=1`、`PI_TELEMETRY=0`: 通常起動と同じ既定。明示された telemetry 値は保持する。
-- API キー、proxy、provider 設定などその他の環境変数は保持する。
+- `PI_SKIP_VERSION_CHECK=1`: 常に固定する(呼び出し側の値は上書きし、通常起動と同じ扱い)。
+- `PI_TELEMETRY=0`: 未設定時だけ既定する。明示された値は保持する。
+- API キー、proxy、provider 設定など保存先と identity 以外の変数は保持する。
 
-起動は `<managed root>/current/pi/pi` を絶対パスで spawn し、stdio と終了コードを引き継ぐ。
+session dir を環境で固定するのは、継承値やプロジェクトの `settings.sessionDir` が隔離領域外へ保存先を切り替えられないようにするためである。起動は `<managed root>/current/pi/pi` を絶対パスで spawn し、stdio と終了コードを引き継ぐ。
+
+## 既存データの書き込み互換は未確認
+
+この change は既存 `~/.spirits/agent` の書き込み互換を実証していない。互換性ランナーの書き込み項目は、変換を要する操作を `limited` と `aborted` の理由付きで記録するだけである。本番移行や既存データの継続利用には、読み書き両方向を別 change で実証する必要がある。
+
+過去記録の訂正は [openspec/changes/archive/2026-11-03-add-managed-pi-route/completion-correction.md](../openspec/changes/archive/2026-11-03-add-managed-pi-route/completion-correction.md) に残す。元のチェックボックスは書き換えていない。
 
 ## 拡張 bundle の契約
 
@@ -134,4 +170,4 @@ redact した agent dir のコピーで settings、auth、sessions、外部拡�
 
 ### アセットと環境
 
-同梱 `SKILL.md` が raw Markdown として bundle に含まれること、`SPIRITS_CODING_AGENT_DIR` の優先、`PI_CODING_AGENT_DIR` の無視、`PI_PACKAGE_DIR` の decoy 耐性、`--help` が隔離 HOME の外を変更しないこと、API キーと proxy が残ることを確認する。bundle 内の host 版が専用 Pi artifact の版と一致し、別 SDK の版を報告しないことも確認する。
+同梱 `SKILL.md` が raw Markdown として bundle に含まれること、`SPIRITS_CODING_AGENT_DIR` の隔離 agent dir への固定、`PI_CODING_AGENT_DIR` の無視、`PI_PACKAGE_DIR` の decoy 耐性、`--help` が隔離 HOME の外を変更しないこと、API キーと proxy が残ることを確認する。bundle 内の host 版が専用 Pi artifact の版と一致し、別 SDK の版を報告しないことも確認する。

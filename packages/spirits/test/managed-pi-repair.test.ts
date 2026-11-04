@@ -4,11 +4,22 @@ import { join } from "node:path";
 import { installManagedSet } from "../src/managed-pi/install.ts";
 import { managedExtensionPath, readCurrentSet } from "../src/managed-pi/layout.ts";
 import { repairManagedSet } from "../src/managed-pi/repair.ts";
-import { cleanupManagedFixture, makeManagedFixture, type ManagedFixture } from "./managed-pi-fixtures.ts";
+import { cleanupManagedFixture, directoryExists, makeManagedFixture, type ManagedFixture } from "./managed-pi-fixtures.ts";
 
 const fixtures: ManagedFixture[] = [];
 afterAll(async () => {
 	for (const fixture of fixtures) await cleanupManagedFixture(fixture);
+});
+
+test("repair does not create the managed agent directory", async () => {
+	const value = await makeManagedFixture();
+	fixtures.push(value);
+	await installManagedSet({ root: value.root, manifest: value.manifest, fetch, timeoutMs: 2000 });
+	await rm(managedExtensionPath(value.root, value.manifest.setId));
+	const result = await repairManagedSet({ root: value.root, setId: value.manifest.setId, fetch, timeoutMs: 2000 });
+	expect(result.exitCode).toBe(0);
+	expect(await directoryExists(join(value.root, "agent"))).toBe(false);
+	expect(await directoryExists(join(value.work, ".spirits", "agent"))).toBe(false);
 });
 
 test("repair restores a missing extension bundle", async () => {

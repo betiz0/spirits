@@ -252,12 +252,13 @@ async function main(): Promise<number> {
 				const managedEnv = (extra: Record<string, string | undefined> = {}) =>
 					computeManagedEnv({
 						env: runner.env({
-							SPIRITS_CODING_AGENT_DIR: runner.agentDir,
 							ANTHROPIC_API_KEY: FAKE_API_KEY,
 							HTTPS_PROXY: FAKE_PROXY,
 							...extra,
 						}),
-						home: runner.home,
+						// The runner always writes to its own temporary agent dir, never to the measured
+						// managed root. This isolation is a test property, not a product safety control.
+						agentDir: runner.agentDir,
 						packageDir: verified.packageDir,
 					});
 				const baseEnv = managedEnv({ [PROBE_STATE_ENV]: join(runner.workRoot, "probe-state.json") });
