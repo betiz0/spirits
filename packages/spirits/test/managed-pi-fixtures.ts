@@ -114,6 +114,14 @@ if (args.includes("--help")) {
 }
 const statePath = process.env.MANAGED_PI_COMPAT_PROBE_STATE;
 const resultPath = process.env.MANAGED_PI_COMPAT_PROBE_RESULT;
+const purposePath = process.env.MANAGED_PI_COMPAT_PROBE_PURPOSE;
+function readStates(path) {
+	try {
+		return JSON.parse(readFileSync(path, "utf8")).purposeStates ?? {};
+	} catch {
+		return {};
+	}
+}
 function respond(id, command, data) {
 	process.stdout.write(JSON.stringify({ type: "response", id, command, success: true, data }) + "\\n");
 }
@@ -136,14 +144,27 @@ process.stdin.on("data", (chunk) => {
 			writeJson(statePath, {
 				sessionStarted: true,
 				tools: ["tsrepl", "manage_todos"],
-				captured: ["tsrepl"],
+				commands: ["model", "clear", "compat-redacted-command"],
 				hostVersion: identity.version,
+				hostRuntime: typeof Bun !== "undefined" ? "bun " + Bun.version : "unknown",
 				appName: identity.name,
 				packageDir: process.env.PI_PACKAGE_DIR,
 				agentDir: process.env.SPIRITS_CODING_AGENT_DIR,
 				oldAgentDir: process.env.PI_CODING_AGENT_DIR,
 				apiKey: process.env.ANTHROPIC_API_KEY,
 				proxy: process.env.HTTPS_PROXY,
+				settingsKeys: ["defaultProvider", "models"],
+				sessionEntries: 0,
+				model: { provider: "compat-fake", id: "fake-model" },
+				thinkingLevel: "off",
+				apis: {
+					getSettings: true,
+					appendEntry: true,
+					setModel: true,
+					setThinkingLevel: true,
+					sessionManager: true,
+					roleApi: false,
+				},
 			});
 			respond(request.id, "get_state", { sessionId: "fake-session", thinkingLevel: "off", isStreaming: false, isCompacting: false, steeringMode: "all", followUpMode: "one-at-a-time", autoCompactionEnabled: true, messageCount: 0, pendingMessageCount: 0 });
 		} else if (request.type === "get_commands") {
@@ -154,17 +175,70 @@ process.stdin.on("data", (chunk) => {
 			} else {
 				respond(request.id, "set_model", { provider: request.provider, id: request.modelId });
 			}
+		} else if (request.type === "abort") {
+			writeJson(resultPath, {
+				text: "rlm: 呼び出しは中断されました。",
+				isError: false,
+				bypassedPiHooks: true,
+				rlmUsage: [{ type: "custom", customType: "rlm_usage", outcome: "aborted" }],
+			});
+			respond(request.id, "abort", {});
+			process.stdout.write(JSON.stringify({ type: "agent_settled", aborted: true }) + "\\n");
 		} else if (request.type === "prompt") {
 			const message = String(request.message ?? "");
-			if (message.startsWith("/compat-probe")) {
-				const code = message.slice("/compat-probe".length).trim();
-				let text = "[value]\\n2";
-				let isError = false;
-				const rlmUsage = [];
-				if (code.includes("node:vm")) text = "[value]\\n3";
-				if (code.includes("throw")) { text = "cell boom"; isError = true; }
-				if (code.includes("rlm(")) { text = "answer"; rlmUsage.push({ type: "custom", customType: "rlm_usage" }); }
-				writeJson(resultPath, { text, isError, bypassedPiHooks: true, rlmUsage });
+			if (message.startsWith("/compat-auxiliary")) {
+				// The fixture reports the same shape a host with no reachable tool definition gives.
+				writeJson(resultPath, { toolRegistered: true, direct: null });
+				respond(request.id, "prompt", { disposition: "handled" });
+			} else if (message.startsWith("/compat-data-sources")) {
+				writeJson(resultPath, {
+					auth: { stored: { configured: true, source: "stored" }, control: { configured: false } },
+					externalExtension: { commandName: "compat-redacted-command", commandObserved: true },
+					commands: ["compat-redacted-command"],
+				});
+				respond(request.id, "prompt", { disposition: "handled" });
+			} else if (message.startsWith("/compat-purpose-state")) {
+				const label = message.slice("/compat-purpose-state".length).trim() || "current";
+				writeJson(purposePath, {
+					purposeStates: {
+						...readStates(purposePath),
+						[label]: { sessionId: "fake-session", messageEntries: 4, todoEntries: 1 },
+					},
+				});
+				respond(request.id, "prompt", { disposition: "handled" });
+			} else if (message.startsWith("/compat-purpose-model")) {
+				writeJson(resultPath, {
+					before: { level: "off", model: { provider: "compat-fake", id: "fake-model" }, defaults: { defaultProvider: "compat-fake", defaultModel: "fake-model" } },
+					after: { level: "low", model: { provider: "compat-fake", id: "fake-model" }, defaults: { defaultProvider: "compat-fake", defaultModel: "fake-model" } },
+					levelChanged: true,
+					setModelResult: true,
+					defaultsChanged: false,
+				});
+				respond(request.id, "prompt", { disposition: "handled" });
+			} else if (message.startsWith("/compat-data-read")) {
+				writeJson(resultPath, {
+					settingsKeys: ["defaultProvider", "models"],
+					sessionEntries: 1,
+					model: { provider: "compat-fake", id: "fake-model" },
+					thinkingLevel: "off",
+				});
+				respond(request.id, "prompt", { disposition: "handled" });
+			} else if (message.startsWith("/compat-data-write")) {
+				writeJson(resultPath, { sessionWritten: true, sessionReadBack: true, entries: 1 });
+				respond(request.id, "prompt", { disposition: "handled" });
+			} else if (message.startsWith("/compat-model-write")) {
+				writeJson(resultPath, {
+					modelChanged: true,
+					thinkingLevelChanged: true,
+					model: { provider: "compat-fake", id: "fake-model" },
+					thinkingLevel: "low",
+				});
+				respond(request.id, "prompt", { disposition: "handled" });
+			} else if (message.startsWith("/compat-settings-write")) {
+				writeJson(resultPath, {
+					available: false,
+					detail: "the Pi extension API does not expose a persistent settings write",
+				});
 				respond(request.id, "prompt", { disposition: "handled" });
 			} else {
 				respond(request.id, "prompt", { disposition: "started" });

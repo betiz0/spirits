@@ -32,6 +32,8 @@ export interface RpcProbeOptions {
 	timeoutMs?: number;
 	/** Keep reading after all responses until this predicate sees the wanted event(s). */
 	waitFor?: (records: readonly RpcRecord[]) => boolean;
+	/** Requests sent only after `waitFor` is satisfied (for example `get_entries` after a run). */
+	settleRequests?: readonly RpcRequest[];
 }
 
 /** Result of an RPC probe. */
@@ -42,6 +44,12 @@ export interface RpcProbeResult {
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+/** How often a staged probe looks at the records its background reader has collected. */
+const STAGE_POLL_MS = 10;
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function stringEnv(env: Record<string, string | undefined>): Record<string, string> {
 	const result: Record<string, string> = {};
@@ -61,6 +69,7 @@ export async function runRpcProbe(options: RpcProbeOptions): Promise<RpcProbeRes
 		stderr: "pipe",
 	});
 	const expected = new Set(options.requests.map((request) => request.id));
+	let pendingSettle = options.settleRequests ?? [];
 	const records: RpcRecord[] = [];
 	let stderr = "";
 	const stderrReader = child.stderr.getReader();
@@ -104,8 +113,249 @@ export async function runRpcProbe(options: RpcProbeOptions): Promise<RpcProbeRes
 				records.push({ type: "invalid-json", raw: line });
 			}
 		}
-		if (expected.size === 0 && (options.waitFor?.(records) ?? true)) resolved = true;
+		if (expected.size === 0 && pendingSettle.length > 0 && (options.waitFor?.(records) ?? true)) {
+			for (const request of pendingSettle) {
+				child.stdin.write(`${JSON.stringify(request)}\n`);
+				expected.add(request.id);
+			}
+			pendingSettle = [];
+			child.stdin.flush();
+		}
+		if (expected.size === 0 && pendingSettle.length === 0 && (options.waitFor?.(records) ?? true)) resolved = true;
 	}
+	child.stdin.end();
+	const exitCode = await child.exited;
+	await readStderr;
+	await reader.cancel().catch(() => {});
+	return { records, stderr, exitCode };
+}
+
+/** One stage of a staged RPC probe. */
+export interface RpcStep {
+	requests: readonly RpcRequest[];
+	/**
+	 * Finish the stage once the accumulated records show what the stage was waiting for. `since` is
+	 * the record count when the stage started, so a predicate can ignore earlier stages.
+	 */
+	waitFor?: (records: readonly RpcRecord[], since: number) => boolean;
+	timeoutMs?: number;
+}
+
+/** Options for a probe that drives one process through several stages. */
+export interface StagedRpcProbeOptions {
+	command: readonly string[];
+	cwd: string;
+	env: Record<string, string | undefined>;
+	stages: readonly RpcStep[];
+	timeoutMs?: number;
+}
+
+/**
+ * Drive one process through several request stages.
+ *
+ * Session state (conversation, TODO snapshots, model selection) lives in the process, so an
+ * observation that spans several actions has to run them in a single launch: seed state, read it
+ * back, exercise the action, read it back again.
+ */
+export async function runStagedRpcProbe(options: StagedRpcProbeOptions): Promise<RpcProbeResult> {
+	const child = Bun.spawn([...options.command], {
+		cwd: options.cwd,
+		env: stringEnv(options.env),
+		stdin: "pipe",
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const records: RpcRecord[] = [];
+	let stderr = "";
+	const stderrReader = child.stderr.getReader();
+	const readStderr = (async () => {
+		for (;;) {
+			const { done, value } = await stderrReader.read();
+			if (done) break;
+			stderr += new TextDecoder().decode(value);
+		}
+	})();
+	let ended = false;
+	// One background reader owns stdout. A stage that waits for an event which never arrives (an
+	// extension command writes a file and answers nothing) must not consume or lose the records the
+	// later stages produce, so stages poll the collected records instead of owning the reader.
+	const stdoutReader = child.stdout.getReader();
+	const drainStdout = (async () => {
+		let buffer = "";
+		for (;;) {
+			const { done, value } = await stdoutReader.read();
+			if (done) break;
+			buffer += new TextDecoder().decode(value);
+			for (;;) {
+				const newline = buffer.indexOf("\n");
+				if (newline === -1) break;
+				const line = buffer.slice(0, newline).replace(/\r$/, "");
+				buffer = buffer.slice(newline + 1);
+				if (!line.trim()) continue;
+				try {
+					records.push(JSON.parse(line) as RpcRecord);
+				} catch {
+					records.push({ type: "invalid-json", raw: line });
+				}
+			}
+		}
+		ended = true;
+	})();
+	for (const stage of options.stages) {
+		const since = records.length;
+		const expected = new Set(stage.requests.map((request) => request.id));
+		for (const request of stage.requests) {
+			child.stdin.write(`${JSON.stringify(request)}\n`);
+		}
+		child.stdin.flush();
+		const deadline = Date.now() + (stage.timeoutMs ?? options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+		for (;;) {
+			for (const record of records.slice(since)) {
+				if (record.type === "response" && record.id) expected.delete(record.id);
+			}
+			const satisfied =
+				stage.waitFor === undefined
+					? expected.size === 0
+					: records.length > since && stage.waitFor(records, since);
+			if (satisfied || ended || Date.now() >= deadline) break;
+			await sleep(STAGE_POLL_MS);
+		}
+		if (ended) break;
+	}
+	child.stdin.end();
+	const exitCode = await child.exited;
+	await readStderr;
+	await drainStdout;
+	return { records, stderr, exitCode };
+}
+
+/** Options for a probe that sends an abort request while the process is running. */
+export interface AbortRpcProbeOptions {
+	command: readonly string[];
+	cwd: string;
+	env: Record<string, string | undefined>;
+	/** Requests sent before the abort. */
+	requests: readonly RpcRequest[];
+	/** Abort request sent after `abortAfterMs`. */
+	abortRequest: RpcRequest;
+	/** Delay before the abort request. */
+	abortAfterMs: number;
+	/** Send the abort only after this predicate sees the run become active. */
+	abortWhen?: (records: readonly RpcRecord[]) => boolean;
+	/** Extra delay after `abortWhen` is first satisfied, so a child session can start. */
+	abortAfterEventMs?: number;
+	timeoutMs?: number;
+	/** Keep reading after the responses until this predicate sees the wanted event(s). */
+	waitFor?: (records: readonly RpcRecord[]) => boolean;
+	/** Requests sent after the abort and `waitFor` (for example `get_entries`). */
+	settleRequests?: readonly RpcRequest[];
+}
+
+/** Start a process, send requests, then send an abort and collect records. */
+export async function runAbortRpcProbe(options: AbortRpcProbeOptions): Promise<RpcProbeResult> {
+	const child = Bun.spawn([...options.command], {
+		cwd: options.cwd,
+		env: stringEnv(options.env),
+		stdin: "pipe",
+		stdout: "pipe",
+		stderr: "pipe",
+	});
+	const expected = new Set(options.requests.map((request) => request.id));
+	let pendingSettle = options.settleRequests ?? [];
+	const records: RpcRecord[] = [];
+	let stderr = "";
+	const stderrReader = child.stderr.getReader();
+	const readStderr = (async () => {
+		for (;;) {
+			const { done, value } = await stderrReader.read();
+			if (done) break;
+			stderr += new TextDecoder().decode(value);
+		}
+	})();
+	for (const request of options.requests) {
+		child.stdin.write(`${JSON.stringify(request)}\n`);
+	}
+	child.stdin.flush();
+	const reader = child.stdout.getReader();
+	let buffer = "";
+	const deadline = Date.now() + (options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+	let aborted = false;
+	let delayElapsed = false;
+	let latestRecords: readonly RpcRecord[] = [];
+	let eventSatisfiedAt: number | undefined;
+	let eventTimer: ReturnType<typeof setTimeout> | undefined;
+	const canAbort = (): boolean => {
+		if (options.abortWhen !== undefined && !options.abortWhen(latestRecords)) return false;
+		if (options.abortAfterEventMs === undefined) return true;
+		// Without an `abortWhen` predicate the event gate starts at probe start.
+		if (options.abortWhen === undefined) return true;
+		if (eventSatisfiedAt === undefined) return false;
+		return Date.now() - eventSatisfiedAt >= options.abortAfterEventMs;
+	};
+	const sendAbort = (): void => {
+		if (aborted) return;
+		if (!delayElapsed) return;
+		if (!canAbort()) return;
+		aborted = true;
+		try {
+			child.stdin.write(`${JSON.stringify(options.abortRequest)}\n`);
+			child.stdin.flush();
+		} catch {
+			// The process may already have exited.
+		}
+	};
+	const abortTimer = setTimeout(() => {
+		delayElapsed = true;
+		sendAbort();
+	}, options.abortAfterMs);
+	let resolved = false;
+	while (!resolved && Date.now() < deadline) {
+		const remaining = Math.max(1, deadline - Date.now());
+		const read = await Promise.race([
+			reader.read(),
+			new Promise<{ done: true; value: undefined }>((resolve) =>
+				setTimeout(() => resolve({ done: true, value: undefined }), remaining),
+			),
+		]);
+		if (read.done) break;
+		buffer += new TextDecoder().decode(read.value);
+		for (;;) {
+			const newline = buffer.indexOf("\n");
+			if (newline === -1) break;
+			const line = buffer.slice(0, newline).replace(/\r$/, "");
+			buffer = buffer.slice(newline + 1);
+			if (!line.trim()) continue;
+			try {
+				const record = JSON.parse(line) as RpcRecord;
+				records.push(record);
+				if (record.type === "response" && record.id) expected.delete(record.id);
+			} catch {
+				records.push({ type: "invalid-json", raw: line });
+			}
+		}
+		latestRecords = records;
+		if (options.abortWhen?.(records) && eventSatisfiedAt === undefined) {
+			eventSatisfiedAt = Date.now();
+			// Nothing else wakes the loop while the run sits inside one tool, so schedule the abort.
+			eventTimer = setTimeout(sendAbort, options.abortAfterEventMs ?? 0);
+		}
+		if (!aborted && delayElapsed) sendAbort();
+		const abortSeen = records.some(
+			(record) => record.type === "response" && record.command === "abort",
+		);
+		const responsesComplete = expected.size === 0 && (aborted || abortSeen);
+		if (responsesComplete && pendingSettle.length > 0 && (options.waitFor?.(records) ?? true)) {
+			for (const request of pendingSettle) {
+				child.stdin.write(`${JSON.stringify(request)}\n`);
+				expected.add(request.id);
+			}
+			pendingSettle = [];
+			child.stdin.flush();
+		}
+		if (responsesComplete && pendingSettle.length === 0 && (options.waitFor?.(records) ?? true)) resolved = true;
+	}
+	clearTimeout(abortTimer);
+	if (eventTimer !== undefined) clearTimeout(eventTimer);
 	child.stdin.end();
 	const exitCode = await child.exited;
 	await readStderr;

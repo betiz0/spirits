@@ -1,6 +1,22 @@
 import { expect, test } from "bun:test";
-import { requestFakeToolCall, startFakeProvider } from "../../../scripts/managed-pi-compat/fake-provider.ts";
+import {
+	parseSseChunks,
+	requestFakeToolCall,
+	startFakeProvider,
+} from "../../../scripts/managed-pi-compat/fake-provider.ts";
 import { executeCapturedTsrepl, createProbeTsreplTool } from "../../../scripts/managed-pi-compat/tsrepl.ts";
+
+async function streamChatCompletions(
+	baseUrl: string,
+	messages: Array<Record<string, unknown>>,
+): Promise<string> {
+	const response = await fetch(`${baseUrl}/v1/chat/completions`, {
+		method: "POST",
+		headers: { "content-type": "application/json", authorization: "Bearer fake" },
+		body: JSON.stringify({ model: "fake-model", messages, stream: true }),
+	});
+	return response.text();
+}
 
 test("model tool call reaches tsrepl", async () => {
 	const provider = startFakeProvider({ name: "tsrepl", arguments: { code: "return 1 + 1" } });
@@ -13,6 +29,69 @@ test("model tool call reaches tsrepl", async () => {
 			process.cwd(),
 		);
 		expect(cell.text).toContain("2");
+	} finally {
+		provider.stop();
+	}
+});
+
+test("fake provider streams chat.completion.chunk events", async () => {
+	const provider = startFakeProvider(
+		{ name: "tsrepl", arguments: { code: "return 1 + 1" } },
+		{ toolCallChunks: 2 },
+	);
+	try {
+		const text = await streamChatCompletions(provider.baseUrl, [{ role: "user", content: "run" }]);
+		expect(text).toContain("chat.completion.chunk");
+		expect(text).toContain("tool_calls");
+		expect(text).toContain('"name":"tsrepl"');
+		expect(text).toContain('"finish_reason":"tool_calls"');
+		expect(text).toContain("data: [DONE]");
+		const parsed = parseSseChunks(text);
+		expect(parsed.toolCalls).toEqual([{ name: "tsrepl", arguments: { code: "return 1 + 1" } }]);
+		expect(parsed.finishReasons).toEqual(["tool_calls"]);
+	} finally {
+		provider.stop();
+	}
+});
+
+test("fake provider streams a final answer after the tool result", async () => {
+	const provider = startFakeProvider(
+		{ name: "tsrepl", arguments: { code: "return 1 + 1" } },
+		{ finalAnswerAfterToolResult: "finished" },
+	);
+	try {
+		const text = await streamChatCompletions(provider.baseUrl, [
+			{ role: "user", content: "run" },
+			{ role: "assistant", content: "", tool_calls: [] },
+			{ role: "tool", content: "2" },
+		]);
+		expect(text).toContain('"content":"finished"');
+		expect(text).toContain('"finish_reason":"stop"');
+		const parsed = parseSseChunks(text);
+		expect(parsed.finalAnswer).toBe("finished");
+		expect(parsed.finishReasons).toContain("stop");
+	} finally {
+		provider.stop();
+	}
+});
+
+test("reply hook answers a parent with a tool call and a child with text", async () => {
+	const provider = startFakeProvider(
+		{ name: "tsrepl", arguments: { code: "parent cell" } },
+		{
+			reply: (body) =>
+				JSON.stringify(body ?? "").includes("parent prompt")
+					? { kind: "tool-call" }
+					: { kind: "text", text: "child answer" },
+		},
+	);
+	try {
+		const parent = await streamChatCompletions(provider.baseUrl, [{ role: "user", content: "parent prompt" }]);
+		expect(parseSseChunks(parent).toolCalls).toEqual([{ name: "tsrepl", arguments: { code: "parent cell" } }]);
+		const child = await streamChatCompletions(provider.baseUrl, [{ role: "user", content: "child task" }]);
+		const parsedChild = parseSseChunks(child);
+		expect(parsedChild.finalAnswer).toBe("child answer");
+		expect(parsedChild.toolCalls).toEqual([]);
 	} finally {
 		provider.stop();
 	}

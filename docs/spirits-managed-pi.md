@@ -102,7 +102,7 @@ session dir を環境で固定するのは、継承値やプロジェクトの `
 
 ## 既存データの書き込み互換は未確認
 
-この change は既存 `~/.spirits/agent` の書き込み互換を実証していない。互換性ランナーの書き込み項目は、変換を要する操作を `limited` と `aborted` の理由付きで記録するだけである。本番移行や既存データの継続利用には、読み書き両方向を別 change で実証する必要がある。
+この change は既存 `~/.spirits/agent` の書き込み互換を実証していない。互換性ランナーは専用 Pi の拡張 API 経由でだけ書き込みを行う。settings の永続書き込みのように API が届かない項目は `not-run` にし、Node によるファイル読み書きで代用しない。代替経路で得た成功を互換性の成立として記録することもしない。本番移行や既存データの継続利用には、読み書き両方向を別 change で実証する必要がある。
 
 過去記録の訂正は [openspec/changes/archive/2026-11-03-add-managed-pi-route/completion-correction.md](../openspec/changes/archive/2026-11-03-add-managed-pi-route/completion-correction.md) に残す。元のチェックボックスは書き換えていない。
 
@@ -131,13 +131,53 @@ host の実体を bundle に含めないのは、rlm の子セッションが親
 
 「利用可」は専用経路で同等に動作、「制限付き」は一部の目的だけ維持、「利用不可」は同等の機能がない状態を指す。この change は既定経路の機能を削除しない。既存の `openspec/specs/` の要件は変更しない。
 
+互換性ランナーはこの表を専用 Pi での目的別観測で上書きする。コマンド一覧にコマンドが掲載されていないことだけで組み込み機能の不存在を判定せず、観測できない目的は `not-run` にする。各目的の状態は結果 JSON の `role/clear/model matrix` 項目に記録する。
+
 ## 互換性ランナー
 
 ```sh
-bun scripts/managed-pi-compat/run.ts --artifact-root /tmp/managed-pi-fixture
+# fixture モード(既定): 隔離した managed root の fixture set を測る
+bun scripts/managed-pi-compat/run.ts --mode fixture --artifact-root /tmp/managed-pi-fixture
+
+# official モード: 公式 artifact を検証し、対象 commit の bundle で測る
+bun scripts/managed-pi-compat/run.ts --mode official \
+  --artifact-root <staged-official-artifact-root> \
+  --bundle <target-commit-bundle.js> \
+  --commit <sha> \
+  --bundle-version <version> \
+  --out <tmp>/result.json
 ```
 
-`--artifact-root` には測定対象の managed root を明示する。未指定時は `~/.spirits/managed-pi` を参照し、set が無ければプロセス項目を `not-run` にする。ランナーは一時 HOME、一時 agent dir、一時作業ディレクトリ、一時 managed root を用意する。実 `~/.spirits/agent` などのユーザーデータは読み書きせず、PATH 上の `pi` も使わない。managed root の読み取りは明示指定または既定の `~/.spirits/managed-pi` に限り、書き込みは一時コピーに対してのみ行う。結果は JSON に書き、各項目を次のいずれかで記録する。
+- `--mode` は `fixture`(既定)か `official`。全結果に `mode` が付き、fixture の結果は `fixture-only` として記録される。fixture の成功を公式 Pi の互換性成立の根拠にしない。
+- `official` では `--artifact-root`(`manifest.json` と公式 tarball を置いたステージング領域)、`--bundle`(対象 commit からビルドした拡張 bundle)、`--commit`(対象 commit)が必須。manifest の `pi.artifact.sha256` が製品の信頼基準 `MANAGED_PI_FIRST_ARTIFACT_SHA256` と一致しない場合、結果を書かず非ゼロで終了する。
+- ランナーは一時 HOME、一時 agent dir、一時作業ディレクトリを用意し、製品の `resolveManagedAgentPaths` / `ensureManagedAgentDir` で隔離 agent dir を解決する。実 `~/.spirits/agent` などのユーザーデータは読み書きせず、PATH 上の `pi` も使わない。
+- 結果は JSON と、その隣に `managed-pi-compat-result.md` の要約を出力する。通常実行でリポジトリの `docs/` を書き換えない。
+- 保存前に API キー・トークン・proxy 認証をマスクする。
+- 終了コードは `failed` がある場合、または official で `compatibilityMet` が false の場合に 1。
+
+### 結果の読み方
+
+結果 JSON は各項目を `confirmed` / `limited` / `unavailable` / `not-run` / `failed` で記録し、`runnerCompleted` と `compatibilityMet` を区別する。
+
+- `runnerCompleted`: 全項目を処理したか。`not-run` が残る場合は false。
+- `compatibilityMet`: official で必須観測がすべて `confirmed` の場合だけ true。`failed=0` でも必須観測が `not-run` または `limited` なら false。fixture モードでは常に false。
+- `observationEvidence`: 観測項目と期待する証拠の対応表。
+- `runtime`: ランナー側と Pi ホスト側のランタイム、必要 API の有無。観測できない値は `unknown`。
+- `logs`: 実行した各項目のコマンドと、取得できた stdout・stderr。長い出力は切り詰めて保存する。
+- `existingAgentDirUnchanged`: 一時 HOME の `~/.spirits/agent` に赤化した fixture を置き、全起動の前後で内容と更新時刻が変わっていないことを指紋比較で確認した結果。要約にも 1 行出す。
+
+### 詳細ログ・JSON の保管と再実行
+
+結果 JSON と `managed-pi-compat-result.md` は `--out` で指定した場所に出力する。CI では JSON、要約、必要なログを artifact として保管する。リポジトリへ残す要約は、検証後に対象結果を選んで記録する別操作とする。
+
+再実行:
+
+```sh
+bun scripts/managed-pi-compat/run.ts --mode fixture --artifact-root <fixture-root> --out <tmp>/result.json
+bun scripts/managed-pi-compat/run.ts --mode official --artifact-root <artifact-root> --bundle <bundle> --commit <sha> --out <tmp>/result.json
+```
+
+結果の各項目は次のいずれかで記録する。
 
 - `confirmed`: 条件を満たすことを実測した。
 - `limited`: 一部だけ動作する、または既知の制約がある。
@@ -147,7 +187,7 @@ bun scripts/managed-pi-compat/run.ts --artifact-root /tmp/managed-pi-fixture
 
 実行方法と後始末: ランナーは自分が作った一時ディレクトリだけを削除する。公式 artifact が無い環境では該当項目は `not-run` になり、全体は成功にならない。実 provider の API キーは読まず、外部の推論 API も呼ばない。
 
-実装範囲: managed set がある場合、ランナーは専用 Pi を RPC で起動して probe 拡張を読み込み、`session_start` 後のツール一覧でロードを判定する。同じ実行で agent dir と package dir、API キーと proxy、書き出された `SKILL.md`、host の版を観測する。tsrepl のセル、fake provider 経由のツール呼び出し、rlm 子セッションは probe コマンドから専用 Pi 内で実行する。既存データは redact fixture の一時コピーだけを読み、書き込み互換は aborted の理由付き `limited` として記録する。managed set が無い場合、または観測できない場合は各項目を `not-run` にし、`confirmed` にしない。
+実装範囲: managed set がある場合、ランナーは専用 Pi を RPC で起動して probe 拡張を読み込み、`session_start` 後のツール一覧でロードを判定する。同じ実行で agent dir と package dir、API キーと proxy、書き出された `SKILL.md`、host の版を観測する。tsrepl のセル、fake provider 経由のツール呼び出し、rlm 子セッションは probe コマンドから専用 Pi 内で実行する。既存データは専用 Pi の `pi.getSettings()` / `ctx.sessionManager.getEntries()` で読み、`pi.appendEntry()` / `pi.setModel()` / `pi.setThinkingLevel()` で書き込んで読み戻す。Node によるファイル読み取りは行わない。managed set が無い場合、または観測できない場合は各項目を `not-run` にし、`confirmed` にしない。
 
 ### 拡張ロード
 
@@ -155,19 +195,28 @@ bun scripts/managed-pi-compat/run.ts --artifact-root /tmp/managed-pi-fixture
 
 ### tsrepl のセル実行
 
-probe 拡張は `pi.registerTool` を包んで登録済み `tsrepl` を捕捉し、probe から `execute` を直接呼ぶ。これにより `return 1 + 1`、`Bun.Transpiler`、`node:vm` を使うセルを実行する。
+一次確認は通常のモデル→ツール経路で行う。fake provider が `tsrepl` をツール呼び出しし、Pi の通常の権限・フック経路で実行する。ランナーは RPC の `tool_execution_start` / `tool_execution_end` とツール結果を観測する。`return 1 + 1`、`Bun.Transpiler`、`node:vm` を使うセルを実行し、値の返却と TypeScript 変換、vm 実行の成否を確認する。
 
-- **セル実行の確認**: 値の返却と TypeScript 変換、vm 実行の成否。
-- **Pi のツール権限経路の確認**: 別項目。probe の直接呼び出しは権限と hook を迂回するため、その結果を権限経路の確認として扱わない。
+補助項目(`direct execute probe is auxiliary`)は `pi.getAllTools()` で `tsrepl` が登録されているかを観測する。公式 Pi は拡張ごとに別の API オブジェクトを与えるため、probe 拡張が `registerTool` を包摂しても他の拡張のツール定義には届かない。よって direct `execute` の根拠は取れず、公式実行では理由付きで `not-run` になる。この項目は通常経路の確認ではなく、成功しても `bypassedPiHooks: true` を付ける。
 
 ### rlm 子セッション
 
-物理モデルを選ぶ親と `spirits/auto` を選ぶ親を別項目にする。物理モデルでは子の生成、最終回答、`rlm_usage`、中断を確認する。`spirits/auto` の子は仮想モデルを解決できたかを記録し、失敗は既知の制約として `limited` にする。fake provider の成功は実 provider の互換性確認ではなく、実 provider を使うテストはこの change の対象外である。
+物理モデルを選ぶ親と `spirits/auto` を選ぶ親を別項目にする。子は親の model を継承するため、`settings.json`(`models.strong`、`models.role`、`defaultProvider`、`defaultModel`)、`auth.json`(fake provider の認証)、`models.json`(fake provider の registry)を書く。書き先は spirits の隔離 agent dir だけではない。子セッションは拡張を読まず agent dir をホスト自身の解決(`PI_CODING_AGENT_DIR`、未設定なら `<home>/.pi/agent`)で引くため、そのディレクトリにも同じファイルをおく。親と違い、子には fake provider をプログラム登録する拡張がないため、認証とプロバイダ表はファイルからしか届かない。子の生成・最終回答・`rlm_usage`・中断を個別に記録する。中断は子のリクエストを遅延させ、セルが `rlm` の内部で待っている間に RPC の abort を送って `rlm_usage` の `outcome` を観測する。観測できない場合は `not-run` にし、他の項目の判定を変えない。現状は abort 自体はセルに届くが、子の最中に呼び出し元が中断されたとき `rlm_usage` の記録が残らないため、`rlm child abort` は `not-run` になる。これはランナーの不足ではなく製品側の確認待ち事項として報告する。再現条件・証拠・影響は [openspec/changes/repair-managed-pi-compat-harness/product-defect-rlm-usage-abort.md](../openspec/changes/repair-managed-pi-compat-harness/product-defect-rlm-usage-abort.md) にまとめた。fixture は親のリクエストにはツール呼び出し、子のリクエストにはテキストで応じ、子が `rlm` を再帰的に呼び出さないようにする。`spirits/auto` を選ぶ親は別項目として記録し、成功として扱わない。子セッションは拡張を読まないため、仮想モデルの route はそこで再現できない。解決できない場合はそのエラーをそのまま `limited` の理由に残す。fixture 不足が原因の失敗は `not-run` または `limited` として記録し、製品不具合と断定しない。fake provider の成功は実 provider の互換性確認ではなく、実 provider を使うテストはこの change の対象外である。
 
 ### 既存データ
 
-redact した agent dir のコピーで settings、auth、sessions、外部拡張の読み取りを確認する。実 `~/.spirits/agent` は変更しない。読み取り成功を書き込み互換の成功として扱わない。破壊的な変換が必要な書き込みは中止する。
+redact した既存 agent dir の fixture(`scripts/managed-pi-compat/fixtures/redacted-agent/`)を隔離 agent dir にコピーし、その保存先を専用 Pi に読ませる。読み取りは settings と sessions を `pi.getSettings()` と `ctx.sessionManager.getEntries()`、auth を `ctx.modelRegistry.getProviderAuthStatus()`、外部拡張はその拡張が登録したコマンドを `pi.getCommands()` で観測する。外部拡張の読み取りだけ、host が agent dir の拡張を読むことを許す起動(`--no-extensions` を付けない)を使う。他の項目は誤読を防ぐため `--no-extensions` のままにする。API から届かない項目は `not-run` にする。Node によるファイル読み取りは行わない。
+
+書き込みは `pi.appendEntry()`、`pi.setModel()`、`pi.setThinkingLevel()` で行い、`getEntries()` / `ctx.model` / `ctx.getThinkingLevel()` で読み戻す。この項目名は `dedicated Pi write path` で、専用 Pi の書き込み経路の実測である。既存 agent dir のデータに変換をともなう書き戻しが出来るか(`existing agent dir write-back compatibility`)は別項目のままにし、書き込み経路の成功をそのまま引き継がない。現状は `not-run` であり、未確認であることを結果に残す。settings の永続書き込みが Pi の拡張 API から届かない場合は、その項目を `not-run` にし、Node のファイル書き込みで代用しない。
+
+保存先の解決は製品の `resolveManagedAgentPaths` と `ensureManagedAgentDir` を使う。拒否対象のパス指定は spawn 前に失敗し、隔離領域では `SPIRITS_CODING_AGENT_DIR` を経由せずに product guard が決めた dir だけを触る。書き出された `bundled-skills` が隔離 agent dir 配下に着ることも確認し、保存先が実際に使われている証拠にする。RPC の agent dir は環境変数のエコーに過ぎないため、これ自体を根拠にしない。一時 HOME の `~/.spirits/agent` には赤化した fixture を置いておき、全起動の前後で内容と更新時刻が変わっていないかを指紋比較して `existingAgentDirUnchanged` に記録する。
 
 ### アセットと環境
 
 同梱 `SKILL.md` が raw Markdown として bundle に含まれること、`SPIRITS_CODING_AGENT_DIR` の隔離 agent dir への固定、`PI_CODING_AGENT_DIR` の無視、`PI_PACKAGE_DIR` の decoy 耐性、`--help` が隔離 HOME の外を変更しないこと、API キーと proxy が残ることを確認する。bundle 内の host 版が専用 Pi artifact の版と一致し、別 SDK の版を報告しないことも確認する。
+
+### role / clear / model
+
+role、`/clear`、`/model` の目的を専用 Pi で個別に観測する。role は skill コマンドで strong フェーズに入ったリクエストがどの物理モデルで流れたかを fake provider の受信リクエストから読む。`/clear` は probe 拡張が実行前に session ID・会話エントリ数・TODO エントリ数をファイルに記録し、コマンド実行後に読み戻して比較する。`/model` は thinking level と model の変更を実行し、変更結果と保存済みの既定設定キーを読み戻す。コマンド一覧に掲載されていないことだけで組み込み機能の不存在を判定せず、観測できない目的は `not-run` にする。各目的の状態は `available` / `limited` / `unavailable` / `not-run` で記録し、利用不可の項目には代替案と差異を付ける。
+
+マトリクスの行は目的観測から導出する。観測しなかった目的の行は `unavailable` ではなく `not-run` になり、行と目的の状態が矛盾しないことを検証関数で確認する。ターミナル上の表示など RPC 読み取りできない目的は `not-run` のままにする。
