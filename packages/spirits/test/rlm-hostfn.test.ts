@@ -492,6 +492,17 @@ function abortedChild(sessionId = "child-9", input = 0): RlmRunResult {
 	};
 }
 
+/**
+ * A child that stops some time after the signal aborts, the way a real child session does: the
+ * in-flight provider request has to be cancelled before the run settles.
+ */
+function delayedAbortSpawn(result: RlmRunResult, stopDelayMs: number): SpawnFn {
+	return (params) =>
+		new Promise((resolve) => {
+			params.signal.addEventListener("abort", () => setTimeout(() => resolve(result), stopDelayMs), { once: true });
+		});
+}
+
 /** A child that never finishes on its own and resolves once the signal handed to it aborts. */
 function hangingSpawn(result: RlmRunResult = abortedChild()): SpawnFn {
 	return (params) =>
@@ -580,6 +591,45 @@ test("parent abort is not reported as the duration limit", async () => {
 	const value = await call;
 	expect(value).toContain("中断");
 	expect(value).not.toContain("実行時間");
+});
+
+// The fork route records the abort the same way the managed route must be measured: the cell is cut
+// short immediately, while the child session and its usage record settle later. A reader that samples
+// the session at the cell result therefore sees nothing recorded, even though the product does record.
+test("a parent abort mid-child-run records the usage entry only after the child settles", async () => {
+	const pi = new FakePi();
+	const controller = new AbortController();
+	const entry = createRlmHostFn({
+		pi,
+		depth: 0,
+		maxDepth: 2,
+		spawn: delayedAbortSpawn(abortedChild("child-abort-1", 40), 30),
+		maxChildDurationMs: 5000,
+	});
+	const tool = createTsreplTool({ hostFns: [entry] });
+	const cell = tool.execute(
+		"cell",
+		{ code: 'return await rlm("delegate")' },
+		undefined,
+		undefined,
+		makeToolContext({ cwd: "/work", model: MODEL, signal: controller.signal }),
+	);
+	await tick();
+	controller.abort();
+
+	const result = await cell;
+	expect(result.isError).toBe(true);
+	// At the moment the cell answers, nothing is recorded yet: the child has not stopped.
+	expect(usageEntries(pi)).toHaveLength(0);
+
+	// Once the child session settles, the detached continuation writes exactly one entry. It lands
+	// after the run already settled, which is what a single read at agent_settled misses.
+	await new Promise((resolve) => setTimeout(resolve, 30));
+	const entries = usageEntries(pi);
+	expect(entries).toHaveLength(1);
+	expect(entries[0].outcome).toBe("aborted");
+	expect(entries[0].sessionId).toBe("child-abort-1");
+	expect(entries[0].tokens.input).toBe(40);
 });
 
 test("duration limit records one aborted usage entry", async () => {

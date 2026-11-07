@@ -133,6 +133,8 @@ host の実体を bundle に含めないのは、rlm の子セッションが親
 
 互換性ランナーはこの表を専用 Pi での目的別観測で上書きする。コマンド一覧にコマンドが掲載されていないことだけで組み込み機能の不存在を判定せず、観測できない目的は `not-run` にする。各目的の状態は結果 JSON の `role/clear/model matrix` 項目に記録する。
 
+`role/clear/model matrix` 項目の `confirmed` は「専用 Pi で目的の動作を観測した」ことを意味し、「全目的が利用可」を意味しない。観測の結果が `unavailable` であっても観測には変わりないため、行も項目も `confirmed` になる。行と目的の対応、および `unavailable` の件数は同じ項目の `data`(`confirmedMeans`、`rows`、`purposes`)に出るので、読み手は `confirmed` を利用可能性の宣言として扱わない。
+
 ## 互換性ランナー
 
 ```sh
@@ -153,18 +155,24 @@ bun scripts/managed-pi-compat/run.ts --mode official \
 - ランナーは一時 HOME、一時 agent dir、一時作業ディレクトリを用意し、製品の `resolveManagedAgentPaths` / `ensureManagedAgentDir` で隔離 agent dir を解決する。実 `~/.spirits/agent` などのユーザーデータは読み書きせず、PATH 上の `pi` も使わない。
 - 結果は JSON と、その隣に `managed-pi-compat-result.md` の要約を出力する。通常実行でリポジトリの `docs/` を書き換えない。
 - 保存前に API キー・トークン・proxy 認証をマスクする。
-- 終了コードは `failed` がある場合、または official で `compatibilityMet` が false の場合に 1。
+- 終了コードは `failed` がある場合、または official で `compatibilityMet` が false の場合に 1。既存 agent dir が書き換えられていた場合(`existingAgentDirUnchanged: false`)も `failed` 項目として記録するので 1 になる。
 
 ### 結果の読み方
 
 結果 JSON は各項目を `confirmed` / `limited` / `unavailable` / `not-run` / `failed` で記録し、`runnerCompleted` と `compatibilityMet` を区別する。
 
-- `runnerCompleted`: 全項目を処理したか。`not-run` が残る場合は false。
-- `compatibilityMet`: official で必須観測がすべて `confirmed` の場合だけ true。`failed=0` でも必須観測が `not-run` または `limited` なら false。fixture モードでは常に false。
+- `runnerCompleted`: 全項目を処理したか。`not-run` が残る場合は false。互換性の成否は示さない。JSON の `runnerCompletedDefinition` に同じ定義を文字列で持つ。
+- `compatibilityMet`: official で必須観測がすべて `confirmed` の場合だけ true。`failed=0` でも必須観測が `not-run` / `limited` / `unavailable` / `failed` なら false。fixture モードでは常に false。JSON では `compatibilityMetDefinition` に定義を持つ。true でも移行・既定経路の切り替え・フォーク削除を認めない。本仕様が未確認のまま置いている既存 agent dir への書き戻しと settings の永続化は必須観測の外にあり、この判定では埋まらない。
+- 必須観測は専用 Pi で実測できる項目だけを含む。製品側が応えていないことを理由に項目を落とさない。`rlm child abort` は 5 段階を実測できるため必須観測に残し、製品が記録を出さない場合は項目がそれを示して判定は false のままになる。既存 agent dir への書き戻し互換(`existing agent dir write-back compatibility`)は本仕様が未確認のまま据える唯一の例外で、必須観測に入れない。
+- `runnerProvenance`: ランナー自身の来歴。`git rev-parse HEAD`、`git diff HEAD` の SHA256、未追跡ファイル一覧、`clean` を収める。測定対象の bundle が持つ `targetCommit` とは別の値で、判定ロジックがどのコードだったかを示す。official の `workingTreeClean` はここから引く。
 - `observationEvidence`: 観測項目と期待する証拠の対応表。
 - `runtime`: ランナー側と Pi ホスト側のランタイム、必要 API の有無。観測できない値は `unknown`。
 - `logs`: 実行した各項目のコマンドと、取得できた stdout・stderr。長い出力は切り詰めて保存する。
-- `existingAgentDirUnchanged`: 一時 HOME の `~/.spirits/agent` に赤化した fixture を置き、全起動の前後で内容と更新時刻が変わっていないことを指紋比較で確認した結果。要約にも 1 行出す。
+- `existingAgentDirUnchanged`: 一時 HOME の `~/.spirits/agent` に赤化した fixture を置き、全起動の前後で内容と更新時刻が変わっていないことを指紋比較で確認した結果。同じ比較は `existing agent dir untouched` という項目として記録し、`false` なら `failed` にする。要約にも 1 行出す。
+
+内訳は `- Results: confirmed=<n> limited=<n> unavailable=<n> not-run=<n> failed=<n>` で、5 つのラベルを常に並べて出す。標準出力の 1 行も同じ形式で、0 件の状態を省略しない。省略されたラベルが「0」なのか「測らなかった」なのかを読み手に推測させないためである。
+
+要約 `managed-pi-compat-result.md` は先頭に `Runner completed` と `Compatibility met` を定義文つきで掲げ、続けて `Note:` 行として、`confirmed` を読み違えやすい 2 項目但し書きを出す。`rlm child abort` の `confirmed` は条件付きで、`rlm_usage` は親のターンが終わってから追記されるため、記録が読めるのは子が止まった後の読みであり `agent_settled` の読みではない。`role/clear/model matrix` の `confirmed` は「いずれかの目的を専用 Pi で観測した」意味で、同じ行に観測した目的数(`2 of 9` など)を添える。`compatibilityMet` はどちらの意味も持たない。さらに `## Required observations not confirmed` と `## Outside the required list, not confirmed` の 2 節を置く。後者は必須観測以外の `failed` / `limited` / `unavailable` / `not-run` を並べるので、判定を左右しない項目の欠落も冒頭で分かる。全項目の一覧はその後ろにある。
 
 ### 詳細ログ・JSON の保管と再実行
 
@@ -201,7 +209,9 @@ bun scripts/managed-pi-compat/run.ts --mode official --artifact-root <artifact-r
 
 ### rlm 子セッション
 
-物理モデルを選ぶ親と `spirits/auto` を選ぶ親を別項目にする。子は親の model を継承するため、`settings.json`(`models.strong`、`models.role`、`defaultProvider`、`defaultModel`)、`auth.json`(fake provider の認証)、`models.json`(fake provider の registry)を書く。書き先は spirits の隔離 agent dir だけではない。子セッションは拡張を読まず agent dir をホスト自身の解決(`PI_CODING_AGENT_DIR`、未設定なら `<home>/.pi/agent`)で引くため、そのディレクトリにも同じファイルをおく。親と違い、子には fake provider をプログラム登録する拡張がないため、認証とプロバイダ表はファイルからしか届かない。子の生成・最終回答・`rlm_usage`・中断を個別に記録する。中断は子のリクエストを遅延させ、セルが `rlm` の内部で待っている間に RPC の abort を送って `rlm_usage` の `outcome` を観測する。観測できない場合は `not-run` にし、他の項目の判定を変えない。現状は abort 自体はセルに届くが、子の最中に呼び出し元が中断されたとき `rlm_usage` の記録が残らないため、`rlm child abort` は `not-run` になる。これはランナーの不足ではなく製品側の確認待ち事項として報告する。再現条件・証拠・影響は [openspec/changes/repair-managed-pi-compat-harness/product-defect-rlm-usage-abort.md](../openspec/changes/repair-managed-pi-compat-harness/product-defect-rlm-usage-abort.md) にまとめた。fixture は親のリクエストにはツール呼び出し、子のリクエストにはテキストで応じ、子が `rlm` を再帰的に呼び出さないようにする。`spirits/auto` を選ぶ親は別項目として記録し、成功として扱わない。子セッションは拡張を読まないため、仮想モデルの route はそこで再現できない。解決できない場合はそのエラーをそのまま `limited` の理由に残す。fixture 不足が原因の失敗は `not-run` または `limited` として記録し、製品不具合と断定しない。fake provider の成功は実 provider の互換性確認ではなく、実 provider を使うテストはこの change の対象外である。
+物理モデルを選ぶ親と `spirits/auto` を選ぶ親を別項目にする。子は親の model を継承するため、`settings.json`(`models.strong`、`models.role`、`defaultProvider`、`defaultModel`)、`auth.json`(fake provider の認証)、`models.json`(fake provider の registry)を書く。書き先は隔離 agent dir だけでよい。子セッションは拡張を読まないが、親と同じプロセス内で作られ、agent dir を host 自身の `getAgentDir()` で引く。managed の起動はそれを隔離 agent dir に固定しているため、子も同じ dir を読む。実測でも、fixture を隔離 agent dir だけに置いた子は応答し、`<home>/.pi/agent` にだけを置いた子は `No API key found for compat-fake` で失敗した。親と違い、子には fake provider をプログラム登録する拡張がないため、認証とプロバイダ表はファイルからしか届かない。子の生成・最終回答・`rlm_usage`・中断を個別に記録する。
+
+中断は 5 段階に分けて判定する。abort を送れたか(`abortSent`)、専用 Pi が受理したか(`abortAccepted`)、セルが中断として返ったか(`cellAborted`)、子が止まったか(`childStopped`)、`rlm_usage` が残ったか(`usageAfterStop`)。子は親のリクエストと区別するため子の応答だけを遅延させ、その遅延 reply を持ったリクエストが閉じたことをもって子の停止とみなす。`agent_settled` は親の run が落ち着いた時点であり、切られたツール呼び出しはその後も走り続ける。したがって abort 後は `agent_settled` 時点で 1 回読むだけでは足りず、子が止まるか poll 窓が切れるまで `get_entries` を読み続ける。`rlm_usage` は `pi.appendEntry("rlm_usage", data)` で入るので、`outcome` は `entry.data.outcome` にある(`entry.outcome` ではない)。実測では `agent_settled` 時点の読みでは 0 件、子の要求が閉じた後の読みで 1 件(`outcome` は `aborted`)で、5 段階すべてが揃ったとして `confirmed` になる。かつて「子の最中に呼び出し元が中断されたとき `rlm_usage` の記録が残らない」と書いたのは、`agent_settled` の 1 回読みだけで判定した測定漏れであり、製品欠落ではなかった。訂正と再測定の記録は [product-defect-rlm-usage-abort.md](../openspec/changes/archive/2026-11-06-repair-managed-pi-compat-harness/product-defect-rlm-usage-abort.md)(訂正付き)と [verify2-rerun.md](../openspec/changes/archive/2026-11-06-repair-managed-pi-compat-harness/verify2-rerun.md) に残す。観測できない場合は `not-run` にし、他の項目の判定を変えない。fixture は親のリクエストにはツール呼び出し、子のリクエストにはテキストで応じ、子が `rlm` を再帰的に呼び出さないようにする。`spirits/auto` を選ぶ親は別項目として記録し、成功として扱わない。子セッションは拡張を読まないため、仮想モデルの route はそこで再現できない。解決できない場合はそのエラーをそのまま `limited` の理由に残す。fixture 不足が原因の失敗は `not-run` または `limited` として記録し、製品不具合と断定しない。fake provider の成功は実 provider の互換性確認ではなく、実 provider を使うテストはこの change の対象外である。
 
 ### 既存データ
 

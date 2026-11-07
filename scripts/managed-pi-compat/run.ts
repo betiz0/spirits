@@ -41,7 +41,7 @@ import {
 } from "./matrix.ts";
 import { createCompatRunner, type CompatRunner } from "./runner.ts";
 import { requestFakeToolCall, startFakeProvider } from "./fake-provider.ts";
-import type { FakeReply, FakeToolCall } from "./fake-provider.ts";
+import type { FakeProviderRequest, FakeReply, FakeToolCall } from "./fake-provider.ts";
 import {
 	classifyAuxiliaryProbe,
 	classifyCellFailure,
@@ -77,10 +77,18 @@ import {
 	classifyChildCreation,
 	classifyChildUsage,
 	classifyPhysicalChild,
+	rlmUsageOutcome,
 	writeRlmFixture,
+	type ChildAbortObservation,
 	type RlmChildObservation,
 } from "./rlm.ts";
-import { buildRuntimeEvidence, identifyRuntime } from "./evidence.ts";
+import {
+	buildRunnerProvenance,
+	buildRuntimeEvidence,
+	countStates,
+	formatStateCounts,
+	identifyRuntime,
+} from "./evidence.ts";
 import {
 	assertOfficialBundleSha,
 	buildOfficialIdentity,
@@ -130,6 +138,13 @@ const RPC_TIMEOUT_MS = 60_000;
 const RLM_ABORT_AFTER_MS = 3000;
 /** Wait this long after the cell tool starts, so the abort lands while the child session runs. */
 const RLM_ABORT_AFTER_TOOL_MS = 1500;
+/** Re-read the entries for at most this long after the abort, instead of only at `agent_settled`. */
+const RLM_ABORT_POLL_MS = 15_000;
+const RLM_ABORT_POLL_INTERVAL_MS = 500;
+/** The child stop counts once its provider request stayed closed this long, so the write can land. */
+const RLM_CHILD_STOP_SETTLE_MS = 700;
+/** The held-open child reply, so the abort provably arrives while the child is still waiting. */
+const RLM_CHILD_REPLY_DELAY_MS = 8000;
 const REPO_ROOT = resolve(import.meta.dir, "../..");
 
 interface ProbeState {
@@ -257,19 +272,65 @@ async function readProbeResult(path: string): Promise<ProbeResult | undefined> {
 	}
 }
 
-async function workingTreeClean(): Promise<boolean> {
-	const result = Bun.spawnSync({
-		cmd: ["git", "status", "--porcelain"],
-		cwd: REPO_ROOT,
-		stdout: "pipe",
-		stderr: "pipe",
+/** Run one git command in the repository and return stdout, or `undefined` when git is unavailable. */
+function gitOutput(args: readonly string[]): string | undefined {
+	const result = Bun.spawnSync({ cmd: ["git", ...args], cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" });
+	if (result.exitCode !== 0) return undefined;
+	return result.stdout.toString();
+}
+
+/**
+ * The version of the harness that produced this result.
+ *
+ * The measured bundle records its own `--commit`. The runner is separate code in the same checkout,
+ * and a judgement change lives there, so HEAD, the digest of the working diff, and the untracked list
+ * are recorded next to it.
+ */
+function runnerProvenance() {
+	return buildRunnerProvenance({
+		commit: gitOutput(["rev-parse", "HEAD"]),
+		diff: gitOutput(["diff", "HEAD"]),
+		status: gitOutput(["status", "--porcelain"]),
 	});
-	return result.stdout.toString().trim().length === 0;
+}
+
+/** Every `get_entries` response in arrival order, with only its `rlm_usage` entries kept. */
+function usageReadsOf(records: readonly RpcRecord[]): Array<{ id: string; entries: Array<Record<string, unknown>> }> {
+	return records
+		.filter((record) => record.type === "response" && record.command === "get_entries" && record.success === true)
+		.map((record) => {
+			const entries = (record.data as { entries?: Array<Record<string, unknown>> } | undefined)?.entries ?? [];
+			return {
+				id: String(record.id ?? ""),
+				entries: entries.filter((entry) => entry.type === "custom" && entry.customType === "rlm_usage"),
+			};
+		});
+}
+
+/** How many entries carry an abort outcome, which the product stores under `entry.data`. */
+function abortedUsageCount(entries: readonly Record<string, unknown>[]): number {
+	return entries.filter((entry) => rlmUsageOutcome(entry) === "aborted").length;
+}
+
+/**
+ * The cell's own notice for a run an outside abort cut short.
+ *
+ * `repl/cell.ts` renders the abort as an `AbortError` line whose message is Japanese text, so the
+ * check accepts either the error name or the message and never a bare non-zero tool result.
+ */
+const CELL_ABORT_MARKERS = ["AbortError", "呼び出し元の中断"];
+
+/** True when the tool result is the cell's abort notice. */
+function cellReportsAbort(text: string | undefined): boolean {
+	if (text === undefined) return false;
+	return CELL_ABORT_MARKERS.some((marker) => text.includes(marker));
 }
 
 async function main(): Promise<number> {
 	const options = parseArgs(process.argv.slice(2));
 	const runner = await createCompatRunner({ mode: options.mode });
+	// Recorded before anything can fail, so even a partial run names the harness that ran it.
+	runner.setEvidence({ runnerProvenance: runnerProvenance() });
 	const recorded = new Map<string, CompatResult>();
 	const run: CompatRunner["run"] = async (name, check) => {
 		const result = await runner.run(name, check);
@@ -343,7 +404,7 @@ async function main(): Promise<number> {
 				bundleSha256,
 				bundleVersion: options.bundleVersion,
 				targetCommit: options.commit,
-				workingTreeClean: await workingTreeClean(),
+				workingTreeClean: runner.evidence.runnerProvenance?.clean,
 			});
 			runner.setEvidence(identity);
 			launch = {
@@ -774,18 +835,31 @@ async function main(): Promise<number> {
 							(response?.data as { entries?: Array<Record<string, unknown>> } | undefined)?.entries ?? [];
 						return entries.filter((entry) => entry.type === "custom" && entry.customType === "rlm_usage");
 					};
+					interface RlmCellRun {
+						text: string;
+						isError: boolean;
+						/** The entries the probe extension recorded at the run's `agent_settled`. */
+						usageAtSettled: Array<Record<string, unknown>>;
+						/** Every `get_entries` read in arrival order: the abort run polls, so the last one is after the stop. */
+						usageReads: Array<{ id: string; entries: Array<Record<string, unknown>> }>;
+						stderr: string;
+						records: readonly RpcRecord[];
+						/** Whether this run wrote an abort request to the host stdin. */
+						abortSent?: boolean;
+						/** How the host answered the abort request, for the run that sent one. */
+						abortAccepted?: boolean;
+					}
 					const runRlmCell = async (
 						model: { provider: string; modelId: string },
 						cellProvider: { baseUrl: string },
-
 						resultPath: string,
-						options: { abortAfterMs?: number; abortAfterEventMs?: number } = {},
-					): Promise<{
-						text: string;
-						isError: boolean;
-						entries: Array<Record<string, unknown>>;
-						stderr: string;
-					}> => {
+						options: {
+							abortAfterMs?: number;
+							abortAfterEventMs?: number;
+							/** Re-read the entries until this reports the child stopped, then take one final read. */
+							childStopped?: () => boolean;
+						} = {},
+					): Promise<RlmCellRun> => {
 						const requests = [
 							{ id: "model-rlm", type: "set_model", provider: model.provider, modelId: model.modelId },
 							promptCommand("rlm-1", "run one rlm cell"),
@@ -801,50 +875,71 @@ async function main(): Promise<number> {
 						const command = launchCommand([PROVIDER_EXTENSION, launch.extensionPath]);
 						const result =
 							options.abortAfterMs !== undefined
-								? await abortProbe({
-										command,
-										cwd: runner.workRoot,
-										env,
-										requests,
-										abortRequest: { id: "abort-rlm", type: "abort" },
-											abortAfterMs: options.abortAfterMs,
+							? await abortProbe({
+								command,
+								cwd: runner.workRoot,
+								env,
+								requests,
+								abortRequest: { id: "abort-rlm", type: "abort" },
+								abortAfterMs: options.abortAfterMs,
 								abortAfterEventMs: options.abortAfterEventMs,
-											abortWhen: (records) =>
-										records.some((record) => record.type === "tool_execution_start"),
-										timeoutMs: RPC_TIMEOUT_MS,
-										waitFor: (records) => modelEvents(records, "agent_settled").length > 0,
-										settleRequests,
-									})
-								: await rpcProbe({
-										command,
-										cwd: runner.workRoot,
-										env,
-										requests,
-										timeoutMs: RPC_TIMEOUT_MS,
-										waitFor: (records) => modelEvents(records, "agent_settled").length > 0,
-										settleRequests,
-									});
-						const end = modelEvents(result.records, "tool_execution_end").find(
+								abortWhen: (records) => records.some((record) => record.type === "tool_execution_start"),
+								timeoutMs: RPC_TIMEOUT_MS,
+								// A run that was cut short keeps writing after `agent_settled`, so the reads
+								// continue until the child's own provider request closes or the poll window ends.
+								// Only a run that can create a child polls: a fixture host never does.
+								poll:
+									options.childStopped === undefined
+									? undefined
+									: {
+										request: { id: "entries-poll", type: "get_entries" },
+										intervalMs: RLM_ABORT_POLL_INTERVAL_MS,
+										timeoutMs: RLM_ABORT_POLL_MS,
+										until: options.childStopped,
+									},
+							})
+							: await rpcProbe({
+								command,
+								cwd: runner.workRoot,
+								env,
+								requests,
+								timeoutMs: RPC_TIMEOUT_MS,
+								waitFor: (records) => modelEvents(records, "agent_settled").length > 0,
+								settleRequests,
+							});
+						const endRecord = modelEvents(result.records, "tool_execution_end").find(
 							(record) => record.toolName === "tsrepl",
 						);
 						const fileResult = await readProbeResult(resultPath);
-						const entries = Array.isArray(fileResult?.rlmUsage)
-							? (fileResult?.rlmUsage as Array<Record<string, unknown>>)
-							: rlmEntriesFrom(result.records);
+						const abortResponse = result.records.find(
+							(record) => record.type === "response" && (record.command === "abort" || record.id === "abort-rlm"),
+						);
 						return {
-							text: toolResultText(end),
-							isError: end?.isError === true,
-							entries,
+							text: toolResultText(endRecord),
+							isError: endRecord?.isError === true,
+							usageAtSettled: Array.isArray(fileResult?.rlmUsage)
+								? (fileResult?.rlmUsage as Array<Record<string, unknown>>)
+								: [],
+							usageReads: usageReadsOf(result.records),
 							stderr: result.stderr,
+							records: result.records,
+							...(options.abortAfterMs === undefined
+								? {}
+								: {
+									abortSent: result.abortSent === true,
+									...(abortResponse === undefined ? {} : { abortAccepted: abortResponse.success !== false }),
+								}),
 						};
 					};
 
-					// An rlm child loads no extensions and resolves its agent dir through the host's own
-					// lookup, so the fixture writes auth and the provider registry there as well.
-					const childAgentDirs = [join(runner.home, ".pi", "agent")];
-					// The same cell runs in the parent and, through `rlm`, in the child. The parent is the
+					// An rlm child loads no extensions, but it is created inside the parent's process and resolves
+					// its agent dir with the host's own getAgentDir(), which the managed launch pins to the
+					// isolated agent dir. A run that put the fixture only in <home>/.pi/agent failed with
+					// "No API key found for compat-fake" while the same run with the fixture only in the isolated
+					// agent dir answered, so no extra child directory is written.
+					// The same cell runs in the parent and, through rlm, in the child. The parent is the
 					// request that carries the harness prompt; anything else is a child request and gets a
-					// plain text answer, so a child never recurses into another `rlm` call.
+					// plain text answer, so a child never recurses into another rlm call.
 					const rlmCellCode = 'return await rlm("child task")';
 					const rlmToolCall: FakeToolCall = { name: "tsrepl", arguments: { code: rlmCellCode } };
 					const rlmReply =
@@ -858,97 +953,163 @@ async function main(): Promise<number> {
 								? { kind: "tool-call", toolCall: rlmToolCall }
 								: { kind: "text", text: "child answer", delayMs: childDelayMs };
 						};
-
-					// Abort first: the child request is held open so the cell is still inside `rlm` when the
-					// abort arrives.
-					const abortProvider = startFakeProvider(rlmToolCall, { reply: rlmReply(8000) });
-					await writeRlmFixture({ agentDir: runner.agentDir, childAgentDirs, providerBaseUrl: abortProvider.baseUrl });
-					let abortObservation:
-						| { text: string; isError: boolean; entries: Array<Record<string, unknown>>; stderr: string }
-						| undefined;
+					// The child request is the one that asked for the held-open reply, so the provider's own
+					// record names the child traffic without reading request bodies.
+					const childRequestsOf = (requests: readonly FakeProviderRequest[]) =>
+						requests.filter((request) => request.delayMs === RLM_CHILD_REPLY_DELAY_MS);
+					/**
+					 * A predicate reporting that the child stopped: every child request closed and stayed closed
+					 * long enough for the detached continuation to write its entry before the final read.
+					 */
+					const childStoppedFor = (collect: () => readonly FakeProviderRequest[]) => (): boolean => {
+						const seen = childRequestsOf(collect());
+						if (seen.length === 0) return false;
+						if (seen.some((request) => request.closedAt === undefined)) return false;
+						const lastClose = Math.max(...seen.map((request) => request.closedAt ?? 0));
+						return Date.now() - lastClose >= RLM_CHILD_STOP_SETTLE_MS;
+					};
+					/** The provider connection record, without the request bodies. */
+					const providerLog = (requests: readonly FakeProviderRequest[]) =>
+						requests.map((request) => ({
+							kind: request.kind,
+							receivedAt: request.receivedAt,
+							respondedAt: request.respondedAt,
+							closedAt: request.closedAt,
+							delayMs: request.delayMs,
+						}));
+					// The entries a completed run recorded: the probe agent_settled write, or the last read when
+					// that write did not happen.
+					const usageOf = (run: RlmCellRun | undefined): Array<Record<string, unknown>> =>
+						run === undefined
+							? []
+							: run.usageAtSettled.length > 0
+								? run.usageAtSettled
+								: (run.usageReads.at(-1)?.entries ?? []);
+					// Abort first: the child request is held open so the cell is still inside rlm when the
+					// abort arrives, and the entry reads continue until the child's own request closes, because
+					// a tool call that was cut short keeps running after the run settled.
+					const abortProvider = startFakeProvider(rlmToolCall, {
+						reply: rlmReply(RLM_CHILD_REPLY_DELAY_MS),
+					});
+					await writeRlmFixture({
+						agentDir: runner.agentDir,
+						providerBaseUrl: abortProvider.baseUrl,
+					});
+					let abortRun: RlmCellRun | undefined;
 					try {
-						abortObservation = await runRlmCell(physicalModel, abortProvider, join(runner.workRoot, "rlm-abort.json"), {
+						abortRun = await runRlmCell(physicalModel, abortProvider, join(runner.workRoot, "rlm-abort.json"), {
 							abortAfterMs: RLM_ABORT_AFTER_MS,
 							abortAfterEventMs: RLM_ABORT_AFTER_TOOL_MS,
+							// A fixture host emits fixed events and never creates a child, so it has no child
+							// stop to wait for and no product behaviour to measure here.
+							childStopped: runner.mode === "official" ? childStoppedFor(() => abortProvider.requests) : undefined,
 						});
 					} finally {
 						abortProvider.stop();
 					}
 					// The rlm cells all run through this launch, so the item logs name the command that ran them.
 					const rlmCommand = launchCommand([PROVIDER_EXTENSION, launch.extensionPath]);
-					const abortReported = abortObservation?.entries.some((entry) => entry.outcome === "aborted");
+					// The stop evidence is read after the run, from the request record the endpoint kept.
+					const abortChildren = childRequestsOf(abortProvider.requests);
+					const abortObservation: ChildAbortObservation = {
+						abortSent: abortRun?.abortSent === true,
+						...(abortRun?.abortAccepted === undefined ? {} : { abortAccepted: abortRun.abortAccepted }),
+						cellAborted: abortRun?.isError === true && cellReportsAbort(abortRun.text),
+						childSeen: abortChildren.length > 0,
+						childStopped: abortChildren.length > 0 && abortChildren.every((request) => request.closedAt !== undefined),
+						usageAtSettled: abortedUsageCount(abortRun?.usageAtSettled ?? []),
+						usageAfterStop: abortedUsageCount(abortRun?.usageReads.at(-1)?.entries ?? []),
+						pollWindowMs: RLM_ABORT_POLL_MS,
+						...(abortRun === undefined ? { error: "the child abort was not exercised" } : {}),
+					};
 					await run("rlm child abort", async () => ({
-						...classifyChildAbort({
-							childCreated: abortObservation !== undefined,
-							abortReported,
-							error: abortObservation === undefined ? "the child abort was not exercised" : undefined,
-						}),
+						...classifyChildAbort(abortObservation),
 						data: {
-							cellText: abortObservation?.text,
-							cellIsError: abortObservation?.isError,
-							rlmUsageEntries: abortObservation?.entries.length,
+							phases: abortObservation,
+							cellText: abortRun?.text,
+							cellIsError: abortRun?.isError,
+							// childCutMidRequest is the endpoint's own record that the child hung up on a request it
+							// had not been answered: the direct proof that the parent abort reached the child.
+							childCutMidRequest: abortChildren.some(
+								(request) => request.closedAt !== undefined && request.respondedAt === undefined,
+							),
+							usageAtSettledEntries: abortRun?.usageAtSettled.length ?? 0,
+							usageAfterStopEntries: abortRun?.usageReads.at(-1)?.entries.length ?? 0,
+							pollReads: (abortRun?.usageReads ?? []).map((read) => ({
+								id: read.id,
+								entries: read.entries.length,
+								outcomes: read.entries.map((entry) => rlmUsageOutcome(entry)),
+							})), 
+							providerRequests: providerLog(abortProvider.requests),
 						},
-						log: { command: rlmCommand, stdout: abortObservation?.text, stderr: abortObservation?.stderr },
+						log: { command: rlmCommand, stdout: abortRun?.text, stderr: abortRun?.stderr },
 					}));
-
 					const physicalProvider = startFakeProvider(rlmToolCall, { reply: rlmReply(0) });
-					await writeRlmFixture({ agentDir: runner.agentDir, childAgentDirs, providerBaseUrl: physicalProvider.baseUrl });
-					let physicalObservationData:
-						| { text: string; isError: boolean; entries: Array<Record<string, unknown>>; stderr: string }
-						| undefined;
+					await writeRlmFixture({
+						agentDir: runner.agentDir,
+						providerBaseUrl: physicalProvider.baseUrl,
+					});
+					let physicalRequests: FakeProviderRequest[] = [];
+					let physicalRun: RlmCellRun | undefined;
 					try {
-						physicalObservationData = await runRlmCell(
-						physicalModel,
-						physicalProvider,
-						join(runner.workRoot, "rlm-physical.json"),
-					);
+						physicalRun = await runRlmCell(
+							physicalModel,
+							physicalProvider,
+							join(runner.workRoot, "rlm-physical.json"),
+						);
 					} finally {
+						physicalRequests = [...physicalProvider.requests];
 						physicalProvider.stop();
 					}
+					const physicalUsage = usageOf(physicalRun);
 					const physicalObservation: RlmChildObservation = {
-						childCreated: physicalObservationData !== undefined && !physicalObservationData.isError,
-						finalAnswer: physicalObservationData?.text,
-						usageRecorded: (physicalObservationData?.entries.length ?? 0) > 0,
-						error: physicalObservationData?.isError ? physicalObservationData.text : physicalObservationData?.stderr,
+						childCreated: physicalRun !== undefined && !physicalRun.isError,
+						finalAnswer: physicalRun?.text,
+						usageRecorded: physicalUsage.length > 0,
+						error: physicalRun?.isError ? physicalRun.text : physicalRun?.stderr,
 					};
 					const physicalLog = {
 						command: rlmCommand,
-						stdout: physicalObservationData?.text,
-						stderr: physicalObservationData?.stderr,
+						stdout: physicalRun?.text,
+						stderr: physicalRun?.stderr,
 					};
 					await run("rlm child creation", async () => ({ ...classifyChildCreation(physicalObservation), log: physicalLog }));
 					await run("rlm child answer", async () => ({ ...classifyChildAnswer(physicalObservation), log: physicalLog }));
 					await run("rlm child usage", async () => ({ ...classifyChildUsage(physicalObservation), log: physicalLog }));
 					await run("rlm physical model child", async () => ({
 						...classifyPhysicalChild(physicalObservation),
+						data: { usageEntries: physicalUsage.length, providerRequests: providerLog(physicalRequests) },
 						log: physicalLog,
 					}));
-
 					const autoProvider = startFakeProvider(rlmToolCall, { reply: rlmReply(0) });
-					await writeRlmFixture({ agentDir: runner.agentDir, childAgentDirs, providerBaseUrl: autoProvider.baseUrl });
-					let autoObservationData:
-						| { text: string; isError: boolean; entries: Array<Record<string, unknown>>; stderr: string }
-						| undefined;
+					await writeRlmFixture({
+						agentDir: runner.agentDir,
+						providerBaseUrl: autoProvider.baseUrl,
+					});
+					let autoRequests: FakeProviderRequest[] = [];
+					let autoRun: RlmCellRun | undefined;
 					try {
-						autoObservationData = await runRlmCell(
-						autoModel,
-						autoProvider,
-						join(runner.workRoot, "rlm-auto.json"),
-					);
+						autoRun = await runRlmCell(
+							autoModel,
+							autoProvider,
+							join(runner.workRoot, "rlm-auto.json"),
+						);
 					} finally {
+						autoRequests = [...autoProvider.requests];
 						autoProvider.stop();
 					}
 					await run("rlm auto parent", async () => ({
 						...classifyAutoChild({
-							childCreated: autoObservationData !== undefined && !autoObservationData.isError,
-							finalAnswer: autoObservationData?.text,
-							usageRecorded: (autoObservationData?.entries.length ?? 0) > 0,
-							error: autoObservationData?.isError ? autoObservationData.text : autoObservationData?.stderr,
+							childCreated: autoRun !== undefined && !autoRun.isError,
+							finalAnswer: autoRun?.text,
+							usageRecorded: usageOf(autoRun).length > 0,
+							error: autoRun?.isError ? autoRun.text : autoRun?.stderr,
 						}),
+						data: { providerRequests: providerLog(autoRequests) },
 						log: {
 							command: rlmCommand,
-							stdout: autoObservationData?.text,
-							stderr: autoObservationData?.stderr,
+							stdout: autoRun?.text,
+							stderr: autoRun?.stderr,
 						},
 					}));
 				} finally {
@@ -1082,13 +1243,23 @@ async function main(): Promise<number> {
 				const rows = deriveRows(purposes);
 				validateMatrix(rows);
 				const observedPurposes = purposes.filter((purpose) => purpose.state !== "not-run");
+				const unavailablePurposes = purposes.filter((purpose) => purpose.state === "unavailable");
+				// `confirmed` here means the purpose was observed behaving on the dedicated Pi. It does not
+				// mean every purpose works: an observation of a missing capability is `unavailable`, and it
+				// still counts as observed. The row states and the per-purpose states are both in `data`.
 				await run("role/clear/model matrix", async () => ({
 					state: observedPurposes.length > 0 ? ("confirmed" as const) : ("not-run" as const),
 					detail:
 						observedPurposes.length > 0
-							? `${observedPurposes.length} of ${purposes.length} purposes observed on the dedicated Pi; rows derive from those observations`
+							? `confirmed here means observed on the dedicated Pi, including ${unavailablePurposes.length} purpose(s) observed as unavailable; ${observedPurposes.length} of ${purposes.length} purposes observed, rows derive from those observations`
 							: "no role/clear/model purpose could be observed on this host",
-					data: { rows, purposes, clearAttempt, clearDiagnostics },
+					data: {
+						confirmedMeans: "a purpose behaviour was observed on the dedicated Pi; unavailable is an observation too",
+						rows,
+						purposes,
+						clearAttempt,
+						clearDiagnostics,
+					},
 				}));
 
 				runner.setEvidence({
@@ -1114,18 +1285,21 @@ async function main(): Promise<number> {
 			}
 		}
 
+		// Measured after every launch, and a changed existing agent dir is a failed item, so the exit
+		// code below reflects it.
+		await runner.verifyExistingAgentDir();
 		const resultPath = await runner.writeResult(options.out);
 		const evidence = runner.buildEvidence();
 		const results = runner.results();
-		const counts = new Map<string, number>();
-		for (const result of results) counts.set(result.state, (counts.get(result.state) ?? 0) + 1);
 		console.log(`Compatibility result: ${resultPath}`);
-		console.log([...counts].map(([stateValue, count]) => `${stateValue}=${count}`).join(" "));
+		console.log(formatStateCounts(countStates(results)));
 		console.log(
 			`mode=${evidence.mode} runnerCompleted=${evidence.runnerCompleted} compatibilityMet=${evidence.compatibilityMet}`,
 		);
 		const failed = results.some((result) => result.state === "failed");
 		if (failed) return 1;
+		// A guard violation is reported through the item above; the evidence field must agree with it.
+		if (evidence.existingAgentDirUnchanged === false) return 1;
 		if (options.mode === "official" && !evidence.compatibilityMet) return 1;
 		return 0;
 	} finally {

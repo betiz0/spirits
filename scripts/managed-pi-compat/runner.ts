@@ -15,13 +15,22 @@ import {
 } from "../../packages/spirits/src/managed-pi/agent-dir.ts";
 import {
 	buildObservationEvidence,
+	COMPATIBILITY_MET_DEFINITION,
 	computeCompatibilityMet,
 	computeRunnerCompleted,
 	type CompatEvidence,
+	countStates,
+	formatStateCounts,
 	identifyRuntime,
+	matrixPurposeCounts,
+	nonRequiredIssues,
+	ROLE_CLEAR_MODEL_ITEM,
+	SUMMARY_READING_NOTES,
+	requiredObservationsNotMet,
 	type RunMode,
 	redactSecrets,
 	REQUIRED_OBSERVATIONS,
+	RUNNER_COMPLETED_DEFINITION,
 } from "./evidence.ts";
 
 /** Result state of one compatibility item. */
@@ -94,6 +103,26 @@ export interface CompatResult {
 	label?: string;
 }
 
+/** One line of a summary issue list. */
+function issueLine(result: CompatResult): string {
+	return `- [${result.state}] ${result.name}${result.detail ? `: ${result.detail}` : ""}`;
+}
+
+/**
+ * The summary lines that qualify a `confirmed` reading. The matrix note carries the measured purpose
+ * count when the run recorded purposes, and drops the count when it did not.
+ */
+function notesLines(results: readonly CompatResult[]): string[] {
+	const counts = matrixPurposeCounts(results);
+	return SUMMARY_READING_NOTES.map((note) => {
+		if (note.item !== ROLE_CLEAR_MODEL_ITEM || counts === undefined) return `- Note: ${note.text}`;
+		return `- Note: ${note.text} This run observed ${counts.observed} of ${counts.total} purposes.`;
+	});
+}
+
+/** The item that records the existing agent dir immutability check. */
+export const EXISTING_AGENT_DIR_ITEM = "existing agent dir untouched";
+
 /** Runner environment and lifecycle. */
 export interface CompatRunner {
 	readonly workRoot: string;
@@ -125,6 +154,11 @@ export interface CompatRunner {
 		}>,
 	): Promise<CompatResult>;
 	results(): readonly CompatResult[];
+	/**
+	 * Compare the seeded existing agent dir against its pre-launch fingerprint, record the item, and
+	 * return it. A changed tree is `failed`, so the run's exit code reflects it.
+	 */
+	verifyExistingAgentDir(): Promise<CompatResult>;
 	setMode(mode: RunMode): void;
 	setEvidence(evidence: Partial<CompatEvidence>): void;
 	/** Record one item's command/output for the evidence log. */
@@ -160,25 +194,42 @@ function redactResults(results: readonly CompatResult[], mode: RunMode): CompatR
 }
 
 function renderSummary(evidence: CompatEvidence, results: readonly CompatResult[]): string {
-	const counts = { confirmed: 0, limited: 0, unavailable: 0, "not-run": 0, failed: 0 };
-	for (const result of results) counts[result.state] += 1;
+	const counts = countStates(results);
+	const blocking = requiredObservationsNotMet(results, evidence.requiredObservations);
+	const outside = nonRequiredIssues(results, evidence.requiredObservations);
+	const provenance = evidence.runnerProvenance;
 	const lines = [
 		"# Managed Pi compatibility result",
 		"",
 		`- Mode: ${evidence.mode}`,
 		`- Label: ${evidence.mode === "fixture" ? "fixture-only" : "official"}`,
-		`- Runner completed: ${evidence.runnerCompleted}`,
-		`- Compatibility met: ${evidence.compatibilityMet}`,
-		`- Results: confirmed=${counts.confirmed} limited=${counts.limited} unavailable=${counts.unavailable} not-run=${counts["not-run"]} failed=${counts.failed}`,
+		`- Runner completed: ${evidence.runnerCompleted} (${RUNNER_COMPLETED_DEFINITION})`,
+		`- Compatibility met: ${evidence.compatibilityMet} (${COMPATIBILITY_MET_DEFINITION})`,
+		`- Results: ${formatStateCounts(counts)}`,
+		...notesLines(results),
 		...(evidence.existingAgentDirUnchanged === undefined
 			? []
 			: [`- Existing agent dir untouched: ${evidence.existingAgentDirUnchanged}`]),
+		...(provenance === undefined
+			? []
+			: [
+					`- Runner version: ${provenance.commit} (diff sha256 ${provenance.diffSha256}, ${provenance.untracked.length} untracked, clean=${provenance.clean})`,
+				]),
+		...(evidence.targetCommit === undefined ? [] : [`- Measured bundle commit: ${evidence.targetCommit}`]),
+		"",
+		"## Required observations not confirmed",
+		"",
+		...(blocking.length > 0 ? blocking.map(issueLine) : ["- none"]),
+		"",
+		"## Outside the required list, not confirmed",
+		"",
+		...(outside.length > 0 ? outside.map(issueLine) : ["- none"]),
 		"",
 		"## Items",
 		"",
 	];
 	for (const result of results) {
-		lines.push(`- [${result.state}] ${result.name}${result.detail ? `: ${result.detail}` : ""}`);
+		lines.push(issueLine(result));
 	}
 	lines.push("", "## Required observations", "");
 	for (const name of evidence.requiredObservations) {
@@ -209,6 +260,9 @@ export async function createCompatRunner(options: { workRoot?: string; mode?: Ru
 		await writeFile(path, content);
 	}
 	const existingBefore = await fingerprintTree(existingAgentDir);
+	// Both the item and the evidence field read the tree through here, so they cannot disagree.
+	const measureExistingUnchanged = async (): Promise<boolean> =>
+		(await fingerprintTree(existingAgentDir)) === existingBefore;
 	const recorded: CompatResult[] = [];
 	let mode: RunMode = options.mode ?? "fixture";
 	let evidence: Partial<CompatEvidence> = {};
@@ -216,6 +270,26 @@ export async function createCompatRunner(options: { workRoot?: string; mode?: Ru
 	// An item that runs in this process still needs a command in the log: the runner invocation is
 	// what executed it.
 	const runnerCommand: readonly string[] = [process.execPath, ...process.argv.slice(1)];
+	// One bookkeeping path, so an item recorded outside `run()` (the existing agent dir check) still
+	// lands in the results and the log list.
+	const recordRun: CompatRunner["run"] = async (name, check) => {
+		try {
+			const { log, ...value } = await check();
+			const result = { name, ...value };
+			recorded.push(result);
+			logs.push(itemLog(name, runnerCommand, log));
+			return result;
+		} catch (error) {
+			const result = {
+				name,
+				state: "failed" as const,
+				detail: error instanceof Error ? error.message : String(error),
+			};
+			recorded.push(result);
+			logs.push(itemLog(name, runnerCommand));
+			return result;
+		}
+	};
 	const buildEvidence = (): CompatEvidence => {
 		const results = redactResults(recorded, mode);
 		const runtime = {
@@ -230,7 +304,9 @@ export async function createCompatRunner(options: { workRoot?: string; mode?: Ru
 		return {
 			mode,
 			runnerCompleted: computeRunnerCompleted(results),
+			runnerCompletedDefinition: RUNNER_COMPLETED_DEFINITION,
 			compatibilityMet: computeCompatibilityMet(mode, results),
+			compatibilityMetDefinition: COMPATIBILITY_MET_DEFINITION,
 			requiredObservations: REQUIRED_OBSERVATIONS,
 			observationEvidence: buildObservationEvidence(results),
 			...evidence,
@@ -272,23 +348,25 @@ export async function createCompatRunner(options: { workRoot?: string; mode?: Ru
 			recorded.push(result);
 			return result;
 		},
-		async run(name, check) {
-			try {
-				const { log, ...value } = await check();
-				const result = { name, ...value };
-				recorded.push(result);
-				logs.push(itemLog(name, runnerCommand, log));
-				return result;
-			} catch (error) {
-				const result = {
-					name,
-					state: "failed" as const,
-					detail: error instanceof Error ? error.message : String(error),
-				};
-				recorded.push(result);
-				logs.push(itemLog(name, runnerCommand));
-				return result;
-			}
+		run(name, check) {
+			return recordRun(name, check);
+		},
+		async verifyExistingAgentDir() {
+			const unchanged = await measureExistingUnchanged();
+			return await recordRun(EXISTING_AGENT_DIR_ITEM, async () =>
+				unchanged
+					? {
+						state: "confirmed" as const,
+						detail:
+							"the seeded existing agent dir kept its content and modification times across every launch",
+						data: { existingAgentDir },
+					}
+					: {
+						state: "failed" as const,
+						detail: `a managed launch changed ${existingAgentDir}; the managed route must never write there`,
+						data: { existingAgentDir },
+					}
+			);
 		},
 		results() {
 			return [...recorded];
@@ -309,7 +387,7 @@ export async function createCompatRunner(options: { workRoot?: string; mode?: Ru
 			const results = redactResults(recorded, mode);
 			const full: CompatEvidence = {
 				...buildEvidence(),
-				existingAgentDirUnchanged: (await fingerprintTree(existingAgentDir)) === existingBefore,
+				existingAgentDirUnchanged: await measureExistingUnchanged(),
 			};
 			await mkdir(dirname(path), { recursive: true });
 			await Bun.write(path, `${JSON.stringify({ ...full, results, cwd }, null, "\t")}\n`);

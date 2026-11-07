@@ -117,3 +117,45 @@ test("fake provider success is not reported as real provider compatibility", asy
 		provider.stop();
 	}
 });
+
+test("the endpoint records the connection state of each request", async () => {
+	const provider = startFakeProvider(
+		{ name: "tsrepl", arguments: { code: "return 1" } },
+		{ reply: () => ({ kind: "text", text: "child answer", delayMs: 4000 }) },
+	);
+	try {
+		const controller = new AbortController();
+		const pending = fetch(`${provider.baseUrl}/v1/chat/completions`, {
+			method: "POST",
+			headers: { "content-type": "application/json", authorization: "Bearer fake" },
+			body: JSON.stringify({ model: "fake-model", messages: [{ role: "user", content: "child task" }], stream: true }),
+			signal: controller.signal,
+		});
+		await new Promise((resolve) => setTimeout(resolve, 120));
+		// The parent abort cuts the child's request; the endpoint must see the client hang up while
+		// the reply is still being held, because that close is the child-stop observation.
+		controller.abort();
+		await pending.catch(() => undefined);
+		const held = provider.requests[0];
+		expect(held?.kind).toBe("text");
+		expect(held?.delayMs).toBe(4000);
+		expect(held?.closedAt).toBeTypeOf("number");
+		expect(held?.respondedAt).toBeUndefined();
+		expect(provider.closedEarly().map((request) => request.url)).toEqual([held?.url]);
+		expect(provider.open()).toEqual([]);
+	} finally {
+		provider.stop();
+	}
+});
+
+test("a delivered reply is recorded as answered, not cut", async () => {
+	const provider = startFakeProvider({ name: "tsrepl", arguments: { code: "return 1" } });
+	try {
+		await requestFakeToolCall(provider.baseUrl, "tsrepl");
+		const record = provider.requests.at(-1);
+		expect(record?.respondedAt).toBeTypeOf("number");
+		expect(provider.closedEarly()).toEqual([]);
+	} finally {
+		provider.stop();
+	}
+});

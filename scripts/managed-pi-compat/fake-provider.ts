@@ -30,6 +30,29 @@ export type FakeReply =
 	| { kind: "tool-call"; toolCall?: FakeToolCall; delayMs?: number }
 	| { kind: "text"; text: string; delayMs?: number };
 
+/**
+ * One request as the endpoint saw it, with the connection outcome.
+ *
+ * Timestamps are milliseconds after the endpoint started. A request the client hung up on
+ * (`closedAt` set, `respondedAt` absent) is the evidence that the session which sent it stopped
+ * mid-request: an rlm child that keeps running keeps its request open until the reply lands.
+ */
+export interface FakeProviderRequest {
+	url: string;
+	authorization?: string;
+	body?: unknown;
+	/** The reply class the endpoint chose for this request. */
+	kind?: "tool-call" | "text";
+	/** Milliseconds after the endpoint started. */
+	receivedAt: number;
+	/** Set once the endpoint finished producing the reply. */
+	respondedAt?: number;
+	/** Set when the client closed the connection, whether or not the reply was produced. */
+	closedAt?: number;
+	/** Requested reply delay in milliseconds, so a hung-up request is told from a fast one. */
+	delayMs?: number;
+}
+
 /** Options for the local fake endpoint. */
 export interface FakeProviderOptions {
 	/** Return a final text answer after the tool result instead of repeating the tool call. */
@@ -62,13 +85,14 @@ function chunk(id: string, delta: Record<string, unknown>, finish_reason: string
 	return `data: ${JSON.stringify(data)}\n\n`;
 }
 
-function sseResponse(events: string[]): Response {
+function sseResponse(events: string[], onWritten: () => void): Response {
 	const body = new ReadableStream<Uint8Array>({
 		start(controller) {
 			const encoder = new TextEncoder();
 			for (const event of events) controller.enqueue(encoder.encode(event));
 			controller.enqueue(encoder.encode("data: [DONE]\n\n"));
 			controller.close();
+			onWritten();
 		},
 	});
 	return new Response(body, {
@@ -173,10 +197,16 @@ export function startFakeProvider(
 	options: FakeProviderOptions = {},
 ): {
 	baseUrl: string;
-	requests: Array<{ url: string; authorization?: string; body?: unknown }>;
+	requests: FakeProviderRequest[];
+	/** Requests whose reply was never produced because the client hung up. */
+	closedEarly(): FakeProviderRequest[];
+	/** Requests still waiting for a reply with the connection open. */
+	open(): FakeProviderRequest[];
 	stop(): void;
 } {
-	const requests: Array<{ url: string; authorization?: string; body?: unknown }> = [];
+	const startedAt = Date.now();
+	const elapsed = (): number => Date.now() - startedAt;
+	const requests: FakeProviderRequest[] = [];
 	const server = Bun.serve({
 		port: 0,
 		async fetch(request) {
@@ -187,14 +217,22 @@ export function startFakeProvider(
 			} catch {
 				body = undefined;
 			}
-			requests.push({ url: request.url, authorization, body });
+			const record: FakeProviderRequest = { url: request.url, authorization, body, receivedAt: elapsed() };
+			requests.push(record);
+			request.signal.addEventListener("abort", () => {
+				record.closedAt ??= elapsed();
+			});
 			const messages = (body as { messages?: ChatMessage[] } | undefined)?.messages;
 			const wantsFinalAnswer =
 				options.finalAnswerAfterToolResult !== undefined &&
 				(messages ?? []).some((message) => message.role === "tool");
 			const stream = (body as { stream?: boolean } | undefined)?.stream === true;
+			const written = (): void => {
+				record.respondedAt ??= elapsed();
+			};
 			const path = new URL(request.url).pathname;
 			if (path.endsWith("/models")) {
+				written();
 				return Response.json({
 					object: "list",
 					data: [{ id: toolCall.name, object: "model", created: 0, owned_by: "compat-fake" }],
@@ -202,17 +240,34 @@ export function startFakeProvider(
 			}
 			const reply = options.reply?.(body);
 			const delayMs = reply?.delayMs ?? options.delayMs;
-			if (delayMs && delayMs > 0) {
-				await new Promise((resolve) => setTimeout(resolve, delayMs));
+			record.kind = reply ? reply.kind : "tool-call";
+			record.delayMs = delayMs;
+			if (delayMs && delayMs > 0 && !request.signal.aborted) {
+				// Stop waiting when the client hangs up, so the recorded close time is the client's.
+				let timer: ReturnType<typeof setTimeout> | undefined;
+				await new Promise<void>((resolve) => {
+					const finish = (): void => {
+						if (timer !== undefined) clearTimeout(timer);
+						request.signal.removeEventListener("abort", finish);
+						resolve();
+					};
+					timer = setTimeout(finish, delayMs);
+					request.signal.addEventListener("abort", finish, { once: true });
+				});
 			}
+			// A client that hung up during the delay must not receive a reply: writing one would hide
+			// the disconnect the rlm child abort item measures.
+			if (request.signal.aborted) return new Response(null, { status: 499 });
 			if (reply) {
 				const answer = reply.kind === "text" ? reply.text : undefined;
 				const call = reply.kind === "tool-call" ? (reply.toolCall ?? toolCall) : undefined;
 				if (stream) {
 					return sseResponse(
 						answer !== undefined ? finalAnswerEvents(answer) : toolCallEvents(call as FakeToolCall, options.toolCallChunks ?? 1),
+						written,
 					);
 				}
+				written();
 				if (answer !== undefined) {
 					return Response.json(completionJson(answer, "stop"));
 				}
@@ -223,8 +278,10 @@ export function startFakeProvider(
 					wantsFinalAnswer
 						? finalAnswerEvents(options.finalAnswerAfterToolResult as string)
 						: toolCallEvents(toolCall, options.toolCallChunks ?? 1),
+					written,
 				);
 			}
+			written();
 			if (wantsFinalAnswer) {
 				return Response.json({
 					id: "fake-completion-final",
@@ -270,6 +327,8 @@ export function startFakeProvider(
 	return {
 		baseUrl: `http://127.0.0.1:${server.port}`,
 		requests,
+		closedEarly: () => requests.filter((record) => record.closedAt !== undefined && record.respondedAt === undefined),
+		open: () => requests.filter((record) => record.closedAt === undefined && record.respondedAt === undefined),
 		stop: () => server.stop(true),
 	};
 }

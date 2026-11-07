@@ -1,5 +1,19 @@
 # 製品側確認待ち事項: rlm 子の最中に中断すると `rlm_usage` が残らない
 
+> **訂正(2026-11-06)**: この文書の結論は誤り。`rlm_usage` は残っている。ランナーが `agent_settled` の 1 回読みで
+> 判定していたため見逃していた。子のリクエストが閉じた後の読みでは `customType: "rlm_usage"` のエントリが
+> 1 件(`outcome: "aborted"`)現れ、公式実行の `rlm child abort` は `confirmed` になった。訂正の根拠と再実行記録は
+> [verify2-rerun.md](verify2-rerun.md)。以下の再現条件・証拠・切り分けの残課題は当時の記録としてそのまま残す。
+> 製品課題として残るのは 1 点だけにして、優先度を低いバックログに落とす。読み取りタイミングを正したとしても、中断した呼び出し元に
+> `rlm_usage` が戻るより先にセルの AbortError が返る(= 記録が親の応答より後に着く)という順序の問題である。もっとも
+> 製品内に `rlm_usage` の読み手は無く、現在の fork route(`~/.spirits/bin/spirits` 0.6.0)でも同じ順序になる
+> ことが実測で分かったので、移行を止める根拠にはしない。
+>
+> `outcome` が `entry.data.outcome` にしか無い点は製品課題ではない。`pi.appendEntry(customType, data)` は
+> `CustomEntry`(`{ type: "custom", customType, data }`、`packages/coding-agent/src/core/session-manager.ts`)
+> を追記する標準的な形であり、`entry.outcome` を読むランナー側の計測が誤っていた。読み方は
+> `scripts/managed-pi-compat/rlm.ts` の `rlmUsageOutcome` で修正済みで、製品側の変更是不要。
+
 互換性ランナーの公式実行で判明した、製品側の挙動として報告する事項。この change の実装範囲ではないため、別 change 候補として扱う。
 
 ## 結論

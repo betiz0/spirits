@@ -41,6 +41,8 @@ export interface RpcProbeResult {
 	records: RpcRecord[];
 	stderr: string;
 	exitCode: number;
+	/** Set by the abort probe: whether the abort request reached the process' stdin. */
+	abortSent?: boolean;
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
@@ -229,6 +231,24 @@ export async function runStagedRpcProbe(options: StagedRpcProbeOptions): Promise
 	return { records, stderr, exitCode };
 }
 
+/**
+ * Repeated reads after the abort, until an outside signal says the work has stopped.
+ *
+ * `agent_settled` is not the end of the story: a tool call that was cut short keeps running in the
+ * background and can write its session entry after the run already settled. The probe therefore
+ * re-reads on an interval until `until` reports the child stopped or `timeoutMs` elapses, then takes
+ * one final read.
+ */
+export interface RpcPollOptions {
+	/** Request template; each send gets the id `<id>-<attempt>` and the last one `<id>-final`. */
+	request: RpcRequest;
+	intervalMs: number;
+	/** Keep polling at most this long after the abort. */
+	timeoutMs: number;
+	/** Stop polling early once this reports the work finished (for example a closed provider request). */
+	until?: () => boolean;
+}
+
 /** Options for a probe that sends an abort request while the process is running. */
 export interface AbortRpcProbeOptions {
 	command: readonly string[];
@@ -249,6 +269,8 @@ export interface AbortRpcProbeOptions {
 	waitFor?: (records: readonly RpcRecord[]) => boolean;
 	/** Requests sent after the abort and `waitFor` (for example `get_entries`). */
 	settleRequests?: readonly RpcRequest[];
+	/** Re-reads after the abort, replacing the single read taken at `agent_settled`. */
+	poll?: RpcPollOptions;
 }
 
 /** Start a process, send requests, then send an abort and collect records. */
@@ -303,11 +325,43 @@ export async function runAbortRpcProbe(options: AbortRpcProbeOptions): Promise<R
 		} catch {
 			// The process may already have exited.
 		}
+		startPoll();
 	};
 	const abortTimer = setTimeout(() => {
 		delayElapsed = true;
 		sendAbort();
 	}, options.abortAfterMs);
+	// The polls send from timers and need no reader slot: a run that sits inside one tool emits
+	// nothing, so the loop must not depend on records to notice the next interval.
+	let pollTimer: ReturnType<typeof setInterval> | undefined;
+	let pollAttempts = 0;
+	let pollFinished = false;
+	const startPoll = (): void => {
+		const poll = options.poll;
+		if (poll === undefined || pollTimer !== undefined) return;
+		const pollStartedAt = Date.now();
+		const sendPoll = (id: string): void => {
+			try {
+				child.stdin.write(`${JSON.stringify({ ...poll.request, id })}\n`);
+				child.stdin.flush();
+				expected.add(id);
+			} catch {
+				// The process may already have exited.
+			}
+			};
+			sendPoll(`${poll.request.id}-1`);
+			pollAttempts = 1;
+			pollTimer = setInterval(() => {
+				if (pollFinished) return;
+				if (poll.until?.() === true || Date.now() - pollStartedAt >= poll.timeoutMs) {
+					pollFinished = true;
+					sendPoll(`${poll.request.id}-final`);
+					return;
+				}
+				pollAttempts += 1;
+				sendPoll(`${poll.request.id}-${pollAttempts}`);
+			}, poll.intervalMs);
+		};
 	let resolved = false;
 	while (!resolved && Date.now() < deadline) {
 		const remaining = Math.max(1, deadline - Date.now());
@@ -343,7 +397,9 @@ export async function runAbortRpcProbe(options: AbortRpcProbeOptions): Promise<R
 		const abortSeen = records.some(
 			(record) => record.type === "response" && record.command === "abort",
 		);
-		const responsesComplete = expected.size === 0 && (aborted || abortSeen);
+		// An outstanding poll holds the probe open: the reads after the abort are the measurement.
+		const pollOutstanding = options.poll !== undefined && !pollFinished;
+		const responsesComplete = expected.size === 0 && (aborted || abortSeen) && !pollOutstanding;
 		if (responsesComplete && pendingSettle.length > 0 && (options.waitFor?.(records) ?? true)) {
 			for (const request of pendingSettle) {
 				child.stdin.write(`${JSON.stringify(request)}\n`);
@@ -356,11 +412,12 @@ export async function runAbortRpcProbe(options: AbortRpcProbeOptions): Promise<R
 	}
 	clearTimeout(abortTimer);
 	if (eventTimer !== undefined) clearTimeout(eventTimer);
+	if (pollTimer !== undefined) clearInterval(pollTimer);
 	child.stdin.end();
 	const exitCode = await child.exited;
 	await readStderr;
 	await reader.cancel().catch(() => {});
-	return { records, stderr, exitCode };
+	return { records, stderr, exitCode, abortSent: aborted };
 }
 
 /** Result of running a process to completion. */

@@ -10,8 +10,25 @@ import {
 	classifyChildUsage,
 	classifyFixtureInsufficiency,
 	classifyPhysicalChild,
+	rlmUsageOutcome,
 	writeRlmFixture,
+	type ChildAbortObservation,
 } from "../../../scripts/managed-pi-compat/rlm.ts";
+
+/** The five measured phases of one child abort, with the named ones overridden. */
+function abortPhases(overrides: Partial<ChildAbortObservation> = {}): ChildAbortObservation {
+	return {
+		abortSent: true,
+		abortAccepted: true,
+		cellAborted: true,
+		childSeen: true,
+		childStopped: true,
+		usageAtSettled: 0,
+		usageAfterStop: 0,
+		pollWindowMs: 15000,
+		...overrides,
+	};
+}
 
 test("physical model child completes", () => {
 	expect(
@@ -29,7 +46,6 @@ test("a missing abort does not change the physical child judgement", () => {
 	expect(
 		classifyPhysicalChild({ childCreated: true, finalAnswer: "ok", usageRecorded: true, abortReported: false }).state,
 	).toBe("confirmed");
-	expect(classifyChildAbort({ childCreated: true, abortReported: false }).state).toBe("not-run");
 });
 
 test("rlm fixture provides auth and model settings", async () => {
@@ -87,13 +103,70 @@ test("child generation, answer, usage, and abort are judged separately", () => {
 	expect(classifyChildCreation(observation).state).toBe("confirmed");
 	expect(classifyChildAnswer(observation).state).toBe("confirmed");
 	expect(classifyChildUsage(observation).state).toBe("limited");
-	expect(classifyChildAbort(observation).state).toBe("not-run");
+	// The abort item measures its own five phases and never borrows this observation.
+	expect(classifyChildAbort(abortPhases({ usageAfterStop: 1 })).state).toBe("confirmed");
 });
 
-test("child abort is observed through rlm_usage", () => {
-	expect(classifyChildAbort({ childCreated: true, abortReported: true }).state).toBe("confirmed");
-	expect(classifyChildAbort({ childCreated: true, abortReported: undefined }).state).toBe("not-run");
-	expect(classifyChildAbort({ childCreated: true, abortReported: false }).state).toBe("not-run");
+test("child abort is judged from the five phases, not from a single read", () => {
+	// The chain worked and no record appeared at either read point: measured, so limited.
+	expect(classifyChildAbort(abortPhases()).state).toBe("limited");
+	const settled = classifyChildAbort(abortPhases({ usageAtSettled: 1 }));
+	expect(settled.state).toBe("confirmed");
+	expect(settled.detail).toContain("at agent_settled");
+	// The record only appeared after the child stopped, which a single settle read cannot see.
+	const afterStop = classifyChildAbort(abortPhases({ usageAfterStop: 1 }));
+	expect(afterStop.state).toBe("confirmed");
+	expect(afterStop.detail).toContain("after the child stopped");
+	// `confirmed` is conditional on the read happening after the parent turn ends.
+	expect(afterStop.detail).toContain("conditional on reading after the parent turn ends");
+	expect(classifyChildAbort(abortPhases()).detail).toContain("abort sent=true, abort accepted=true");
+});
+
+test("an exercised child abort is never recorded as not-run", () => {
+	const exercised = [
+		abortPhases(),
+		abortPhases({ usageAtSettled: 1 }),
+		abortPhases({ usageAfterStop: 1 }),
+		abortPhases({ childStopped: false }),
+		abortPhases({ cellAborted: false }),
+		abortPhases({ abortAccepted: false }),
+	];
+	for (const phases of exercised) expect(classifyChildAbort(phases).state).not.toBe("not-run");
+});
+
+test("child abort separates a refused abort from a child that never stopped", () => {
+	expect(classifyChildAbort(abortPhases({ abortAccepted: false })).state).toBe("unavailable");
+	const stuck = classifyChildAbort(abortPhases({ childStopped: false }));
+	expect(stuck.state).toBe("failed");
+	expect(stuck.detail).toContain("15000ms after the abort");
+	expect(classifyChildAbort(abortPhases({ cellAborted: false })).state).toBe("failed");
+});
+
+test("a run whose host never created a child is not-run, not a confirmed abort", () => {
+	// A fixture host answers with fixed events and creates no child session. Recording that as a
+	// product abort would turn a fixture event into compatibility evidence.
+	const noChild = classifyChildAbort(abortPhases({ childSeen: false, childStopped: false, usageAtSettled: 1, usageAfterStop: 1 }));
+	expect(noChild.state).toBe("not-run");
+	expect(noChild.detail).toContain("no child session reached the provider");
+	expect(noChild.detail).toContain("child seen=false");
+});
+
+test("an abort that was never sent is not-run with its reason", () => {
+	const fixtureGap = classifyChildAbort(abortPhases({ abortSent: false, error: "auth.json is missing" }));
+	expect(fixtureGap.state).toBe("not-run");
+	expect(fixtureGap.detail).toContain("fixture insufficiency");
+	const neverSent = classifyChildAbort(abortPhases({ abortSent: false }));
+	expect(neverSent.state).toBe("not-run");
+	expect(neverSent.detail).toContain("never sent");
+});
+
+test("rlm_usage outcome is read from the entry payload", () => {
+	// pi.appendEntry stores the payload under `data`, so a check on entry.outcome never matches and
+	// silently turns a recorded abort into an unobserved one.
+	expect(rlmUsageOutcome({ type: "custom", customType: "rlm_usage", data: { outcome: "aborted" } })).toBe("aborted");
+	expect(rlmUsageOutcome({ type: "custom", customType: "rlm_usage", data: null })).toBeUndefined();
+	expect(rlmUsageOutcome({ type: "custom", customType: "rlm_usage" })).toBeUndefined();
+	expect(rlmUsageOutcome({ outcome: "error" })).toBe("error");
 });
 
 test("fixture insufficiency is not a product defect", () => {

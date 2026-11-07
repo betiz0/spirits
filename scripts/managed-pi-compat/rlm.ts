@@ -20,6 +20,21 @@ export interface RlmChildObservation {
 	error?: string;
 }
 
+/**
+ * The `outcome` of one `rlm_usage` entry.
+ *
+ * `pi.appendEntry("rlm_usage", data)` stores the payload under `entry.data`, so a check that reads
+ * `entry.outcome` never matches and silently turns a recorded abort into an unobserved one.
+ */
+export function rlmUsageOutcome(entry: Record<string, unknown>): string | undefined {
+	const data: unknown = entry.data;
+	if (data !== null && typeof data === "object") {
+		const outcome = (data as { outcome?: unknown }).outcome;
+		if (typeof outcome === "string") return outcome;
+	}
+	return typeof entry.outcome === "string" ? entry.outcome : undefined;
+}
+
 /** Error text that means the fixture was insufficient, not that the product is broken. */
 const FIXTURE_MARKERS = [
 	"auth.json",
@@ -74,21 +89,97 @@ export function classifyChildUsage(observation: RlmChildObservation): { state: C
 	return { state: "limited", detail: "child completed without an rlm_usage record" };
 }
 
-/** Classify the child abort on its own; an unobserved abort is `not-run`, not a pass. */
-export function classifyChildAbort(observation: RlmChildObservation): { state: CompatState; detail: string } {
-	if (observation.abortReported === true) {
-		return { state: "confirmed", detail: "child abort was observed through rlm_usage" };
+/**
+ * The five phases one child abort is measured in.
+ *
+ * Reading the entries once at `agent_settled` cannot tell "the product wrote nothing" from "the
+ * read happened before the write". The harness therefore records the chain end to end: the request,
+ * its arrival in the parent cell, the child's own stop, and the usage entries at both the settle and
+ * after the stop.
+ */
+export interface ChildAbortObservation {
+	/** The RPC abort request was written to the host. */
+	abortSent: boolean;
+	/** False when the host answered the abort with a refusal (no abort surface). */
+	abortAccepted?: boolean;
+	/** The parent cell came back with the abort notice. */
+	cellAborted: boolean;
+	/** A child session reached the provider at all, so something could be aborted. */
+	childSeen: boolean;
+	/** The child's in-flight provider request closed, so the child stopped. */
+	childStopped: boolean;
+	/** `rlm_usage` entries carrying an abort outcome at the run's `agent_settled`. */
+	usageAtSettled: number;
+	/** `rlm_usage` entries carrying an abort outcome in the read taken after the child stopped. */
+	usageAfterStop: number;
+	/** Poll window that was allowed, so a stop that never happened is quantified. */
+	pollWindowMs?: number;
+	/** Reason the abort could not be exercised at all (no launch, fixture insufficiency). */
+	error?: string;
+}
+
+/**
+ * Classify the child abort on its own, in the five existing states.
+ *
+ * `not-run` is only for an abort that never happened, or for a run where no child existed to abort
+ * (a fixture host emits fixed events and never creates a child session). Once a child was running
+ * the item reports what was measured: `confirmed` when the aborted run left its `rlm_usage` record at
+ * either read point, `limited` when the chain worked (cell aborted, child stopped) but no record
+ * appeared, and `failed` when the abort never reached the cell or the child refused to stop. A host
+ * with no abort surface is `unavailable`.
+ */
+export function classifyChildAbort(observation: ChildAbortObservation): { state: CompatState; detail: string } {
+	const phases = [
+		`abort sent=${observation.abortSent}`,
+		`abort accepted=${observation.abortAccepted ?? "unknown"}`,
+		`child seen=${observation.childSeen}`,
+		`cell aborted=${observation.cellAborted}`,
+		`child stopped=${observation.childStopped}`,
+		`usage at settle=${observation.usageAtSettled}`,
+		`usage after stop=${observation.usageAfterStop}`,
+	].join(", ");
+	if (!observation.abortSent) {
+		if (isFixtureInsufficiency(observation.error)) {
+			return { state: "not-run", detail: `fixture insufficiency: ${observation.error}` };
+		}
+		return { state: "not-run", detail: `the abort request was never sent (${phases})` };
 	}
-	if (observation.abortReported === false) {
+	if (observation.abortAccepted === false) {
+		return { state: "unavailable", detail: `the dedicated Pi refused the abort request (${phases})` };
+	}
+	if (!observation.childSeen) {
 		return {
 			state: "not-run",
-			detail: "the abort was exercised but no rlm_usage abort record was observed",
+			detail:
+				observation.error === undefined
+					? `no child session reached the provider, so nothing was running when the abort arrived (${phases})`
+					: `no child session was created: ${observation.error} (${phases})`,
 		};
 	}
-	if (isFixtureInsufficiency(observation.error)) {
-		return { state: "not-run", detail: `fixture insufficiency: ${observation.error}` };
+	if (!observation.cellAborted) {
+		return { state: "failed", detail: `the abort never reached the parent cell (${phases})` };
 	}
-	return { state: "not-run", detail: "child abort was not exercised" };
+	if (!observation.childStopped) {
+		return {
+			state: "failed",
+			detail: `the child was still running ${observation.pollWindowMs ?? 0}ms after the abort (${phases})`,
+		};
+	}
+	if (observation.usageAfterStop > 0 || observation.usageAtSettled > 0) {
+		const point = observation.usageAtSettled > 0 ? "at agent_settled" : "only after the child stopped";
+		// The condition belongs in the detail: a reader who measures at `agent_settled` alone would
+		// report this same product as `limited`, so `confirmed` is only true for a later read.
+		return {
+			state: "confirmed",
+			detail:
+				`the aborted child recorded rlm_usage ${point}; conditional on reading after the parent turn ends, ` +
+				`because the product appends rlm_usage once the aborted tool call unwinds (${phases})`,
+		};
+	}
+	return {
+		state: "limited",
+		detail: `the abort reached the cell and the child stopped, but no rlm_usage abort record appeared at settle or after the stop (${phases})`,
+	};
 }
 
 /**

@@ -1,10 +1,19 @@
 import { expect, test } from "bun:test";
 import {
 	buildObservationEvidence,
+	COMPATIBILITY_MET_DEFINITION,
 	computeCompatibilityMet,
 	computeRunnerCompleted,
+	countStates,
+	formatStateCounts,
+	matrixPurposeCounts,
+	nonRequiredIssues,
 	OBSERVATION_EVIDENCE,
+	requiredObservationsNotMet,
 	REQUIRED_OBSERVATIONS,
+	ROLE_CLEAR_MODEL_ITEM,
+	RUNNER_COMPLETED_DEFINITION,
+	SUMMARY_READING_NOTES,
 } from "../../../scripts/managed-pi-compat/evidence.ts";
 import type { CompatResult } from "../../../scripts/managed-pi-compat/runner.ts";
 
@@ -25,18 +34,77 @@ test("runner completion and compatibility are separate", () => {
 	expect(computeCompatibilityMet("official", withNotRun)).toBe(false);
 });
 
-test("unobservable items are not required", () => {
-	// The rlm child abort and the existing agent dir write-back cannot be observed on the dedicated
-	// Pi yet, so they must not decide the verdict (spec: 必須観測の範囲).
-	expect(REQUIRED_OBSERVATIONS).not.toContain("rlm child abort");
+test("a product gap does not remove an item from the required list", () => {
+	// The child abort is measurable end to end. If the product does not deliver the record the item
+	// says so and the verdict stays false; excluding it would hide the gap. Write-back compatibility
+	// is the single item the base spec pins as unproven, so it stays out.
+	expect(REQUIRED_OBSERVATIONS).toContain("rlm child abort");
+	expect(REQUIRED_OBSERVATIONS).toContain("existing agent dir untouched");
 	expect(REQUIRED_OBSERVATIONS).not.toContain("existing agent dir write-back compatibility");
-	const withUnobserved: CompatResult[] = [
-		...confirmedResults(),
-		{ name: "rlm child abort", state: "not-run" },
-		{ name: "existing agent dir write-back compatibility", state: "not-run" },
+	for (const state of ["limited", "unavailable", "not-run", "failed"] as const) {
+		const results = confirmedResults().map((result) =>
+			result.name === "rlm child abort" ? { ...result, state } : result,
+		);
+		expect(computeCompatibilityMet("official", results)).toBe(false);
+	}
+});
+
+test("the summary separates required gaps from items outside the required list", () => {
+	const results: CompatResult[] = confirmedResults().map((result) =>
+		result.name === "rlm child usage" ? { ...result, state: "unavailable" as const } : result,
+	);
+	results.push({ name: "rlm auto parent", state: "limited" }, { name: "settings write compatibility", state: "not-run" });
+	expect(requiredObservationsNotMet(results).map((result) => result.name)).toEqual(["rlm child usage"]);
+	expect(nonRequiredIssues(results).map((result) => result.name)).toEqual([
+		"rlm auto parent",
+		"settings write compatibility",
+	]);
+	expect(computeCompatibilityMet("official", results)).toBe(false);
+});
+
+test("both judgement definitions name what they count", () => {
+	expect(RUNNER_COMPLETED_DEFINITION).toContain("not-run");
+	expect(COMPATIBILITY_MET_DEFINITION).toContain("required observation");
+	expect(RUNNER_COMPLETED_DEFINITION).not.toBe(COMPATIBILITY_MET_DEFINITION);
+	// The matrix row being confirmed says nothing about the other purposes, so the definition says so.
+	expect(COMPATIBILITY_MET_DEFINITION).toContain("role, /clear, or /model");
+});
+
+test("the state breakdown always names all five labels", () => {
+	const results: CompatResult[] = [
+		{ name: "a", state: "confirmed" },
+		{ name: "b", state: "confirmed" },
+		{ name: "c", state: "limited" },
+		{ name: "d", state: "not-run" },
 	];
-	expect(computeRunnerCompleted(withUnobserved)).toBe(false);
-	expect(computeCompatibilityMet("official", withUnobserved)).toBe(true);
+	expect(formatStateCounts(countStates(results))).toBe(
+		"confirmed=2 limited=1 unavailable=0 not-run=1 failed=0",
+	);
+});
+
+test("the summary notes qualify the two easy-to-overread confirmations", () => {
+	const abort = SUMMARY_READING_NOTES.find((note) => note.item === "rlm child abort");
+	expect(abort?.text).toContain("after the parent turn ends");
+	expect(abort?.text).toContain("never at `agent_settled`");
+	const matrix = SUMMARY_READING_NOTES.find((note) => note.item === ROLE_CLEAR_MODEL_ITEM);
+	expect(matrix?.text).toContain("any purpose was observed");
+	// The observed count comes from the item's own recorded purposes, not from the row states.
+	const results: CompatResult[] = [
+		{
+			name: ROLE_CLEAR_MODEL_ITEM,
+			state: "confirmed",
+			data: {
+				purposes: [
+					{ id: "skill-strong-phase", state: "available" },
+					{ id: "thinking-level", state: "limited" },
+					{ id: "conversation-clear", state: "not-run" },
+					{ id: "role-badge", state: "not-run" },
+				],
+			},
+		},
+	];
+	expect(matrixPurposeCounts(results)).toEqual({ observed: 2, total: 4 });
+	expect(matrixPurposeCounts([{ name: "managed extension load", state: "confirmed" }])).toBeUndefined();
 });
 
 test("failed=0 does not imply compatibility", () => {

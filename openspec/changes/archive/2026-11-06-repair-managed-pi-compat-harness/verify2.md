@@ -1,5 +1,7 @@
 # 深い検証レポート: repair-managed-pi-compat-harness
 
+このレポートの後の訂正と再検証は [verify2-rerun.md](verify2-rerun.md) にある。`rlm child abort` の製品欠落扱いを含む判定の書き換え、fixture / official の再実行、ランナー来歴の記録をそこに残す。
+
 - スキーマ: `spec-driven`
 - 対象ルート: `/workspace`（ローカル、登録ストアなし）
 - 使用する変更: `repair-managed-pi-compat-harness`

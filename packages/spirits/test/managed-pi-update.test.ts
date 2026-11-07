@@ -64,6 +64,9 @@ test("update does not check the network on launch", async () => {
 	const result = await launchManagedPi({
 		root: first.root,
 		args: ["--version"],
+		// An empty env keeps the launch inside the fixture: an inherited SPIRITS_CODING_AGENT_DIR
+		// from the developer shell is refused by the managed agent dir guard.
+		env: {},
 		home: first.work,
 		spawn: async () => {
 			requested++;
