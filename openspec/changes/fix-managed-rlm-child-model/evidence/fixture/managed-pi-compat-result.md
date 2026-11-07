@@ -8,7 +8,7 @@
 - Note: `rlm child abort` is confirmed conditionally: the product appends `rlm_usage` after the parent turn ends, so the record is readable in the read taken after the child stops, never at `agent_settled`.
 - Note: `role/clear/model matrix` is confirmed when any purpose was observed on the dedicated Pi; the observed purpose count is printed next to it, and `compatibilityMet` does not follow from it. This run observed 1 of 9 purposes.
 - Existing agent dir untouched: true
-- Runner version: cb1733e198e191f0ff07e098c9eea97f60a43cda (diff sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, 0 untracked, clean=true)
+- Runner version: 2467ad412a06a6a1c739c4326249d0eb02acd1ff (diff sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, 0 untracked, clean=true)
 
 ## Required observations not confirmed
 
@@ -27,7 +27,7 @@
 - [not-run] settings write compatibility: the Pi extension API does not expose a persistent settings write; Node file writes are not a substitute
 - [not-run] direct execute probe is auxiliary: the direct execute probe needs another extension's tool definition; Pi hands every extension its own API object, so no definition is reachable; tsrepl was observed in the tool inventory
 - [limited] rlm child answer: child completed without a final answer
-- [not-run] rlm auto parent: no child request reached the provider and the run reported nothing, so the auto parent was never exercised (child created=true, requested model=none, final answer=yes, usage=false)
+- [not-run] rlm auto parent: the host answers with fixed events and never requests the provider, so the auto parent was never exercised (child created=true, requested model=none, final answer=yes, usage=false, child target in fixture=true, host requests providers=false)
 
 ## Items
 
@@ -60,7 +60,7 @@
 - [limited] rlm child answer: child completed without a final answer
 - [limited] rlm child usage: child completed without an rlm_usage record
 - [limited] rlm physical model child: child completed without final answer, usage
-- [not-run] rlm auto parent: no child request reached the provider and the run reported nothing, so the auto parent was never exercised (child created=true, requested model=none, final answer=yes, usage=false)
+- [not-run] rlm auto parent: the host answers with fixed events and never requests the provider, so the auto parent was never exercised (child created=true, requested model=none, final answer=yes, usage=false, child target in fixture=true, host requests providers=false)
 - [confirmed] role/clear/model matrix: confirmed here means observed on the dedicated Pi, including 0 purpose(s) observed as unavailable; 1 of 9 purposes observed, rows derive from those observations
 - [confirmed] existing agent dir untouched: the seeded existing agent dir kept its content and modification times across every launch
 

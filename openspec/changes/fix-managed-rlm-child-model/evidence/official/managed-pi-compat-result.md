@@ -8,8 +8,8 @@
 - Note: `rlm child abort` is confirmed conditionally: the product appends `rlm_usage` after the parent turn ends, so the record is readable in the read taken after the child stops, never at `agent_settled`.
 - Note: `role/clear/model matrix` is confirmed when any purpose was observed on the dedicated Pi; the observed purpose count is printed next to it, and `compatibilityMet` does not follow from it. This run observed 2 of 9 purposes.
 - Existing agent dir untouched: true
-- Runner version: cb1733e198e191f0ff07e098c9eea97f60a43cda (diff sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, 0 untracked, clean=true)
-- Measured bundle commit: cb1733e198e191f0ff07e098c9eea97f60a43cda
+- Runner version: 2467ad412a06a6a1c739c4326249d0eb02acd1ff (diff sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, 0 untracked, clean=true)
+- Measured bundle commit: 2467ad412a06a6a1c739c4326249d0eb02acd1ff
 
 ## Required observations not confirmed
 

@@ -15,22 +15,29 @@
  */
 
 import { join } from "node:path";
-import { createCompatRunner } from "/tmp/mp2wt/scripts/managed-pi-compat/runner.ts";
+import { createCompatRunner } from "../../../../scripts/managed-pi-compat/runner.ts";
 import {
 	startFakeProvider,
 	type FakeReply,
 	type FakeToolCall,
-} from "/tmp/mp2wt/scripts/managed-pi-compat/fake-provider.ts";
+} from "../../../../scripts/managed-pi-compat/fake-provider.ts";
 import {
 	findResponse,
 	runAbortRpcProbe,
 	runRpcProbe,
 	type RpcRecord,
-} from "/tmp/mp2wt/scripts/managed-pi-compat/rpc.ts";
-import { isVirtualRequestedModel, rlmUsageOutcome, writeRlmFixture } from "/tmp/mp2wt/scripts/managed-pi-compat/rlm.ts";
+} from "../../../../scripts/managed-pi-compat/rpc.ts";
+import {
+	isVirtualRequestedModel,
+	rlmUsageOutcome,
+	writeRlmFixture,
+} from "../../../../scripts/managed-pi-compat/rlm.ts";
 
-const FORK = process.env.SPIRITS_FORK_BINARY ?? "/home/betiz/project/spirits/dist/spirits-linux-x64";
-const PROVIDER = "/tmp/mp2wt/scripts/managed-pi-compat/fixtures/custom-provider.ts";
+// The harness helpers live in the same checkout as this file, so the probe runs from any worktree
+// without editing paths. Only the binary under test is passed in.
+const CHECKOUT = join(import.meta.dirname, "../../../..");
+const FORK = process.env.SPIRITS_FORK_BINARY ?? join(CHECKOUT, "dist/spirits-linux-x64");
+const PROVIDER = join(CHECKOUT, "scripts/managed-pi-compat/fixtures/custom-provider.ts");
 const CHILD_DELAY_MS = 8000;
 const ABORT_AFTER_MS = 3000;
 const STOP_SETTLE_MS = 700;
@@ -156,4 +163,9 @@ for (const [name, model, abort] of [
 ] as const) {
 	report.push(await probe(name, model, abort));
 }
-console.log(JSON.stringify({ fork: FORK, cases: report }, null, "\t"));
+const forkFile = Bun.file(FORK);
+if (!(await forkFile.exists())) {
+	throw new Error(`fork binary not found: ${FORK} (build it with \`bun scripts/build-binaries.ts --version <version>\`)`);
+}
+const forkSha256 = new Bun.CryptoHasher("sha256").update(await forkFile.arrayBuffer()).digest("hex");
+console.log(JSON.stringify({ fork: FORK, forkSha256, cases: report }, null, "\t"));
