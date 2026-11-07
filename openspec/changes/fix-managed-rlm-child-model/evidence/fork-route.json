@@ -1,0 +1,142 @@
+{
+	"fork": "/home/betiz/project/spirits/dist/spirits-linux-x64",
+	"forkSha256": "6b26ddc0dd445350ec552d8a11be80baea5fbca2b72ca135fb761f770ace00f6",
+	"cases": [
+		{
+			"case": "physical",
+			"abortSent": false,
+			"providerRequests": [
+				{
+					"kind": "tool-call",
+					"model": "fake-model",
+					"receivedAt": 368,
+					"respondedAt": 369
+				},
+				{
+					"kind": "text",
+					"model": "fake-model",
+					"receivedAt": 384,
+					"respondedAt": 8385,
+					"delayMs": 8000
+				},
+				{
+					"kind": "text",
+					"model": "fake-model",
+					"receivedAt": 8393,
+					"respondedAt": 8394
+				}
+			],
+			"childRequests": 1,
+			"childRequestedModel": "fake-model",
+			"childModelIsVirtual": false,
+			"childClosedEarly": false,
+			"cellText": "{\"content\":[{\"type\":\"text\",\"text\":\"[value]\\n\\\"child answer\\\"\"}],\"details\":{\"value\":\"\\\"child answer\\\"\",\"truncated\":false,\"truncatedChars\":0},\"isError\":false}",
+			"cellIsError": false,
+			"usageAtSettled": [
+				{
+					"outcome": "completed",
+					"provider": "compat-fake",
+					"modelId": "fake-model",
+					"sessionId": "set"
+				}
+			],
+			"usagePolls": [],
+			"stderr": "",
+			"exitCode": 0
+		},
+		{
+			"case": "abort",
+			"abortSent": true,
+			"providerRequests": [
+				{
+					"kind": "tool-call",
+					"model": "fake-model",
+					"receivedAt": 373,
+					"respondedAt": 373
+				},
+				{
+					"kind": "text",
+					"model": "fake-model",
+					"receivedAt": 388,
+					"closedAt": 3004,
+					"delayMs": 8000
+				}
+			],
+			"childRequests": 1,
+			"childRequestedModel": "fake-model",
+			"childModelIsVirtual": false,
+			"childClosedEarly": true,
+			"cellText": "{\"content\":[{\"type\":\"text\",\"text\":\"[error]\\nAbortError: 呼び出し元の中断により実行を打ち切りました。\\n部分実行により永続コンテキストが不整合になっている可能性があります。\\n`reset: true` でコンテキストを初期化できます。\\n提案: reset: true で再生成するか、timeout を増やして再実行してください。\"}],\"details\":{\"error\":\"AbortError: 呼び出し元の中断により実行を打ち切りました。\\n部分実行により永続コンテキストが不整合になっている可能性があります。\\n`reset: true` でコンテキストを初期化できます。\\n提案: reset: true で再生成するか、timeout を増やして再実行してください。\",\"truncated\":false,\"truncated",
+			"cellIsError": true,
+			"usageAtSettled": [],
+			"usagePolls": [
+				{
+					"id": "entries-poll-1",
+					"entries": [
+						{
+							"outcome": "aborted",
+							"provider": "compat-fake",
+							"modelId": "fake-model",
+							"sessionId": "set"
+						}
+					]
+				},
+				{
+					"id": "entries-poll-final",
+					"entries": [
+						{
+							"outcome": "aborted",
+							"provider": "compat-fake",
+							"modelId": "fake-model",
+							"sessionId": "set"
+						}
+					]
+				}
+			],
+			"stderr": "",
+			"exitCode": 0
+		},
+		{
+			"case": "auto",
+			"abortSent": false,
+			"providerRequests": [
+				{
+					"kind": "tool-call",
+					"model": "fake-model",
+					"receivedAt": 307,
+					"respondedAt": 307
+				},
+				{
+					"kind": "text",
+					"model": "fake-model",
+					"receivedAt": 324,
+					"respondedAt": 8324,
+					"delayMs": 8000
+				},
+				{
+					"kind": "text",
+					"model": "fake-model",
+					"receivedAt": 8333,
+					"respondedAt": 8333
+				}
+			],
+			"childRequests": 1,
+			"childRequestedModel": "fake-model",
+			"childModelIsVirtual": false,
+			"childClosedEarly": false,
+			"cellText": "{\"content\":[{\"type\":\"text\",\"text\":\"[value]\\n\\\"child answer\\\"\"}],\"details\":{\"value\":\"\\\"child answer\\\"\",\"truncated\":false,\"truncatedChars\":0},\"isError\":false}",
+			"cellIsError": false,
+			"usageAtSettled": [
+				{
+					"outcome": "completed",
+					"provider": "compat-fake",
+					"modelId": "fake-model",
+					"sessionId": "set"
+				}
+			],
+			"usagePolls": [],
+			"stderr": "",
+			"exitCode": 0
+		}
+	]
+}
