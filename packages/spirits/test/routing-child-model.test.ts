@@ -267,3 +267,17 @@ test("prefers the strong target over the default and the previous response", () 
 
 	expect(resolve(AUTO_SELECTION, ctx)).toEqual(OPUS);
 });
+
+// spec "dual-model-routing / 設定変更は次の子から反映する"
+test("re-reads the strong target after the strong setting moves", () => {
+	const { resolve, phase, enterStrong, setSettings } = harness();
+	const { ctx } = context();
+	enterStrong();
+
+	expect(resolve(AUTO_SELECTION, ctx)).toEqual(OPUS);
+
+	// The phase stays strong and only the strong setting moves to another usable model.
+	setSettings({ ...SETTINGS, strong: { provider: "openai", modelId: "gpt-5.6-luna" } });
+	expect(phase.current()).toBe(MODEL_ROLE_STRONG);
+	expect(resolve(AUTO_SELECTION, ctx)).toEqual(LUNA);
+});

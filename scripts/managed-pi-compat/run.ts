@@ -77,6 +77,7 @@ import {
 	classifyChildCreation,
 	classifyChildUsage,
 	classifyPhysicalChild,
+	fixtureProvidesChildTarget,
 	rlmUsageOutcome,
 	writeRlmFixture,
 	type ChildAbortObservation,
@@ -1107,7 +1108,7 @@ async function main(): Promise<number> {
 						log: physicalLog,
 					}));
 					const autoProvider = startFakeProvider(rlmToolCall, { reply: rlmReply(0) });
-					await writeRlmFixture({
+					const autoFixture = await writeRlmFixture({
 						agentDir: runner.agentDir,
 						providerBaseUrl: autoProvider.baseUrl,
 					});
@@ -1130,6 +1131,10 @@ async function main(): Promise<number> {
 							usageRecorded: usageOf(autoRun).length > 0,
 							childRequestedModel: childRequestedModel(autoRequests),
 							error: autoRun?.isError ? autoRun.text : autoRun?.stderr,
+							// The two gaps that alone make the item `not-run`: a fixture with no model the child
+							// could run, and a host that answers with fixed events (a fixture run).
+							childTargetInFixture: fixtureProvidesChildTarget(autoFixture, COMPAT_PROVIDER),
+							hostCanRequestProvider: runner.mode === "official",
 						}),
 						data: { providerRequests: providerLog(autoRequests) },
 						log: {

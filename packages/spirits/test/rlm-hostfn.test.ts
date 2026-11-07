@@ -925,6 +925,43 @@ test("resolution failure is catchable in the cell", async () => {
 	expect(cell.value).toContain("defaultProvider");
 });
 
+// spec "rlm / 解決失敗の後も次の呼び出しは進む" (design Decision 4)
+test("a resolution failure releases the queue for the next call", async () => {
+	const pi = new FakePi();
+	const capturing = makeCapturingSpawn();
+	let resolvable = false;
+	const entry = createRlmHostFn({
+		pi,
+		depth: 0,
+		maxDepth: 2,
+		spawn: capturing.spawn,
+		resolveChildModel: () => {
+			if (!resolvable) {
+				throw new Error("no child model: set defaultProvider and defaultModel");
+			}
+			return RESOLVED;
+		},
+	});
+
+	await expect(callRlm(entry, rlmScope({ model: AUTO }), "x")).rejects.toThrow("no child model");
+
+	// A queue still held by the failed call would park the second call here until the test timeout.
+	resolvable = true;
+	const second = callRlm(entry, rlmScope({ model: AUTO }), "y");
+	const settled = await Promise.race([
+		second.then(() => "returned"),
+		new Promise<string>((resolve) => setTimeout(() => resolve("still queued"), 250)),
+	]);
+	expect(settled).toBe("returned");
+	expect(await second).toBe("ok");
+
+	// The second call reached `spawn` on the resolved model, and each call recorded exactly one entry.
+	expect(capturing.params.length).toBe(1);
+	expect(capturing.params[0].model).toEqual(RESOLVED);
+	expect(usageEntries(pi).map((entry) => entry.outcome)).toEqual(["error", "completed"]);
+	expect(usageEntries(pi)[1].provider).toBe("anthropic");
+});
+
 // spec "rlm / 解決した物理モデルで子を起動する" と "解決したモデルの記録"
 test("resolved model reaches spawn and usage", async () => {
 	const pi = new FakePi();

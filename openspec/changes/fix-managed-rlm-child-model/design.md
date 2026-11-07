@@ -62,6 +62,8 @@
 
 `rlm` は REPL ごとに直列化する。キュー待ちの後に解決することで、位相・設定・直近の成功応答を「子が実際に始まる時点」で読む。キュー待ちの間に設定編集や `agent_settled` があっても、古い値で決めない。
 
+解決はキューの順番を取った後に行うので、解決の例外経路も他の出口と同じく、順番を必ず次の呼び出しへ渡す。例外経路が占有を解く `finally` の外にあると、1 回の解決失敗で同じ REPL の以後の `rlm` がすべて止まる(キューは REPL ごとのクロージャにあり、tsrepl の timeout は既定なし、`reset: true` でも解けない)。解決は占有を解く `finally` の内側で行う。
+
 - 代替: 呼び出し直後に解決する。待ち時間に入力があった場合、子が実際に始まる時点と違う位相で決める。親のモデル未設定チェックだけを先に済ませるのは従来どおりでよい(子を作るかどうかが決まる)。
 
 ### 5. `rlm_usage` の `provider` / `modelId` は子へ渡したモデル
@@ -91,12 +93,17 @@
 既存の `rlm auto parent` の観測に、fake provider が受けたリクエストのモデル名を加える。判定は次の 3 区分にする。
 
 - confirmed: 子のリクエストが物理モデルとして届き、最終回答と usage が得られた。
-- failed: 子のリクエストが仮想モデルのまま届いた、または fixture が揃っているのに子が完了しなかった(製品側の回帰)。
-- not-run: fixture 不足(子の対象にできる物理モデルが fixture に無い)。既存の `classifyFixtureInsufficiency` と同じく、製品不具合とは断定しない。
+- failed: 子のリクエストが仮想モデルのまま届いた、または fixture が子の対象を用意しているのに子が完了しなかった(製品側の回帰)。解決エラー(`has no child model` など)と、子へのリクエストもエラーも無いままの未完了もここに入る。
+- not-run: fixture が子の対象を用意していない(子の対象にできる物理モデルが fixture に無い)場合と、provider へリクエストを送らない固定イベントの host(fixture 実行)の場合。後者は何を解決したかを読む手掛かりが無く、製品不具合とは断定できない。
+
+ランナーは auto の実行の前に必ず `writeRlmFixture` で子の対象(既定 provider、既定モデル、認証、モデル定義)を書くので、official 実行では「fixture 不足」は成り立たない。したがって解決エラーの文字列(`has no child model` / `has no credentials`)を共通の `FIXTURE_MARKERS` に入れない。共通マーカーは物理モデル項目など他の項目の判定にも使われ、auto では fixture が揃っているのに回帰を not-run に落とす。auto の判定は、観測に「fixture が子の対象を用意したか」と「host が provider へリクエストを送り得るか(official か fixture か)」を持たせて区別する。
+
+判定の入力に使う最終回答は、エラーになったセルの文を数えない(`run.ts` の `answerOf`。物理モデル項目にも同じ扱いを適用する)。そうしないと、子が一度も走っていない失敗文が「最終回答」として数えられ、confirmed の条件を満たしてしまう。
 
 `classifyAutoChild` をこの判定に置き換え、`OBSERVATION_EVIDENCE` の説明も新しい判定条件へ書き換える。
 
 - 代替: 子のモデルを直接読む新しい probe を追加する。項目が増え、`docs/spirits-managed-pi.md` の対応表・要約・ラベル定義の書き換えの範囲が広がる。既存項目の provider リクエストで同じことが言える。
+- 代替(採らない): 解決エラーの文字列を fixture 不足のマーカーとして not-run にする。runner が fixture を揃えて走らせる以上、子モデル解決の回帰が failed の件数に現れず、`limited` に埋もれるのと同じ状態になる。
 - 代替(採らない): 失敗を `limited` のまま残す。既知の制約として埋もれ、回帰が Results の failed 件数に現れない。
 - 代替: 親のセル結果だけから判定する。子は生成できるが応答しない、という状態と区別できない。
 
@@ -112,6 +119,7 @@
 - [直近の成功応答をセッション branch から読む実装は pi の assistant message の形に依存する] → `test/pi-runtime/` に `getBranch()` の message entry が `provider` / `model` / `stopReason` を持つことをピン留めするテストを置き、壊れたときに気がつける場所を作る。
 - [親が物理モデルで子を生成しなかった呼び出しの記録値が null になる(`provider` / `modelId` が変わる)] → 子を生成した呼び出しは、親が物理モデルでも記録値が変わらない(解決結果が親と同一になるため)。意味の変更は仕様・docs に明記し、`rlm_usage` を読む既存計測の定義文(`docs/spirits-m3-rlm.md` の集計規約、`docs/spirits-m5-phase2.md` の指標表)を同じ change で確認し、必要なら更新する。
 - [子が受け取った物理モデルの provider を子側が認証できないケースが残る] → 第三者拡張の provider に限定される。認証解決の場所をエラーに残し、docs の既知の制約として書く。PA は上流 issue 側の話として追わない。
+- [解決の例外経路で直列化の占有を解き忘れると、1 回の解決失敗で同じ REPL の以後の `rlm` が止まる] → 解決を占有を解く `finally` の内側で行い、`rlm-hostfn.test.ts` に「解決失敗の後の 2 回目の呼び出しが `spawn` に到達する」ケースを置く(Decision 4)。
 - [ランナーの auto 項目が confirmed に変わらない可能性がある] → fork 経路と managed 経路の両方で単体レベルの再現手順を用意し、clean ツリーでの fixture / official 実行を証拠として残す。変わらなければ、原因を fixture 不足(not-run)と製品側(failed)に切り分けて報告する。`limited` には残さない。
 
 ## Migration Plan

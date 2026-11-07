@@ -10,11 +10,31 @@ import {
 	classifyChildUsage,
 	classifyFixtureInsufficiency,
 	classifyPhysicalChild,
+	fixtureProvidesChildTarget,
+	isFixtureInsufficiency,
 	isVirtualRequestedModel,
 	rlmUsageOutcome,
 	writeRlmFixture,
+	type AutoChildObservation,
 	type ChildAbortObservation,
 } from "../../../scripts/managed-pi-compat/rlm.ts";
+
+/**
+ * The `rlm auto parent` observation of a dedicated-Pi run whose fixture offered a child target, with
+ * the named parts overridden. The two harness flags decide `failed` against `not-run`, so every case
+ * states them instead of inheriting a default.
+ */
+function autoObservation(overrides: Partial<AutoChildObservation> = {}): AutoChildObservation {
+	return {
+		childCreated: true,
+		finalAnswer: "child answer",
+		usageRecorded: true,
+		childRequestedModel: "fake-model",
+		childTargetInFixture: true,
+		hostCanRequestProvider: true,
+		...overrides,
+	};
+}
 
 /** The five measured phases of one child abort, with the named ones overridden. */
 function abortPhases(overrides: Partial<ChildAbortObservation> = {}): ChildAbortObservation {
@@ -90,12 +110,7 @@ test("physical model child", () => {
 });
 
 test("auto parent is confirmed only on a physical child request", () => {
-	const result = classifyAutoChild({
-		childCreated: true,
-		finalAnswer: "child answer",
-		usageRecorded: true,
-		childRequestedModel: "fake-model",
-	});
+	const result = classifyAutoChild(autoObservation());
 	expect(result.state).toBe("confirmed");
 	expect(result.detail).toContain("fake-model");
 });
@@ -103,12 +118,7 @@ test("auto parent is confirmed only on a physical child request", () => {
 test("an auto child request that still names the virtual model fails", () => {
 	// Answer, usage and a created child are not enough: the request itself is what proves the parent
 	// resolved a physical target rather than handing the virtual selection to a child that cannot route.
-	const result = classifyAutoChild({
-		childCreated: true,
-		finalAnswer: "child answer",
-		usageRecorded: true,
-		childRequestedModel: "auto",
-	});
+	const result = classifyAutoChild(autoObservation({ childRequestedModel: "auto" }));
 	expect(result.state).toBe("failed");
 	expect(result.detail).toContain("virtual model");
 	expect(isVirtualRequestedModel("spirits/auto")).toBe(true);
@@ -118,29 +128,86 @@ test("an auto child request that still names the virtual model fails", () => {
 });
 
 test("a complete fixture whose auto child never started fails", () => {
-	const result = classifyAutoChild({ childCreated: false, usageRecorded: false, error: "No API key found for spirits" });
+	const result = classifyAutoChild(
+		autoObservation({ childCreated: false, finalAnswer: undefined, usageRecorded: false, childRequestedModel: undefined, error: "No API key found for spirits" }),
+	);
 	expect(result.state).toBe("failed");
 	expect(result.detail).toContain("no child request reached the provider");
 	expect(result.detail).toContain("No API key found for spirits");
 });
 
+// spec "managed-pi-compatibility / provider へリクエストを送らない host"
 test("a host that never sent a child request does not fail the auto parent", () => {
 	// A fixture host answers with fixed events and never opens a provider request. With nothing to read
 	// the item is unexercised, not a product defect.
-	const result = classifyAutoChild({ childCreated: true, finalAnswer: "", usageRecorded: false });
+	const result = classifyAutoChild(
+		autoObservation({ finalAnswer: undefined, usageRecorded: false, childRequestedModel: undefined, hostCanRequestProvider: false }),
+	);
 	expect(result.state).toBe("not-run");
 	expect(result.detail).toContain("never exercised");
 	expect(result.detail).toContain("requested model=none");
+	// The same observation on the dedicated Pi is a child that never ran.
+	expect(classifyAutoChild(autoObservation({ finalAnswer: undefined, usageRecorded: false, childRequestedModel: undefined })).state).toBe(
+		"failed",
+	);
 });
 
-test("an auto parent with no resolvable child target is not a product defect", () => {
-	const result = classifyAutoChild({
-		childCreated: false,
-		usageRecorded: false,
-		error: "spirits/auto has no child model: tried normal; defaultProvider and defaultModel are not set",
-	});
+// spec "managed-pi-compatibility / fixture が揃っているのに子の対象を解決できない"
+test("a resolution error with a complete fixture is a product failure", () => {
+	const result = classifyAutoChild(
+		autoObservation({
+			childCreated: false,
+			finalAnswer: undefined,
+			usageRecorded: false,
+			childRequestedModel: undefined,
+			error: "spirits/auto has no child model: tried normal; defaultProvider and defaultModel are not set",
+		}),
+	);
+	expect(result.state).toBe("failed");
+	expect(result.detail).toContain("has no child model");
+	// The runner writes the child target before the auto run, so the resolution error is not a fixture gap.
+	expect(isFixtureInsufficiency(result.detail)).toBe(false);
+});
+
+// spec "managed-pi-compatibility / 子の対象を解決できない spirits/auto の親"
+test("an auto parent whose fixture offers no child target is not a product defect", () => {
+	const result = classifyAutoChild(
+		autoObservation({
+			childCreated: false,
+			finalAnswer: undefined,
+			usageRecorded: false,
+			childRequestedModel: undefined,
+			childTargetInFixture: false,
+			error: "spirits/auto has no child model: tried normal; defaultProvider and defaultModel are not set",
+		}),
+	);
 	expect(result.state).toBe("not-run");
-	expect(result.detail).toContain("fixture insufficiency");
+	expect(result.detail).toContain("no model for the child to run on");
+});
+
+// spec "managed-pi-compatibility / spirits/auto の子セッション": an official run that reports neither a
+// child request nor an error is a child that did not complete, not an unexercised item.
+test("an official run with no child request and no error fails", () => {
+	const result = classifyAutoChild(
+		autoObservation({ childCreated: false, finalAnswer: undefined, usageRecorded: false, childRequestedModel: undefined }),
+	);
+	expect(result.state).toBe("failed");
+	expect(result.detail).toContain("no child request reached the provider");
+});
+
+test("the child target flag reads what the fixture wrote", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "spirits-rlm-fixture-"));
+	try {
+		const agentDir = join(dir, "agent");
+		const withModel = await writeRlmFixture({ agentDir, providerBaseUrl: "http://127.0.0.1:1" });
+		expect(fixtureProvidesChildTarget(withModel, "compat-fake")).toBe(true);
+		// Without `models.json` the provider has no definition, so the child has nothing to run on.
+		const withoutModel = await writeRlmFixture({ agentDir });
+		expect(fixtureProvidesChildTarget(withoutModel, "compat-fake")).toBe(false);
+		expect(fixtureProvidesChildTarget(withModel, "other-provider")).toBe(false);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
 });
 
 test("child generation, answer, usage, and abort are judged separately", () => {
@@ -221,12 +288,13 @@ test("fixture insufficiency is not a product defect", () => {
 });
 
 test("an auto child that answered without usage is not confirmed", () => {
-	const result = classifyAutoChild({
-		childCreated: true,
-		finalAnswer: "ok",
-		usageRecorded: false,
-		childRequestedModel: "fake-model",
-	});
+	const result = classifyAutoChild(autoObservation({ finalAnswer: "ok", usageRecorded: false }));
 	expect(result.state).toBe("failed");
 	expect(result.detail).toContain("no rlm_usage record");
+});
+
+test("a child-model resolution error is not a fixture marker", () => {
+	// The runner writes the child target before the auto run, so these belong to the product judgement.
+	expect(isFixtureInsufficiency("spirits/auto has no child model: tried normal, model is missing")).toBe(false);
+	expect(isFixtureInsufficiency("the latest response model openai/gpt-5.6-luna has no credentials")).toBe(false);
 });

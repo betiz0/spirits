@@ -11,7 +11,7 @@
 import { expect, test } from "bun:test";
 import type { ExtensionToolContext, PiModel } from "@earendil-works/pi-coding-agent";
 import type { HostFnScope } from "../src/repl/registry.ts";
-import { SKILL_COMMAND_PREFIX } from "../src/constants.ts";
+import { MODEL_ROLE_STRONG, SKILL_COMMAND_PREFIX } from "../src/constants.ts";
 import type { RoutingSettings } from "../src/config.ts";
 import { createRlmHostFn, type SpawnFn } from "../src/rlm/hostfn.ts";
 import type { RlmTokens } from "../src/rlm/spawn.ts";
@@ -21,6 +21,7 @@ import { AUTO_SELECTION, fakeToolContext } from "./routing/fake-pi.ts";
 
 const SONNET: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5" };
 const OPUS: PiModel = { provider: "anthropic", id: "claude-opus-4-7" };
+const LUNA: PiModel = { provider: "openai", id: "gpt-5.6-luna" };
 const SETTINGS: RoutingSettings = {
 	defaultProvider: "anthropic",
 	defaultModelId: "claude-sonnet-4-5",
@@ -61,8 +62,8 @@ function harness(options: { settings?: RoutingSettings } = {}) {
 /** A cell scope on a session that selected `spirits/auto`, backed by a catalog and an empty branch. */
 function scope(signal?: AbortSignal): HostFnScope {
 	const { ctx } = fakeToolContext({
-		available: [SONNET, OPUS],
-		authedProviders: ["anthropic"],
+		available: [SONNET, OPUS, LUNA],
+		authedProviders: ["anthropic", "openai"],
 		branch: [],
 	});
 	const toolContext = { ...ctx, cwd: "/work", model: AUTO_SELECTION } as ExtensionToolContext;
@@ -94,20 +95,26 @@ test("a strong phase child is spawned on the strong target", async () => {
 });
 
 // spec "dual-model-routing / 設定変更は次の子から反映する"
-test("a settings change reaches the next child", async () => {
-	const { entry, models, setSettings } = harness();
+test("a strong target change reaches the next child while the phase stays strong", async () => {
+	const { entry, enterStrong, models, phase, setSettings } = harness();
+	enterStrong();
 
 	await call(entry, scope(), "first");
-	setSettings({ ...SETTINGS, defaultModelId: "claude-opus-4-7" });
+	// The phase stays strong and only the strong setting moves to another usable model.
+	setSettings({ ...SETTINGS, strong: { provider: "openai", modelId: "gpt-5.6-luna" } });
 	await call(entry, scope(), "second");
 
-	expect(models).toEqual([SONNET, OPUS]);
+	expect(phase.current()).toBe(MODEL_ROLE_STRONG);
+	// The two children differ, and the second one carries the moved setting rather than the first.
+	expect(models).toEqual([OPUS, LUNA]);
 });
 
 // design Decision 4: the resolution reads the values in effect when the child starts, not the ones
 // in effect when the cell asked.
 test("a change during the queue wait is picked up by the waiting call", async () => {
-	let settings = SETTINGS;
+	// The strong target starts on a model of its own, so neither the phase change nor the settings change
+	// alone can produce the expected child: only reading both after the wait gives OPUS.
+	let settings: RoutingSettings = { ...SETTINGS, strong: { provider: LUNA.provider, modelId: LUNA.id } };
 	const phase = createRoutingPhase();
 	const models: PiModel[] = [];
 	const resolvers: Array<() => void> = [];
@@ -133,7 +140,7 @@ test("a change during the queue wait is picked up by the waiting call", async ()
 	expect(models).toEqual([SONNET]);
 
 	phase.handleInput(`${SKILL_COMMAND_PREFIX}sprt-opsx-verify-deep fix-managed-rlm-child-model`);
-	settings = { ...SETTINGS, strong: { provider: "anthropic", modelId: "claude-opus-4-7" } };
+	settings = { ...settings, strong: { provider: OPUS.provider, modelId: OPUS.id } };
 
 	resolvers[0]?.();
 	expect(await first).toBe("first");

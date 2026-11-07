@@ -29,6 +29,21 @@ export interface RlmChildObservation {
 }
 
 /**
+ * What the `rlm auto parent` item reads: a child observation plus what the run was able to exercise.
+ *
+ * Both flags are required because they are what separates a product defect from a harness gap. The
+ * runner writes a child target into the fixture before the auto run, and only the dedicated Pi sends
+ * provider requests: a fixture host replays fixed events, so a run there with no child request says
+ * nothing about what the parent resolved.
+ */
+export interface AutoChildObservation extends RlmChildObservation {
+	/** The fixture wrote a model the child could run: default provider, default model, credentials, definition. */
+	childTargetInFixture: boolean;
+	/** The host can send provider requests at all. A fixture host answers with fixed events. */
+	hostCanRequestProvider: boolean;
+}
+
+/**
  * Requested model names that mean the virtual selection reached a provider unrouted.
  *
  * A provider can only serve a physical model, so a request naming `auto` is a parent that handed its
@@ -65,11 +80,11 @@ const FIXTURE_MARKERS = [
 	"fixture",
 	"no current managed set",
 	"not installed",
-	// A child target the fixture cannot resolve is the fixture's gap, not a product defect: the routing
-	// error names the roles it tried and the settings or credentials it looked for.
-	"has no child model",
-	"has no credentials",
 ];
+
+// A child-model resolution error (`has no child model`, `has no credentials`) is deliberately absent:
+// the runner writes the child target before the auto run, so treating those as a fixture gap would
+// hide a product regression as `not-run` (design Decision 8).
 
 /** True when the error text points at a missing or incomplete fixture. */
 export function isFixtureInsufficiency(error?: string): boolean {
@@ -237,10 +252,12 @@ export function classifyPhysicalChild(observation: RlmChildObservation): {
  * The parent's selection says nothing about the child, so the judgement reads what the child's own
  * request carried: `confirmed` only when a request naming a physical model reached the provider and
  * the run produced a final answer and an `rlm_usage` record. A request that still names the virtual
- * model, and a complete fixture whose child never finished, are `failed`; a fixture that offers no
- * resolvable child target is `not-run`, never a product defect.
+ * model is `failed`, and so is a child that did not finish while the fixture offered a target and the
+ * host could have requested. `not-run` is reserved for the two harness gaps: a fixture that offers no
+ * model the child could run, and a host that answers with fixed events and never requests the
+ * provider (design Decision 8).
  */
-export function classifyAutoChild(observation: RlmChildObservation): {
+export function classifyAutoChild(observation: AutoChildObservation): {
 	state: CompatState;
 	detail: string;
 } {
@@ -248,7 +265,10 @@ export function classifyAutoChild(observation: RlmChildObservation): {
 	const error = observation.error?.replace(/\s+/g, " ").trim() || undefined;
 	const withError = (detail: string): string => (error === undefined ? detail : `${detail}: ${error}`);
 	const requested = observation.childRequestedModel;
-	const phases = `child created=${observation.childCreated}, requested model=${requested ?? "none"}, final answer=${observation.finalAnswer === undefined ? "none" : "yes"}, usage=${observation.usageRecorded === true}`;
+	const phases =
+		`child created=${observation.childCreated}, requested model=${requested ?? "none"}, ` +
+		`final answer=${observation.finalAnswer === undefined ? "none" : "yes"}, usage=${observation.usageRecorded === true}, ` +
+		`child target in fixture=${observation.childTargetInFixture}, host requests providers=${observation.hostCanRequestProvider}`;
 	if (isVirtualRequestedModel(requested)) {
 		return {
 			state: "failed",
@@ -263,16 +283,21 @@ export function classifyAutoChild(observation: RlmChildObservation): {
 			detail: `the auto parent handed the child ${requested}, which answered and recorded rlm_usage`,
 		};
 	}
-	if (isFixtureInsufficiency(observation.error)) {
-		return { state: "not-run", detail: `fixture insufficiency: ${observation.error}` };
-	}
-	// A host that never sent a child request and reported nothing either cannot show what the parent
-	// resolved: a fixture host answers with fixed events, and recording that as a product failure would
-	// turn a fixture gap into a defect.
-	if (requested === undefined && error === undefined) {
+	// Below here nothing reached the provider as a physical model. Only these two harness gaps keep the
+	// item out of `failed`; with a target in the fixture and a host that can request, an unresolved or
+	// unfinished child is the product's.
+	if (!observation.childTargetInFixture) {
 		return {
 			state: "not-run",
-			detail: `no child request reached the provider and the run reported nothing, so the auto parent was never exercised (${phases})`,
+			detail: withError(`the fixture offers no model for the child to run on (${phases})`),
+		};
+	}
+	if (!observation.hostCanRequestProvider) {
+		return {
+			state: "not-run",
+			detail: withError(
+				`the host answers with fixed events and never requests the provider, so the auto parent was never exercised (${phases})`,
+			),
 		};
 	}
 	const missing: string[] = [];
@@ -357,4 +382,22 @@ export async function writeRlmFixture(options: RlmFixtureOptions): Promise<RlmFi
 		}
 	}
 	return { settings, auth, ...(models ? { models } : {}) };
+}
+
+/**
+ * True when a written fixture gives a child something to run on: the default provider and model, the
+ * credentials for them, and a model definition for the provider. `rlm auto parent` is `not-run` only
+ * when this is false; with them in place a resolution error is a product defect (design Decision 8).
+ */
+export function fixtureProvidesChildTarget(fixture: RlmFixture, providerId: string): boolean {
+	const settings = fixture.settings as { defaultProvider?: unknown; defaultModel?: unknown };
+	const hasDefault =
+		typeof settings.defaultProvider === "string" &&
+		settings.defaultProvider !== "" &&
+		typeof settings.defaultModel === "string" &&
+		settings.defaultModel !== "";
+	const hasAuth = typeof (fixture.auth as Record<string, unknown>)[providerId] === "object";
+	const providers = (fixture.models as { providers?: Record<string, unknown> } | undefined)?.providers;
+	const hasDefinition = typeof providers?.[providerId] === "object";
+	return hasDefault && hasAuth && hasDefinition;
 }

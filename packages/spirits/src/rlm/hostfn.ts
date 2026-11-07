@@ -140,21 +140,22 @@ export function createRlmHostFn(options: CreateRlmHostFnOptions): HostFnEntry {
 					return RLM_ABORTED_NOTICE;
 				}
 
-				// Resolve after the queue wait, so the phase, the settings, and the latest successful
-				// response are the ones in effect when the child starts, not when the cell asked.
-				let childModel: PiModel;
-				try {
-					childModel = resolveChildModel(model, scope.toolContext);
-				} catch (error) {
-					appendUsage("error", null);
-					throw error;
-				}
-
 				// The duration limit starts here, after the queue wait, and cuts the child through the
 				// signal handed to `spawn`. A child that still reports `completed` after the timer fired is
 				// a child that finished, so its answer wins over the limit.
 				const limit = newChildDurationLimit(childDurationLimitMs, scope.signal);
+				// Everything from here runs inside the region whose `finally` hands the turn to the next
+				// caller, so no throw on this side of `spawn` can leave the queue occupied (Decision 4).
 				try {
+					// The resolution belongs after the queue wait: the phase, the settings, and the latest
+					// successful response are read at the moment the child starts, not when the cell asked.
+					let childModel: PiModel;
+					try {
+						childModel = resolveChildModel(model, scope.toolContext);
+					} catch (error) {
+						appendUsage("error", null);
+						throw error;
+					}
 					const childMax = resolveChildMaxDepth(maxDepth, parsed.requestedMaxDepth);
 					const childTool = createTsreplTool({
 						// The same resolver, so a child that delegates again never sees a virtual model either.
