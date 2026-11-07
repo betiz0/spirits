@@ -3,7 +3,8 @@
  *
  * Physical-model children and `spirits/auto` parents are separate items. Child creation, final
  * answer, usage, and abort are judged separately so one missing piece never hides another. An
- * auto-parent failure is a known limitation, not a pass. A missing fixture is never reported as a
+ * auto-parent child is confirmed only when its own request reached the provider as a physical model;
+ * it is never confirmed on the parent's selection alone. A missing fixture is never reported as a
  * product defect.
  */
 
@@ -17,7 +18,28 @@ export interface RlmChildObservation {
 	finalAnswer?: string;
 	usageRecorded?: boolean;
 	abortReported?: boolean;
+	/**
+	 * The model the child's own request asked for, as the fake provider read it off the request body.
+	 *
+	 * `undefined` when no child request reached the provider, which is what an unresolved `spirits/auto`
+	 * looks like: the parent fails before any request is made.
+	 */
+	childRequestedModel?: string;
 	error?: string;
+}
+
+/**
+ * Requested model names that mean the virtual selection reached a provider unrouted.
+ *
+ * A provider can only serve a physical model, so a request naming `auto` is a parent that handed its
+ * child something it never resolved.
+ */
+const VIRTUAL_MODEL_NAMES: readonly string[] = ["auto", "spirits/auto"];
+
+/** True when a requested model name is the virtual selection rather than a physical model. */
+export function isVirtualRequestedModel(model?: string): boolean {
+	if (model === undefined) return false;
+	return VIRTUAL_MODEL_NAMES.includes(model.trim().toLowerCase());
 }
 
 /**
@@ -43,6 +65,10 @@ const FIXTURE_MARKERS = [
 	"fixture",
 	"no current managed set",
 	"not installed",
+	// A child target the fixture cannot resolve is the fixture's gap, not a product defect: the routing
+	// error names the roles it tried and the settings or credentials it looked for.
+	"has no child model",
+	"has no credentials",
 ];
 
 /** True when the error text points at a missing or incomplete fixture. */
@@ -206,25 +232,55 @@ export function classifyPhysicalChild(observation: RlmChildObservation): {
 }
 
 /**
- * Classify a child whose parent selected `spirits/auto`. Recorded separately and never as a success
- * (spec: an auto-parent child must not be treated as confirmed), because the child session loads no
- * extensions and therefore cannot route a virtual selection.
+ * Classify a child whose parent selected `spirits/auto`, on its own item.
+ *
+ * The parent's selection says nothing about the child, so the judgement reads what the child's own
+ * request carried: `confirmed` only when a request naming a physical model reached the provider and
+ * the run produced a final answer and an `rlm_usage` record. A request that still names the virtual
+ * model, and a complete fixture whose child never finished, are `failed`; a fixture that offers no
+ * resolvable child target is `not-run`, never a product defect.
  */
 export function classifyAutoChild(observation: RlmChildObservation): {
 	state: CompatState;
 	detail: string;
 } {
-	const error = observation.error?.replace(/\s+/g, " ").trim();
-	if (observation.childCreated && observation.finalAnswer) {
+	// A run that wrote nothing to stderr reports an empty string, which is the same as reporting nothing.
+	const error = observation.error?.replace(/\s+/g, " ").trim() || undefined;
+	const withError = (detail: string): string => (error === undefined ? detail : `${detail}: ${error}`);
+	const requested = observation.childRequestedModel;
+	const phases = `child created=${observation.childCreated}, requested model=${requested ?? "none"}, final answer=${observation.finalAnswer === undefined ? "none" : "yes"}, usage=${observation.usageRecorded === true}`;
+	if (isVirtualRequestedModel(requested)) {
 		return {
-			state: "limited",
-			detail: "auto parent child answered; recorded separately from a physical-model parent and not a success",
+			state: "failed",
+			detail: withError(
+				`the child asked the provider for ${requested}, which is a virtual model: the auto parent handed over an unresolved selection`,
+			),
 		};
 	}
-	return {
-		state: "limited",
-		detail: `known limitation: ${error ?? "auto parent did not resolve a child virtual model"}`,
-	};
+	if (requested !== undefined && observation.childCreated && observation.finalAnswer && observation.usageRecorded) {
+		return {
+			state: "confirmed",
+			detail: `the auto parent handed the child ${requested}, which answered and recorded rlm_usage`,
+		};
+	}
+	if (isFixtureInsufficiency(observation.error)) {
+		return { state: "not-run", detail: `fixture insufficiency: ${observation.error}` };
+	}
+	// A host that never sent a child request and reported nothing either cannot show what the parent
+	// resolved: a fixture host answers with fixed events, and recording that as a product failure would
+	// turn a fixture gap into a defect.
+	if (requested === undefined && error === undefined) {
+		return {
+			state: "not-run",
+			detail: `no child request reached the provider and the run reported nothing, so the auto parent was never exercised (${phases})`,
+		};
+	}
+	const missing: string[] = [];
+	if (requested === undefined) missing.push("no child request reached the provider");
+	if (!observation.childCreated) missing.push("no child session was created");
+	if (!observation.finalAnswer) missing.push("no final answer");
+	if (!observation.usageRecorded) missing.push("no rlm_usage record");
+	return { state: "failed", detail: withError(`the auto parent did not complete a physical-model child (${missing.join(", ")})`) };
 }
 
 export interface RlmFixtureOptions {

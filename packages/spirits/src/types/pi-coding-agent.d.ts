@@ -464,6 +464,14 @@ export interface AgentMessage {
 	content?: string | readonly (TextContent | ImageContent)[];
 	stopReason?: string;
 	errorMessage?: string;
+	/**
+	 * Provider id of an assistant message. pi records the model the request went to, which is the
+	 * physical model a virtual selection routed to, and the provider id for a failed route.
+	 */
+	provider?: string;
+	/** Model id of an assistant message, in the same sense as {@link AgentMessage.provider}.
+	 * Both are absent on a user, tool-result, or custom message. */
+	model?: string;
 }
 
 /** Session event shape spirits reads from `AgentSession.subscribe()`. */

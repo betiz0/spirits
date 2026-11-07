@@ -26,6 +26,7 @@ import {
 	SETTINGS_KEY_MODELS,
 	SETTINGS_KEY_ROLE,
 } from "../constants.ts";
+import type { RoutingPhase } from "./phase.ts";
 import { createRoutingPhase } from "./phase.ts";
 import { createNotificationGuard, createRoutingRoute } from "./router.ts";
 
@@ -78,6 +79,11 @@ function isUnaskedSession(event: SessionStartEvent, branch: readonly SessionEntr
 export interface RoutingRegistrationResult {
 	/** True when the optional role registration API exists on this host. */
 	roleApi: boolean;
+	/**
+	 * Read-only view of the role phase, for the one reader outside this layer: the entry layer hands
+	 * it to the child-model resolution, so a child of an `spirits/auto` parent follows the phase.
+	 */
+	phase: Pick<RoutingPhase, "current">;
 }
 
 /** The optional piece of the host API the official Pi 1.5.0 does not provide. */
@@ -160,5 +166,5 @@ export function registerDualModelRouting(pi: ExtensionAPI): RoutingRegistrationR
 		phase.settle();
 		guard.settle();
 	});
-	return { roleApi: registerModelRoles !== undefined };
+	return { roleApi: registerModelRoles !== undefined, phase: { current: phase.current } };
 }

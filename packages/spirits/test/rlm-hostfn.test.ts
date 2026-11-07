@@ -1,9 +1,15 @@
 import { expect, test } from "bun:test";
-import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext, PiModel } from "@earendil-works/pi-coding-agent";
+import { PI_VIRTUAL_MODEL_API } from "../src/constants.ts";
 import type { HostFnEntry, HostFnScope } from "../src/repl/registry.ts";
 import { createTsreplTool } from "../src/tools.ts";
 import { DEFAULT_MAX_DEPTH } from "../src/rlm/depth.ts";
-import { RLM_ABORTED_NOTICE, createRlmHostFn, type SpawnFn } from "../src/rlm/hostfn.ts";
+import {
+	RLM_ABORTED_NOTICE,
+	createRlmHostFn,
+	type ChildModelResolver,
+	type SpawnFn,
+} from "../src/rlm/hostfn.ts";
 import type { RlmRunResult, RlmTokens, SpawnParams } from "../src/rlm/spawn.ts";
 import { makeScope, makeToolContext } from "./support.ts";
 
@@ -88,8 +94,9 @@ function usageEntries(pi: FakePi): UsageEntry[] {
 async function runCell(
 	tool: SpawnParams["childTool"],
 	code: string,
+	model: PiModel | undefined = MODEL,
 ): Promise<{ isError: boolean; value: string; error: string }> {
-	const result = await tool.execute("cell", { code }, undefined, undefined, makeToolContext({ cwd: "/work", model: MODEL }));
+	const result = await tool.execute("cell", { code }, undefined, undefined, makeToolContext({ cwd: "/work", model }));
 	return {
 		isError: result.isError === true,
 		value: result.details.value ?? "",
@@ -852,6 +859,224 @@ test("error outcome throws with cause", async () => {
 	expect((caught as Error).message).toContain("rate limit");
 	expect((caught as Error).cause).toBeInstanceOf(Error);
 	expect(((caught as Error).cause as Error).message).toBe("rate limit");
+});
+
+// ---------------------------------------------------------------------------
+// 4.6 child model resolution (spec `rlm` / 子セッションへ渡すモデルは物理モデル)
+// ---------------------------------------------------------------------------
+
+/** The `spirits/auto` selection: virtual, so it must never reach a child session. */
+const AUTO: PiModel = { provider: "spirits", id: "auto", api: PI_VIRTUAL_MODEL_API };
+/** The physical model a resolver hands back. */
+const RESOLVED: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5" };
+const NO_TOKENS = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
+
+/** Resolver stub that records every selection it was asked about. */
+function makeResolver(resolve: (parent: PiModel) => PiModel): { resolver: ChildModelResolver; seen: PiModel[] } {
+	const seen: PiModel[] = [];
+	return { resolver: (parent) => { seen.push(parent); return resolve(parent); }, seen };
+}
+
+// spec "rlm / 解決できない親では子を生成しない" と "解決失敗の記録"
+test("resolution failure skips spawn and records nulls", async () => {
+	const pi = new FakePi();
+	const counting = makeCountingSpawn();
+	const entry = createRlmHostFn({
+		pi,
+		depth: 0,
+		maxDepth: 2,
+		spawn: counting.spawn,
+		resolveChildModel: () => {
+			throw new Error("no child model: set defaultProvider and defaultModel");
+		},
+	});
+
+	await expect(callRlm(entry, rlmScope({ model: AUTO }), "x")).rejects.toThrow("defaultProvider");
+	expect(counting.count()).toBe(0);
+
+	const entries = usageEntries(pi);
+	expect(entries.length).toBe(1);
+	expect(entries[0].outcome).toBe("error");
+	expect(entries[0].sessionId).toBeNull();
+	expect(entries[0].provider).toBeNull();
+	expect(entries[0].modelId).toBeNull();
+	expect(entries[0].tokens).toEqual(NO_TOKENS);
+	expect(entries[0].cost).toBe(0);
+});
+
+// spec "rlm / 解決失敗の catch"
+test("resolution failure is catchable in the cell", async () => {
+	const entry = createRlmHostFn({
+		pi: new FakePi(),
+		depth: 0,
+		maxDepth: 2,
+		spawn: makeCountingSpawn().spawn,
+		resolveChildModel: () => {
+			throw new Error("no child model: set defaultProvider and defaultModel");
+		},
+	});
+
+	const cell = await runCell(
+		createTsreplTool({ hostFns: [entry] }),
+		'try { await rlm("x") } catch (e) { return String(e) }',
+		AUTO,
+	);
+	expect(cell.isError).toBe(false);
+	expect(cell.value).toContain("defaultProvider");
+});
+
+// spec "rlm / 解決した物理モデルで子を起動する" と "解決したモデルの記録"
+test("resolved model reaches spawn and usage", async () => {
+	const pi = new FakePi();
+	const capturing = makeCapturingSpawn();
+	const { resolver, seen } = makeResolver((parent) => (parent.api === PI_VIRTUAL_MODEL_API ? RESOLVED : parent));
+	const entry = createRlmHostFn({ pi, depth: 0, maxDepth: 2, spawn: capturing.spawn, resolveChildModel: resolver });
+
+	await callRlm(entry, rlmScope({ model: AUTO }), "x");
+
+	// The resolver sees the parent selection, and the child gets the resolved model.
+	expect(seen).toEqual([AUTO]);
+	expect(capturing.params[0].model).toEqual(RESOLVED);
+
+	const usage = usageEntries(pi)[0];
+	expect(usage.provider).toBe("anthropic");
+	expect(usage.modelId).toBe("claude-sonnet-4-5");
+	expect(usage.outcome).toBe("completed");
+});
+
+// spec "rlm / rlm_usage の記録規則": a call that created no child records null model fields.
+test("no child session records null model fields", async () => {
+	// (a) invalid arguments.
+	const invalid = new FakePi();
+	const entry = createRlmHostFn({ pi: invalid, depth: 0, maxDepth: 2, spawn: makeCountingSpawn().spawn });
+	await expect(callRlm(entry, rlmScope(), 42)).rejects.toThrow("prompt");
+
+	// (b) depth limit, on a parent that selected a physical model: the old record named the parent.
+	const limited = new FakePi();
+	const depthEntry = createRlmHostFn({ pi: limited, depth: 2, maxDepth: 2, spawn: makeCountingSpawn().spawn });
+	await expect(callRlm(depthEntry, rlmScope(), "x")).rejects.toThrow("深度上限（2）");
+
+	// (c) no parent model.
+	const noModel = new FakePi();
+	const noModelEntry = createRlmHostFn({ pi: noModel, depth: 0, maxDepth: 2, spawn: makeCountingSpawn().spawn });
+	await expect(callRlm(noModelEntry, rlmScope({ model: undefined }), "x")).rejects.toThrow("モデル");
+
+	// (d) child session creation failed.
+	const creation = new FakePi();
+	const creationEntry = createRlmHostFn({
+		pi: creation,
+		depth: 0,
+		maxDepth: 2,
+		spawn: async () => ({
+			outcome: "error",
+			text: "",
+			errorMessage: "no session",
+			sessionId: null,
+			tokens: NO_TOKENS,
+			cost: 0,
+		}),
+	});
+	await expect(callRlm(creationEntry, rlmScope(), "x")).rejects.toThrow("no session");
+
+	// (e) aborted while waiting for the queue.
+	const queued = new FakePi();
+	const resolvers: Array<(result: RlmRunResult) => void> = [];
+	const queueSpawn: SpawnFn = () =>
+		new Promise((resolve) => {
+			resolvers.push(resolve);
+		});
+	const queueEntry = createRlmHostFn({ pi: queued, depth: 0, maxDepth: 2, spawn: queueSpawn });
+	const controller = new AbortController();
+	const first = callRlm(queueEntry, rlmScope(), "a");
+	await tick();
+	const second = callRlm(queueEntry, rlmScope({ signal: controller.signal }), "b");
+	await tick();
+	controller.abort();
+	resolvers[0](completedResult("A"));
+	await first;
+	expect(await second).toBe(RLM_ABORTED_NOTICE);
+
+	// Every call that created no child session records null, whatever the parent selected. The one
+	// completed child in `queued` is the counter-case: it keeps the model it was handed.
+	for (const pi of [invalid, limited, noModel, creation, queued]) {
+		for (const entry of usageEntries(pi).filter((entry) => entry.sessionId === null)) {
+			expect(entry.provider).toBeNull();
+			expect(entry.modelId).toBeNull();
+		}
+	}
+	expect(usageEntries(queued).find((entry) => entry.outcome === "completed")?.provider).toBe("p");
+	expect(usageEntries(limited)[0].outcome).toBe("error");
+	expect(usageEntries(queued).map((entry) => entry.outcome).sort()).toEqual(["aborted", "completed"]);
+});
+
+// spec "rlm / 子セッションの失敗の伝達" と "子セッション生成の失敗の記録"
+test("child creation failure names the attempted model", async () => {
+	const pi = new FakePi();
+	const entry = createRlmHostFn({
+		pi,
+		depth: 0,
+		maxDepth: 2,
+		spawn: async () => ({
+			outcome: "error",
+			text: "",
+			errorMessage: "No API key found",
+			sessionId: null,
+			tokens: NO_TOKENS,
+			cost: 0,
+		}),
+		resolveChildModel: () => RESOLVED,
+	});
+
+	let message = "";
+	try {
+		await callRlm(entry, rlmScope({ model: AUTO }), "x");
+	} catch (error) {
+		message = error instanceof Error ? error.message : String(error);
+	}
+	expect(message).toContain("anthropic/claude-sonnet-4-5");
+	expect(message).toContain("No API key found");
+});
+
+// A child run that did start keeps its own diagnostic: the attempted model belongs to creation only.
+test("child error after creation does not name the attempted model", async () => {
+	const entry = createRlmHostFn({
+		pi: new FakePi(),
+		depth: 0,
+		maxDepth: 2,
+		spawn: async () => ({
+			outcome: "error",
+			text: "",
+			errorMessage: "rate limit",
+			sessionId: "child-7",
+			tokens: NO_TOKENS,
+			cost: 0,
+		}),
+	});
+
+	await expect(callRlm(entry, rlmScope(), "x")).rejects.toThrow("rate limit");
+});
+
+// spec "rlm / 解決されたモデルの子も同じ規則を守る"
+test("nested host fn receives the same resolver", async () => {
+	const childTools: SpawnParams["childTool"][] = [];
+	const models: PiModel[] = [];
+	const spawn: SpawnFn = async (params) => {
+		childTools.push(params.childTool);
+		models.push(params.model);
+		return completedResult(`answer${childTools.length}`);
+	};
+	const { resolver, seen } = makeResolver((parent) => (parent.api === PI_VIRTUAL_MODEL_API ? RESOLVED : parent));
+	const entry = createRlmHostFn({ pi: new FakePi(), depth: 0, maxDepth: 2, spawn, resolveChildModel: resolver });
+
+	await callRlm(entry, rlmScope({ model: AUTO }), "outer");
+
+	// The depth-1 child runs on the resolved physical model, and its own `rlm` gets the same resolver.
+	const inner = await runCell(childTools[0], 'return await rlm("inner")', RESOLVED);
+	expect(inner.isError).toBe(false);
+
+	expect(seen).toEqual([AUTO, RESOLVED]);
+	expect(models).toEqual([RESOLVED, RESOLVED]);
+	expect(models.some((model) => model.api === PI_VIRTUAL_MODEL_API)).toBe(false);
 });
 
 test("rlm_usage recorded when spawn throws", async () => {

@@ -11,12 +11,14 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { installBrandingHeader } from "./branding/header.ts";
+import { readRoutingSettings } from "./config.ts";
 import { registerBundledSkills } from "./harness/bundled-skills/index.ts";
 import { registerContinualHarness } from "./harness/install.ts";
 import { getAgentDir } from "./harness/paths.ts";
 import { DEFAULT_MAX_DEPTH } from "./rlm/depth.ts";
 import { createRlmHostFn } from "./rlm/hostfn.ts";
 import { spawnChildSession } from "./rlm/spawn.ts";
+import { createChildModelResolver } from "./routing/child.ts";
 import { registerDualModelRouting } from "./routing/register.ts";
 import { registerManageTodos } from "./todo/tool.ts";
 import { registerTodoPanel } from "./todo/widget.ts";
@@ -26,11 +28,23 @@ export default function spiritsExtension(pi: ExtensionAPI): void {
 	pi.on("session_start", (_event, ctx) => {
 		installBrandingHeader(ctx, () => pi.getSettings());
 	});
-	const rlm = createRlmHostFn({ pi, depth: 0, maxDepth: DEFAULT_MAX_DEPTH, spawn: spawnChildSession });
+	// Routing registers before the REPL tool: `rlm` and `routing` are sibling layers, so the entry
+	// point is the only place that can join them. The resolver reads the phase and the settings when a
+	// child starts, which is what makes a settings edit take effect on the next child.
+	const routing = registerDualModelRouting(pi);
+	const rlm = createRlmHostFn({
+		pi,
+		depth: 0,
+		maxDepth: DEFAULT_MAX_DEPTH,
+		spawn: spawnChildSession,
+		resolveChildModel: createChildModelResolver({
+			phase: routing.phase,
+			readSettings: () => readRoutingSettings(pi.getSettings()),
+		}),
+	});
 	const harnessHostFns = registerContinualHarness(pi, { agentDir: getAgentDir() });
 	registerBundledSkills(pi, { agentDir: getAgentDir() });
 	registerTsrepl(pi, { hostFns: [rlm, ...harnessHostFns] });
 	registerManageTodos(pi);
 	registerTodoPanel(pi);
-	registerDualModelRouting(pi);
 }

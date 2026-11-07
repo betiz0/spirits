@@ -148,6 +148,26 @@ test("the endpoint records the connection state of each request", async () => {
 	}
 });
 
+test("the endpoint records the model each request asked for", async () => {
+	// The auto-parent judgement reads the model name off the child's own request: without it a virtual
+	// selection that reached the provider is indistinguishable from a resolved physical model.
+	const provider = startFakeProvider({ name: "tsrepl", arguments: { code: "return 1" } });
+	try {
+		for (const model of ["auto", "fake-model"]) {
+			await fetch(`${provider.baseUrl}/v1/chat/completions`, {
+				method: "POST",
+				headers: { "content-type": "application/json", authorization: "Bearer fake" },
+				body: JSON.stringify({ model, messages: [{ role: "user", content: "child task" }], stream: true }),
+			});
+		}
+		expect(provider.requests.map((request) => request.model)).toEqual(["auto", "fake-model"]);
+		await requestFakeToolCall(provider.baseUrl, "fake-model");
+		expect(provider.requests.at(-1)?.model).toBe("fake-model");
+	} finally {
+		provider.stop();
+	}
+});
+
 test("a delivered reply is recorded as answered, not cut", async () => {
 	const provider = startFakeProvider({ name: "tsrepl", arguments: { code: "return 1" } });
 	try {

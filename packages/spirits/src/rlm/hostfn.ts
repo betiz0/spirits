@@ -10,7 +10,8 @@
  * validation, serialization, abort, and usage logic here runs without a provider.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionToolContext, PiModel } from "@earendil-works/pi-coding-agent";
+import { MODEL_SPEC_SEPARATOR } from "../constants.ts";
 import { isRecord } from "../repl/guards.ts";
 import type { HostFnCallable, HostFnEntry, HostFnScope } from "../repl/registry.ts";
 import { createTsreplTool } from "../tools.ts";
@@ -21,6 +22,23 @@ import type { RlmOutcome, RlmRunResult, RlmTokens, SpawnParams } from "./spawn.t
 /** Injected child-session runner. Production passes `spawnChildSession`. */
 export type SpawnFn = (params: SpawnParams) => Promise<RlmRunResult>;
 
+/**
+ * Decide which model the child session gets, from the model the parent session selected.
+ *
+ * `rlm` never interprets the selection: it hands over the parent model plus the calling session's
+ * catalog and branch, and uses whatever model comes back. The entry layer injects the routing
+ * resolution, because `rlm` and `routing` are sibling layers. A resolver that finds no usable model
+ * throws, and the call then creates no child session.
+ */
+export type ChildModelResolver = (parentModel: PiModel, ctx: ExtensionToolContext) => PiModel;
+
+/** One `rlm_usage` write: the model handed to the child, with the usage it produced. */
+interface UsageRecord {
+	model: PiModel;
+	tokens: RlmTokens;
+	cost: number;
+}
+
 export interface CreateRlmHostFnOptions {
 	/** Root session extension API. Nested host functions must receive the same instance. */
 	pi: Pick<ExtensionAPI, "appendEntry">;
@@ -29,6 +47,12 @@ export interface CreateRlmHostFnOptions {
 	/** Depth limit applied to this session. */
 	maxDepth: number;
 	spawn: SpawnFn;
+	/**
+	 * Child model selection. Unset means the child inherits the parent model, which is the whole
+	 * contract for a parent on a physical model; the entry layer injects the routing resolution so a
+	 * virtual selection reaches the child as a physical model.
+	 */
+	resolveChildModel?: ChildModelResolver;
 	/**
 	 * Wall-clock limit of one child run, for tests only. Production always takes
 	 * `RLM_MAX_CHILD_DURATION_MS`.
@@ -41,6 +65,9 @@ export const RLM_ABORTED_NOTICE = "rlm: 呼び出しは中断されました。"
 
 const ZERO_TOKENS: RlmTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 
+/** No resolver injected: the child inherits the parent selection, which is a physical model by contract. */
+const inheritParentModel: ChildModelResolver = (parentModel) => parentModel;
+
 interface ParsedArgs {
 	prompt: string;
 	requestedMaxDepth: number | undefined;
@@ -48,6 +75,7 @@ interface ParsedArgs {
 
 export function createRlmHostFn(options: CreateRlmHostFnOptions): HostFnEntry {
 	const { pi, depth, maxDepth, spawn } = options;
+	const resolveChildModel = options.resolveChildModel ?? inheritParentModel;
 	const childDurationLimitMs = options.maxChildDurationMs ?? RLM_MAX_CHILD_DURATION_MS;
 	// One queue per REPL (per `createRlmHostFn` instance, shared across cells). Different depths
 	// create separate instances, so a parent waiting on a child never blocks the child's own calls.
@@ -60,18 +88,16 @@ export function createRlmHostFn(options: CreateRlmHostFnOptions): HostFnEntry {
 			return async (prompt: unknown, opts?: unknown): Promise<string> => {
 				const started = Date.now();
 				const model = scope.toolContext.model;
-				const appendUsage = (
-					outcome: RlmOutcome,
-					sessionId: string | null,
-					usage?: { tokens: RlmTokens; cost: number },
-				): void => {
+				// The recorded model is the one the child actually got, and only when a child session was
+				// created: a call that stopped before `spawn` records null for every model field.
+				const appendUsage = (outcome: RlmOutcome, sessionId: string | null, record?: UsageRecord): void => {
 					pi.appendEntry("rlm_usage", {
 						depth: depth + 1,
 						sessionId,
-						provider: model?.provider ?? null,
-						modelId: model?.id ?? null,
-						tokens: usage?.tokens ?? ZERO_TOKENS,
-						cost: usage?.cost ?? 0,
+						provider: sessionId === null ? null : (record?.model.provider ?? null),
+						modelId: sessionId === null ? null : (record?.model.id ?? null),
+						tokens: record?.tokens ?? ZERO_TOKENS,
+						cost: record?.cost ?? 0,
 						durationMs: Date.now() - started,
 						outcome,
 					});
@@ -114,6 +140,16 @@ export function createRlmHostFn(options: CreateRlmHostFnOptions): HostFnEntry {
 					return RLM_ABORTED_NOTICE;
 				}
 
+				// Resolve after the queue wait, so the phase, the settings, and the latest successful
+				// response are the ones in effect when the child starts, not when the cell asked.
+				let childModel: PiModel;
+				try {
+					childModel = resolveChildModel(model, scope.toolContext);
+				} catch (error) {
+					appendUsage("error", null);
+					throw error;
+				}
+
 				// The duration limit starts here, after the queue wait, and cuts the child through the
 				// signal handed to `spawn`. A child that still reports `completed` after the timer fired is
 				// a child that finished, so its answer wins over the limit.
@@ -121,14 +157,17 @@ export function createRlmHostFn(options: CreateRlmHostFnOptions): HostFnEntry {
 				try {
 					const childMax = resolveChildMaxDepth(maxDepth, parsed.requestedMaxDepth);
 					const childTool = createTsreplTool({
-						hostFns: [createRlmHostFn({ pi, depth: depth + 1, maxDepth: childMax, spawn })],
+						// The same resolver, so a child that delegates again never sees a virtual model either.
+						hostFns: [
+							createRlmHostFn({ pi, depth: depth + 1, maxDepth: childMax, spawn, resolveChildModel }),
+						],
 						// A child has no bash, so the tool-selection rules do not apply to it.
 						promptGuidelines: [],
 					});
 					const params: SpawnParams = {
 						prompt: parsed.prompt,
 						cwd: scope.toolContext.cwd,
-						model,
+						model: childModel,
 						signal: limit.signal,
 						childTool,
 					};
@@ -144,18 +183,19 @@ export function createRlmHostFn(options: CreateRlmHostFnOptions): HostFnEntry {
 						appendUsage("error", null);
 						throw error;
 					}
+					const record: UsageRecord = { model: childModel, tokens: result.tokens, cost: result.cost };
 					if (limit.fired && result.outcome !== "completed") {
-						appendUsage("aborted", result.sessionId, result);
+						appendUsage("aborted", result.sessionId, record);
 						throw childDurationLimitError(childDurationLimitMs);
 					}
-					appendUsage(result.outcome, result.sessionId, result);
+					appendUsage(result.outcome, result.sessionId, record);
 					if (result.outcome === "completed" || result.outcome === "budget") {
 						return result.text;
 					}
 					if (result.outcome === "aborted") {
 						return RLM_ABORTED_NOTICE;
 					}
-					throw errorFromResult(result);
+					throw errorFromResult(result, childModel);
 				} finally {
 					limit.stop();
 					releaseOnce();
@@ -259,7 +299,15 @@ function parseArgs(prompt: unknown, opts: unknown): ParsedArgs {
 	return { prompt, requestedMaxDepth: maxDepthValue };
 }
 
-function errorFromResult(result: RlmRunResult): Error {
+/**
+ * Error for a child run that ended in failure. A child session that was never created names the
+ * model the call tried, because the cell has nothing else to look at (spec: 子セッションの失敗の伝達).
+ */
+function errorFromResult(result: RlmRunResult, attempted: PiModel): Error {
 	const message = result.errorMessage ?? "子セッションがエラーで終了しました。";
-	return new Error(`rlm: ${message}`, { cause: new Error(message) });
+	const tried =
+		result.sessionId === null
+		? `（試みたモデル: ${attempted.provider}${MODEL_SPEC_SEPARATOR}${attempted.id}）`
+		: "";
+	return new Error(`rlm: ${message}${tried}`, { cause: new Error(message) });
 }

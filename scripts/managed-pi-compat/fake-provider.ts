@@ -41,6 +41,13 @@ export interface FakeProviderRequest {
 	url: string;
 	authorization?: string;
 	body?: unknown;
+	/**
+	 * The model the request asked for, read off the request body.
+	 *
+	 * This is what tells a routed child from an unrouted one: a child of an `spirits/auto` parent that
+	 * reached this endpoint naming the virtual model was never resolved to a physical model.
+	 */
+	model?: string;
 	/** The reply class the endpoint chose for this request. */
 	kind?: "tool-call" | "text";
 	/** Milliseconds after the endpoint started. */
@@ -217,7 +224,14 @@ export function startFakeProvider(
 			} catch {
 				body = undefined;
 			}
-			const record: FakeProviderRequest = { url: request.url, authorization, body, receivedAt: elapsed() };
+			const requested = (body as { model?: unknown } | undefined)?.model;
+			const record: FakeProviderRequest = {
+				url: request.url,
+				authorization,
+				body,
+				model: typeof requested === "string" ? requested : undefined,
+				receivedAt: elapsed(),
+			};
 			requests.push(record);
 			request.signal.addEventListener("abort", () => {
 				record.closedAt ??= elapsed();

@@ -83,4 +83,12 @@ declare module "@earendil-works/pi-coding-agent/core/virtual-models" {
 		provider: string,
 		modelId: string,
 	): VirtualModelStateData | undefined;
+	/**
+	 * The latest successful response: the last assistant message whose stop reason is neither `error`
+	 * nor `aborted`. pi derives a route request's `previous` from it, so the pin test
+	 * `test/pi-runtime/child-model-source-pin.test.ts` compares spirits' own branch scan against it.
+	 */
+	export function findLatestResponse(
+		messages: readonly unknown[],
+	): { provider: string; model: string; stopReason?: string } | undefined;
 }

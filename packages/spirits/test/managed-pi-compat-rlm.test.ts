@@ -10,6 +10,7 @@ import {
 	classifyChildUsage,
 	classifyFixtureInsufficiency,
 	classifyPhysicalChild,
+	isVirtualRequestedModel,
 	rlmUsageOutcome,
 	writeRlmFixture,
 	type ChildAbortObservation,
@@ -88,14 +89,58 @@ test("physical model child", () => {
 	expect(result.state).toBe("confirmed");
 });
 
-test("auto parent with normal/strong settings", () => {
+test("auto parent is confirmed only on a physical child request", () => {
+	const result = classifyAutoChild({
+		childCreated: true,
+		finalAnswer: "child answer",
+		usageRecorded: true,
+		childRequestedModel: "fake-model",
+	});
+	expect(result.state).toBe("confirmed");
+	expect(result.detail).toContain("fake-model");
+});
+
+test("an auto child request that still names the virtual model fails", () => {
+	// Answer, usage and a created child are not enough: the request itself is what proves the parent
+	// resolved a physical target rather than handing the virtual selection to a child that cannot route.
+	const result = classifyAutoChild({
+		childCreated: true,
+		finalAnswer: "child answer",
+		usageRecorded: true,
+		childRequestedModel: "auto",
+	});
+	expect(result.state).toBe("failed");
+	expect(result.detail).toContain("virtual model");
+	expect(isVirtualRequestedModel("spirits/auto")).toBe(true);
+	expect(isVirtualRequestedModel("AUTO")).toBe(true);
+	expect(isVirtualRequestedModel("fake-model")).toBe(false);
+	expect(isVirtualRequestedModel(undefined)).toBe(false);
+});
+
+test("a complete fixture whose auto child never started fails", () => {
+	const result = classifyAutoChild({ childCreated: false, usageRecorded: false, error: "No API key found for spirits" });
+	expect(result.state).toBe("failed");
+	expect(result.detail).toContain("no child request reached the provider");
+	expect(result.detail).toContain("No API key found for spirits");
+});
+
+test("a host that never sent a child request does not fail the auto parent", () => {
+	// A fixture host answers with fixed events and never opens a provider request. With nothing to read
+	// the item is unexercised, not a product defect.
+	const result = classifyAutoChild({ childCreated: true, finalAnswer: "", usageRecorded: false });
+	expect(result.state).toBe("not-run");
+	expect(result.detail).toContain("never exercised");
+	expect(result.detail).toContain("requested model=none");
+});
+
+test("an auto parent with no resolvable child target is not a product defect", () => {
 	const result = classifyAutoChild({
 		childCreated: false,
 		usageRecorded: false,
-		error: "virtual model unavailable",
+		error: "spirits/auto has no child model: tried normal; defaultProvider and defaultModel are not set",
 	});
-	expect(result.state).toBe("limited");
-	expect(result.detail).toContain("known limitation");
+	expect(result.state).toBe("not-run");
+	expect(result.detail).toContain("fixture insufficiency");
 });
 
 test("child generation, answer, usage, and abort are judged separately", () => {
@@ -175,14 +220,13 @@ test("fixture insufficiency is not a product defect", () => {
 	expect(classifyChildCreation({ childCreated: false, error: "settings.json missing" }).state).toBe("not-run");
 });
 
-test("auto parent is recorded separately", () => {
-	const result = classifyAutoChild({ childCreated: true, finalAnswer: "ok", usageRecorded: true });
-	expect(result.state).toBe("limited");
-	expect(result.detail).toContain("separately");
-});
-
-test("auto parent failure is limited not confirmed", () => {
-	const result = classifyAutoChild({ childCreated: false, usageRecorded: false, error: "virtual model unresolved" });
-	expect(result.state).toBe("limited");
-	expect(result.detail).toContain("known limitation");
+test("an auto child that answered without usage is not confirmed", () => {
+	const result = classifyAutoChild({
+		childCreated: true,
+		finalAnswer: "ok",
+		usageRecorded: false,
+		childRequestedModel: "fake-model",
+	});
+	expect(result.state).toBe("failed");
+	expect(result.detail).toContain("no rlm_usage record");
 });

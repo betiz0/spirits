@@ -186,7 +186,7 @@ export const OBSERVATION_EVIDENCE: Readonly<Record<string, string>> = {
 		"abort request sent, abort reaching the parent cell, the child's provider request closing, and the rlm_usage abort record at settle or after the stop",
 	"existing agent dir untouched":
 		"the seeded existing agent dir kept its content and modification times across every launch",
-	"rlm auto parent": "the auto parent child was judged separately from the physical model",
+	"rlm auto parent": "the child's own request named a physical model, and the run returned a final answer and an rlm_usage record",
 	"auth read compatibility": "the provider auth status came from the dedicated Pi runtime reading the copied agent dir",
 	"external extension read compatibility": "an extension in the copied agent dir was visible through the dedicated Pi runtime",
 	"data read compatibility": "settings and sessions were read through the dedicated Pi",

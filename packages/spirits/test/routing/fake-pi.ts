@@ -13,6 +13,7 @@ import type {
 	ExtensionAPI,
 	ExtensionContext,
 	ExtensionHandler,
+	ExtensionToolContext,
 	ExtensionVirtualModel,
 	InputEvent,
 	InputEventResult,
@@ -27,6 +28,7 @@ import type {
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
+import { PI_VIRTUAL_MODEL_API } from "../../src/constants.ts";
 
 type RecordedHandler = (event: unknown, ctx: ExtensionContext) => unknown;
 
@@ -187,5 +189,45 @@ export function fakeCatalog(options: {
 	};
 }
 
-/** The `spirits/auto` selection, as pi reports it on the context of a session that chose it. */
-export const AUTO_SELECTION: PiModel = { provider: "spirits", id: "auto" };
+/**
+ * Tool context backed by the same catalog and branch reads `fakeCatalog` builds, because a tool call
+ * carries them there. `notices` is what a child-model resolution must never write to.
+ */
+export function fakeToolContext(
+	options: {
+		available?: readonly PiModel[];
+		authedProviders?: readonly string[];
+		branch?: readonly SessionEntry[];
+	} = {},
+): { ctx: ExtensionToolContext; notices: string[] } {
+	const { ctx, notices } = fakeCatalog(options);
+	return {
+		notices,
+		ctx: {
+			...ctx,
+			cwd: "/work",
+			signal: undefined,
+			tools: [],
+			executeTool: async () => ({ toolCall: {}, result: { content: [], details: undefined }, isError: false }),
+		},
+	} as unknown as { ctx: ExtensionToolContext; notices: string[] };
+}
+
+/**
+ * Assistant message entry as pi stores it: the model that answered (the physical model a virtual
+ * selection routed to) and how the response ended.
+ */
+export function makeAssistantEntry(provider: string, modelId: string, stopReason = "stop"): SessionEntry {
+	return { type: "message", message: { role: "assistant", content: [], provider, model: modelId, stopReason } };
+}
+
+/** A user message entry: pi stores no model on it. */
+export function makeUserEntry(text: string): SessionEntry {
+	return { type: "message", message: { role: "user", content: text } };
+}
+
+/**
+ * The `spirits/auto` selection, as pi reports it on the context of a session that chose it. pi's
+ * catalog entry carries the virtual api id, which is how a reader tells it from a physical model.
+ */
+export const AUTO_SELECTION: PiModel = { provider: "spirits", id: "auto", api: PI_VIRTUAL_MODEL_API };

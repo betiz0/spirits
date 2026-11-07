@@ -145,6 +145,13 @@ const RLM_ABORT_POLL_INTERVAL_MS = 500;
 const RLM_CHILD_STOP_SETTLE_MS = 700;
 /** The held-open child reply, so the abort provably arrives while the child is still waiting. */
 const RLM_CHILD_REPLY_DELAY_MS = 8000;
+/**
+ * The parent prompt, which the fake endpoint answers with the rlm tool call.
+ *
+ * It is also what tells the parent's requests from a child's: a request that carries neither this
+ * prompt nor a tool result came from a session the parent spawned.
+ */
+const RLM_PARENT_PROMPT = "run one rlm cell";
 const REPO_ROOT = resolve(import.meta.dir, "../..");
 
 interface ProbeState {
@@ -187,11 +194,11 @@ interface ProbeResult {
 }
 
 /** Model the fake provider received for the first request whose messages carry `marker`. */
-function modelUsedFor(provider: { requests: Array<{ body?: unknown }> }, marker: string): string | undefined {
+function modelUsedFor(provider: { requests: Array<{ body?: unknown; model?: string }> }, marker: string): string | undefined {
 	for (const request of provider.requests) {
-		const body = request.body as { model?: unknown; messages?: unknown } | undefined;
+		const body = request.body as { messages?: unknown } | undefined;
 		if (!body || !JSON.stringify(body.messages ?? "").includes(marker)) continue;
-		return typeof body.model === "string" ? body.model : undefined;
+		return request.model;
 	}
 	return undefined;
 }
@@ -862,7 +869,7 @@ async function main(): Promise<number> {
 					): Promise<RlmCellRun> => {
 						const requests = [
 							{ id: "model-rlm", type: "set_model", provider: model.provider, modelId: model.modelId },
-							promptCommand("rlm-1", "run one rlm cell"),
+							promptCommand("rlm-1", RLM_PARENT_PROMPT),
 						];
 						const settleRequests = [{ id: "entries-rlm", type: "get_entries" }];
 						const env = {
@@ -949,7 +956,7 @@ async function main(): Promise<number> {
 							// tool again forever.
 							const messages = (body as { messages?: Array<{ role?: string }> } | undefined)?.messages ?? [];
 							if (messages.some((message) => message.role === "tool")) return { kind: "text", text: "finished" };
-							return JSON.stringify(body ?? "").includes("run one rlm cell")
+							return JSON.stringify(body ?? "").includes(RLM_PARENT_PROMPT)
 								? { kind: "tool-call", toolCall: rlmToolCall }
 								: { kind: "text", text: "child answer", delayMs: childDelayMs };
 						};
@@ -957,6 +964,22 @@ async function main(): Promise<number> {
 					// record names the child traffic without reading request bodies.
 					const childRequestsOf = (requests: readonly FakeProviderRequest[]) =>
 						requests.filter((request) => request.delayMs === RLM_CHILD_REPLY_DELAY_MS);
+					// The model the child asked for, which is the whole `rlm auto parent` judgement: a parent that
+					// resolved its selection sends a physical model, one that did not sends nothing at all.
+					const childRequestedModel = (requests: readonly FakeProviderRequest[]): string | undefined => {
+						for (const request of requests) {
+							const messages =
+								(request.body as { messages?: Array<{ role?: string }> } | undefined)?.messages ?? [];
+							if (messages.some((message) => message.role === "tool")) continue;
+							if (JSON.stringify(request.body ?? "").includes(RLM_PARENT_PROMPT)) continue;
+							return request.model;
+						}
+						return undefined;
+					};
+					// A failed cell returns its error text, which is not a child answer. Reading it as one would
+					// confirm an item whose child never ran.
+					const answerOf = (run: RlmCellRun | undefined): string | undefined =>
+						run !== undefined && !run.isError ? run.text : undefined;
 					/**
 					 * A predicate reporting that the child stopped: every child request closed and stayed closed
 					 * long enough for the detached continuation to write its entry before the final read.
@@ -972,6 +995,7 @@ async function main(): Promise<number> {
 					const providerLog = (requests: readonly FakeProviderRequest[]) =>
 						requests.map((request) => ({
 							kind: request.kind,
+							model: request.model,
 							receivedAt: request.receivedAt,
 							respondedAt: request.respondedAt,
 							closedAt: request.closedAt,
@@ -1064,8 +1088,9 @@ async function main(): Promise<number> {
 					const physicalUsage = usageOf(physicalRun);
 					const physicalObservation: RlmChildObservation = {
 						childCreated: physicalRun !== undefined && !physicalRun.isError,
-						finalAnswer: physicalRun?.text,
+						finalAnswer: answerOf(physicalRun),
 						usageRecorded: physicalUsage.length > 0,
+						childRequestedModel: childRequestedModel(physicalRequests),
 						error: physicalRun?.isError ? physicalRun.text : physicalRun?.stderr,
 					};
 					const physicalLog = {
@@ -1101,8 +1126,9 @@ async function main(): Promise<number> {
 					await run("rlm auto parent", async () => ({
 						...classifyAutoChild({
 							childCreated: autoRun !== undefined && !autoRun.isError,
-							finalAnswer: autoRun?.text,
+							finalAnswer: answerOf(autoRun),
 							usageRecorded: usageOf(autoRun).length > 0,
+							childRequestedModel: childRequestedModel(autoRequests),
 							error: autoRun?.isError ? autoRun.text : autoRun?.stderr,
 						}),
 						data: { providerRequests: providerLog(autoRequests) },
