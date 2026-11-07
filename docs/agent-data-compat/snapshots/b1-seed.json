@@ -1,0 +1,93 @@
+[
+	{
+		"path": "auth.json",
+		"type": "file",
+		"size": 128,
+		"sha256": "da9b248910aa4b146d50ff52230bf1e038d2aeb73e00f2a2b3a55361f6c00daf",
+		"lines": 11,
+		"json": {
+			"compat-fake": {
+				"type": "api_key",
+				"key": "***"
+			},
+			"compat-stored-only": {
+				"type": "api_key",
+				"key": "***"
+			}
+		}
+	},
+	{
+		"path": "models.json",
+		"type": "file",
+		"size": 754,
+		"sha256": "ee06c53048132973f5555499812c4ed97842b9871128819a3042453905dedc93",
+		"lines": 44,
+		"json": {
+			"providers": {
+				"compat-fake": {
+					"name": "ADC fake provider",
+					"baseUrl": "http://127.0.0.1:<port>/v1",
+					"api": "openai-completions",
+					"models": [
+						{
+							"id": "fake-model",
+							"name": "ADC fake model",
+							"reasoning": true,
+							"input": [
+								"text"
+							],
+							"contextWindow": 128000,
+							"maxTokens": 4096,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0
+							}
+						},
+						{
+							"id": "fake-strong",
+							"name": "ADC fake strong model",
+							"reasoning": true,
+							"input": [
+								"text"
+							],
+							"contextWindow": 128000,
+							"maxTokens": 4096,
+							"cost": {
+								"input": 0,
+								"output": 0,
+								"cacheRead": 0,
+								"cacheWrite": 0
+							}
+						}
+					]
+				}
+			}
+		}
+	},
+	{
+		"path": "settings.json",
+		"type": "file",
+		"size": 330,
+		"sha256": "3a6ad5fc85cbd900e99c6037ef3dd475c43577b0ac086dfde1e30005a256e263",
+		"lines": 18,
+		"json": {
+			"lastChangelogVersion": "0.0.0",
+			"defaultProvider": "compat-fake",
+			"defaultModel": "fake-model",
+			"defaultThinkingLevel": "low",
+			"enabledModels": [
+				"compat-fake/*"
+			],
+			"models": {
+				"strong": "compat-fake/fake-strong",
+				"role": "normal"
+			},
+			"adcSpiritsKey": {
+				"origin": "seed",
+				"marker": "ADC-mw683gt5-ev76f9"
+			}
+		}
+	}
+]
