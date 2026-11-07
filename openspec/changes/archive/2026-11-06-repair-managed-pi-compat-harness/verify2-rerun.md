@@ -99,11 +99,49 @@ bun scripts/managed-pi-compat/run.ts --mode official \
 
 `role/clear/model matrix` は 9 の目的のうち 2 を観測した。`skill-strong-phase` は `available`(通常要求は `fake-model`、strong フェーズは `fake-strong` で受けた)、`thinking-level` は `limited`(セッション runtime 経由で変更・読み戻し、`/model` 行ではない)。残る 7 は `not-run` で、`/clear` の 3 目的はホストが `/clear` をプロンプトとして扱って会話が 4 → 7 entry に増えたこと、role の 3 目的は role 引数を受ける駆動面が無いこと、badge と default 保存は RPC から読めないことが理由で、`unavailable` は 0 件である。
 
+## clean での再実行と証拠
+
+上記の実行は `runnerProvenance.clean = false`(bun.lock のドリフトと未追跡ファイル)だったので参考扱いにする。上のコミット `d262a8d6fd171d3acbac05b7294bb45c883d8f98` を clean な作業ツリー(checkout 単体)で再実行し、そこでの数値を正本とする。ランナーの来歴は `runnerProvenance` に出て、`clean = true`、`diffSha256` は空 diff の SHA256、`untracked` は空、`commit` と `targetCommit` は同じコミットになる。
+
+| 項目 | fixture | official |
+|---|---|---|
+| 終了コード | 0 | 0 |
+| 内訳 | confirmed 19 / limited 4 / unavailable 0 / not-run 9 / failed 0 | confirmed 28 / limited 1 / unavailable 0 / not-run 3 / failed 0 |
+| `runnerCompleted` | false | false |
+| `compatibilityMet` | false | true |
+| `existing agent dir untouched` | confirmed | confirmed |
+| `rlm child abort` | not-run(子のセッションが provider に届かない) | confirmed(`usageAfterStop` でのみ観測、`agent_settled` は 0 件) |
+| `rlm physical model child` | limited | confirmed |
+| `rlm auto parent` | limited | limited |
+| `role/clear/model matrix` | 観測 1 / 9 | 観測 2 / 9(`unavailable` 0) |
+
+dirty 実行と同じ内訳で、訂正した表示(5 ラベル常時表示、`Note:` の但し書き、`role/clear/model matrix` の観測目的数)が実ログに出ることも確認した。official 要約の先頭は次のようになる。
+
+```text
+- Results: confirmed=28 limited=1 unavailable=0 not-run=3 failed=0
+- Note: `rlm child abort` is confirmed conditionally: ...
+- Note: `role/clear/model matrix` is confirmed when any purpose was observed on the dedicated Pi; ... This run observed 2 of 9 purposes.
+```
+
+証拠は [evidence/](evidence/README.md) に置いた(実行コマンド・SHA・赤化の確認はそこの README に書く)。
+
+| ファイル | サイズ |
+|---|---|
+| `evidence/official/result.json` | 39,219 B |
+| `evidence/official/managed-pi-compat-result.md` | 7,450 B |
+| `evidence/fixture/managed-pi-compat-result.md` | 7,639 B |
+| `evidence/q1-child-agent-dir.json` | 2,311 B |
+| `evidence/q4-fork-route.json` | 3,397 B |
+
+`run.log` は置いていない。両実行で 170 B と 176 B と小さかったが、リポジトリの `.gitignore` が `*.log` を対象にするためで、中身(標準出力の末尾の数行。詳細ログは結果 JSON の `logs` に入る)は README に写した。Q1・Q4 も clean ツリーで再取得し、Q4 の JSON には使用した fork 実行ファイルの SHA256(`forkSha256` = `dc3af4cb5de45e1f96e029ed7e1c909e48556f422ed926e2a349100e8238d29d`)を入れた。前の表と dirty 実行の生ログは一時領域にあったもので、リポジトリには clean 実行分だけを置く。
+
 ## rlm の境界 4 問
 
 実行はいずれも一時 HOME・隔離 agent dir・ローカルの fake provider を使い、実ユーザーデータ・実認証・実 provider は読んでいない。
 
 ### 1. 公式 Pi の物理モデルの子は `childAgentDirs` 無しで動くか
+
+3 パターンの生データは [evidence/q1-child-agent-dir.json](evidence/q1-child-agent-dir.json)。
 
 **動く。** 子は親と同じプロセス内で作られ、agent dir を host 自身の `getAgentDir()` で引く(`packages/spirits/src/rlm/spawn.ts` が `agentDir: getAgentDir()` を渡す)。managed の起動は `SPIRITS_CODING_AGENT_DIR` を隔離 agent dir に固定するので、子も親と同じ dir を読む。公式 Pi 1.5.0 での 3 パターン比較:
 
@@ -125,7 +163,7 @@ bun scripts/managed-pi-compat/run.ts --mode official \
 
 ### 4. 現在の fork route では 1〜3 がどうなるか
 
-`~/.spirits/bin/spirits` 0.6.0(sha256 `dc3af4cb5de45e1f96e029ed7e1c909e48556f422ed926e2a349100e8238d29d`、同じ値は証拠の `evidence/q4-fork-route.json` の `forkSha256` にも recorded している)を一時 HOME と隔離 `SPIRITS_CODING_AGENT_DIR` で RPC 起動し、fake provider へ繋いで観測した。
+`~/.spirits/bin/spirits` 0.6.0(sha256 `dc3af4cb5de45e1f96e029ed7e1c909e48556f422ed926e2a349100e8238d29d`、同じ値は証拠の `evidence/q4-fork-route.json` の `forkSha256` にも記録している)を一時 HOME と隔離 `SPIRITS_CODING_AGENT_DIR` で RPC 起動し、fake provider へ繋いで観測した。
 
 | ケース | 結果 |
 |---|---|

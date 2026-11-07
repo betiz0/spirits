@@ -1,0 +1,64 @@
+{
+  "executableSha256": "61a84400938da652ed69aac9c1ad2ca23af3c9bd8cc2f46ce571ed84ae6a35e5",
+  "cases": [
+    {
+      "placement": "isolated",
+      "homeDefaultAgentDirBefore": false,
+      "hostDefaultAgentDirAfter": false,
+      "isolatedModelsJson": true,
+      "providerRequestKinds": [
+        "tool-call",
+        "text",
+        "text"
+      ],
+      "childRequestCount": 1,
+      "cellText": "{\"content\":[{\"type\":\"text\",\"text\":\"[value]\\n\\\"child answer\\\"\"}],\"details\":{\"value\":\"\\\"child answer\\\"\",\"truncated\":false,\"truncatedChars\":0},\"isError\":false}",
+      "cellIsError": false,
+      "rlmUsageCount": 1,
+      "rlmUsageOutcomes": [
+        "completed"
+      ],
+      "stderr": "",
+      "exitCode": 0
+    },
+    {
+      "placement": "hostdefault",
+      "homeDefaultAgentDirBefore": false,
+      "hostDefaultAgentDirAfter": true,
+      "isolatedModelsJson": false,
+      "providerRequestKinds": [
+        "tool-call",
+        "text"
+      ],
+      "childRequestCount": 0,
+      "cellText": "{\"content\":[{\"type\":\"text\",\"text\":\"[error]\\nError: rlm: No API key found for compat-fake.\\n\\nUse /login to log into a provider via OAuth or API key. See:\\n  /tmp/mpclean/q1-stage/official-stage/pi/docs/providers.md\\n  /tmp/mpclean/q1-stage/official-stage/pi/docs/models.md\\n提案: エラーメッセージの箇所を修正して再実行してください。\"}],\"details\":{\"error\":\"Error: rlm: No API key found for compat-fake.\\n\\nUse /login to log into ",
+      "cellIsError": true,
+      "rlmUsageCount": 1,
+      "rlmUsageOutcomes": [
+        "error"
+      ],
+      "stderr": "",
+      "exitCode": 0
+    },
+    {
+      "placement": "both",
+      "homeDefaultAgentDirBefore": false,
+      "hostDefaultAgentDirAfter": true,
+      "isolatedModelsJson": true,
+      "providerRequestKinds": [
+        "tool-call",
+        "text",
+        "text"
+      ],
+      "childRequestCount": 1,
+      "cellText": "{\"content\":[{\"type\":\"text\",\"text\":\"[value]\\n\\\"child answer\\\"\"}],\"details\":{\"value\":\"\\\"child answer\\\"\",\"truncated\":false,\"truncatedChars\":0},\"isError\":false}",
+      "cellIsError": false,
+      "rlmUsageCount": 1,
+      "rlmUsageOutcomes": [
+        "completed"
+      ],
+      "stderr": "",
+      "exitCode": 0
+    }
+  ]
+}

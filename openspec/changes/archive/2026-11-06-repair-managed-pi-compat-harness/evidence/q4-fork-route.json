@@ -1,0 +1,102 @@
+{
+  "fork": "/home/betiz/.spirits/bin/spirits",
+  "forkSha256": "dc3af4cb5de45e1f96e029ed7e1c909e48556f422ed926e2a349100e8238d29d",
+  "cases": [
+    {
+      "case": "physical",
+      "abortSent": false,
+      "providerRequests": [
+        {
+          "kind": "tool-call",
+          "receivedAt": 366,
+          "respondedAt": 366
+        },
+        {
+          "kind": "text",
+          "receivedAt": 382,
+          "respondedAt": 8383,
+          "delayMs": 8000
+        },
+        {
+          "kind": "text",
+          "receivedAt": 8391,
+          "respondedAt": 8391
+        }
+      ],
+      "childRequests": 1,
+      "childClosedEarly": false,
+      "cellText": "{\"content\":[{\"type\":\"text\",\"text\":\"[value]\\n\\\"child answer\\\"\"}],\"details\":{\"value\":\"\\\"child answer\\\"\",\"truncated\":false,\"truncatedChars\":0},\"isError\":false}",
+      "cellIsError": false,
+      "usageAtSettled": [
+        "completed"
+      ],
+      "usagePolls": [],
+      "stderr": "",
+      "exitCode": 0
+    },
+    {
+      "case": "abort",
+      "abortSent": true,
+      "providerRequests": [
+        {
+          "kind": "tool-call",
+          "receivedAt": 368,
+          "respondedAt": 368
+        },
+        {
+          "kind": "text",
+          "receivedAt": 383,
+          "closedAt": 3004,
+          "delayMs": 8000
+        }
+      ],
+      "childRequests": 1,
+      "childClosedEarly": true,
+      "cellText": "{\"content\":[{\"type\":\"text\",\"text\":\"[error]\\nAbortError: 呼び出し元の中断により実行を打ち切りました。\\n部分実行により永続コンテキストが不整合になっている可能性があります。\\n`reset: true` でコンテキストを初期化できます。\\n提案: reset: true で再生成するか、timeout を増やして再実行してください。\"}],\"details\":{\"error\":\"AbortError: 呼び出し元の中断により実行を打ち切りました。\\n部分実行により永続コンテキストが不整合になっている可能性があります。\\n`reset: true` でコンテキストを初期化できます",
+      "cellIsError": true,
+      "usageAtSettled": [],
+      "usagePolls": [
+        {
+          "id": "entries-poll-1",
+          "outcomes": [
+            "aborted"
+          ]
+        },
+        {
+          "id": "entries-poll-final",
+          "outcomes": [
+            "aborted"
+          ]
+        }
+      ],
+      "stderr": "",
+      "exitCode": 0
+    },
+    {
+      "case": "auto",
+      "abortSent": false,
+      "providerRequests": [
+        {
+          "kind": "tool-call",
+          "receivedAt": 367,
+          "respondedAt": 367
+        },
+        {
+          "kind": "text",
+          "receivedAt": 384,
+          "respondedAt": 384
+        }
+      ],
+      "childRequests": 0,
+      "childClosedEarly": false,
+      "cellText": "{\"content\":[{\"type\":\"text\",\"text\":\"[error]\\nError: rlm: No API key found for spirits.\\n\\nUse /login to log into a provider via OAuth or API key. See:\\n  /home/betiz/.spirits/bin/docs/providers.md\\n  /home/betiz/.spirits/bin/docs/models.md\\n提案: エラーメッセージの箇所を修正して再実行してください。\"}],\"details\":{\"error\":\"Error: rlm: No API key fou",
+      "cellIsError": true,
+      "usageAtSettled": [
+        "error"
+      ],
+      "usagePolls": [],
+      "stderr": "",
+      "exitCode": 0
+    }
+  ]
+}
