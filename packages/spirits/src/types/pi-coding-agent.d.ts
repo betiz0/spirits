@@ -657,6 +657,8 @@ export class SessionManager {
 	static open(path: string): SessionManager;
 	/** Session file path, or undefined for in-memory sessions. */
 	getSessionFile(): string | undefined;
+	/** Session id, from the header entry. */
+	getSessionId(): string;
 	/** Entries from the root to the current leaf, in order. */
 	getBranch(): readonly SessionEntry[];
 	/** The context projection pi builds from the branch: kept entries and the messages they yield. */
@@ -665,6 +667,24 @@ export class SessionManager {
 	appendMessage(message: AgentMessage & { timestamp?: number }): string;
 	/** Append a custom extension entry as a child of the current leaf. */
 	appendCustomEntry(customType: string, data?: unknown): string;
+	/**
+	 * Append a compaction entry: everything before `firstKeptEntryId` leaves the context and the
+	 * summary replaces it. Tests build compacted sessions with it; spirits never writes one by hand
+	 * except when it takes a compaction over at a clear boundary.
+	 */
+	appendCompaction(
+		summary: string,
+		firstKeptEntryId: string | null,
+		tokensBefore: number,
+		details?: unknown,
+		fromHook?: boolean,
+	): string;
+	/** Append an extension message entry, which does participate in LLM context. */
+	appendCustomMessageEntry(customType: string, content: string | unknown[], display: boolean, details?: unknown): string;
+	/** Move the leaf to `entryId` (null for the root), so the next entry starts a new branch. */
+	branch(entryId: string | null): string | null;
+	/** Move the leaf to `entryId` and record a summary of the abandoned path. */
+	branchWithSummary(entryId: string | null, summary: string, details?: unknown, fromHook?: boolean): string;
 }
 
 /**

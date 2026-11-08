@@ -140,7 +140,19 @@ host の実体を bundle に含めないのは、rlm の子セッションが親
 
 - `/spirits-model <ref> [level] [role]` … モデル、thinking level、role を 1 行で選ぶ。token は右から順に role、level を取り、残りを参照とする（`anthropic/claude-sonnet-4-5 high strong`、`sonnet strong`、`sonnet high`）。モデルは `pi.setModel()`、level は `pi.setThinkingLevel()`、role は phase lock で適用し、永続化は下の「設定の永続書き込み」に従う。最後に `ctx.reload()` を呼ぶので、そのコマンドの `pi` ハンドルと context はそれ以降使わない。
 - `/spirits-role normal|strong` … モデルを変えずに session の role を固定する。
-- `/spirits-clear` … 直前までの会話を LLM context から除く。`spirits_clear` の境界エントリを 1 件追加し、`context` イベントで境界より前の投影メッセージを落とす。session ID・chat 表示・TODO・goal・memory はそのまま。境界より前を約対象にする自動 compaction は `session_before_compact` で引き取り、消した会話を summary に戻さない。
+- `/spirits-clear` … 直前までの会話を LLM context から除く。`spirits_clear` の境界エントリを 1 件追加し、`context` イベントで境界より前の投影メッセージを落とす。session ID・chat 表示・TODO・goal・memory はそのまま。消した会話が要約に載って戻ってくることはない。
+
+### `/spirits-clear` の境界が及ばない範囲
+
+境界はリクエストに載る会話だけを削り、session ファイルは書き換えない。だから 3 つの場所で「消えたはずの会話」が再び効いてくる。
+
+- **使用量の推定と自動 compaction の発火タイミング**。`getContextUsage()` の token 推定と閾値判定は `context` イベントを通らない。境界より前のメッセージは pi がビルドする元の context のまま計上されるので、`/spirits-clear` の直後は使用量が減って見えやすく、自動 compaction も消す前の会話量で測ったタイミングで発火する。リクエスト自体は境界より後だけを送り続けている。引き取った compaction は `firstKeptEntryId` を境界に置くため、その 1 回のあとから推算も境界より後だけで測られる(前提確認 `evidence/precondition-results.json` の `B(b).automatic-compaction-fired` と `B(b).projection-shrinks-after-the-intercepted-compaction`)。
+- **`/tree` で境界より前のノードに移ったとき**。フィルタは現在枝上の最新境界を見るので、境界より前を指すとそこまでの会話が再び context に載る。境界より後ろへ移れば効いたままだ。
+- **fork をまたいだとき**。管理経路が内部で使う fork は全 entry をコピーするので境界も引き継がれる。同じ session を fork 経路(拡張に `registerModelRoles` がある経路)で開くと、その session で managed の `context` handler は登録されず、消した会話が載り返す。fork 経路自身に `/clear` 相当の機構がないため、境界をまたいで fork 経路に持ち込んだ session をそのまま続けることは移行条件として要求しない。
+
+また、境界より前を約対象にする自動 compaction は `session_before_compact` で引き取り、`firstKeptEntryId` を境界に置いて、消した会話を載せない summary を書く。引き取るのは「その要約範囲に、境界より前で消された会話が残っている場合」だけ。それ以外は pi の通常の要約に渡す。境界の位置だけで判定しないのは、何も消えていない会話(Clear 直後のセッション、直前の compaction 以降だけが残るセッション)まで引き取ると、本来の要約を 1 個失わせ、しかも要約が捨てるはずだったメッセージを全部 keep して閾値超過を引きずるからである。
+
+おのおのの機能は個別に始める。仮想モデルの登録、専用コマンドの登録、startup header、role badge のいずれかが host の API 変更で失敗しても拡張全体は失われず、その機能だけが止まる。失敗した機能名は session start で 1 回通知し、中核（`tsrepl`、`rlm`、memory / goal / skills / prompts、同梱 skill、session TODO）はそのまま動く。routing だけが落ちた場合は保存済みの既定 role を読む位相に切り替えるので、`rlm` の子は物理モデルを選ぶ親では従来どおり親のモデルを、`spirits/auto` を選ぶ親では既定 role に応じた対象を受け取る。
 
 role の所在は経路で違う。fork 経路では role は Pi の `pi.virtual-model-state` エントリに載る（fork の role patch が書く）。公式 Pi でそのエントリは core の所有物なので、managed 経路は spirits 自身の `spirits_role` エントリに書き、Pi のエントリは読むだけにする（fork が始めた session を続けるための one-way handoff）。
 
@@ -251,6 +263,12 @@ redact した既存 agent dir の fixture(`scripts/managed-pi-compat/fixtures/re
 
 ### role / clear / model
 
-role、`/clear`、`/model` の目的を専用 Pi で個別に観測する。role は skill コマンドで strong フェーズに入ったリクエストがどの物理モデルで流れたかを fake provider の受信リクエストから読む。`/clear` は probe 拡張が実行前に session ID・会話エントリ数・TODO エントリ数をファイルに記録し、コマンド実行後に読み戻して比較する。`/model` は thinking level と model の変更を実行し、変更結果と保存済みの既定設定キーを読み戻す。コマンド一覧に掲載されていないことだけで組み込み機能の不存在を判定せず、観測できない目的は `not-run` にする。各目的の状態は `available` / `limited` / `unavailable` / `not-run` で記録し、利用不可の項目には代替案と差異を付ける。
+role、`/clear`、`/model` の目的を専用 Pi で個別に観測する。判定はすべて RPC と fake provider が受けたリクエスト本体から取り、Node による session ファイルの読み取りは行わない。
+
+- role … skill コマンドで strong フェーズに入ったリクエストがどの物理モデルで流れたかを fake provider の受信リクエストから読む。role 語彙は `/spirits-model <ref> <level> <role>` が `models.role` に書き込むかとして観測する。badge のようなターミナル上の表示は RPC で読み取れないので `not-run` のままにする。
+- `/clear` … 実行前に `/spirits-clear` のない session でマーカー入りの発話を 1 つ、コマンド実行後にもう 1 つ発話し、コマンド後のリクエスト本体が後マーカーを含み前マーカーを含まないかを fake provider から読む。session ID・会話エントリ数・TODO エントリ数は probe 拡張の `/compat-purpose-state` に RPC で読み取らせ、実行前後で比較する。session ファイルは意図的に全メッセージを残すので、エントリ数だけを持って会話が消えたと判定しない。
+- `/model` … `/spirits-model <ref> <level> [role]` を実行し、fake provider が受けた model、thinking level の読み戻し(`ctx.getThinkingLevel()`)、保存済みの `defaultModel` / `defaultThinkingLevel` / `models.role` から判定する。
+
+コマンド一覧に掲載されていないことだけで組み込み機能の不存在を判定せず、観測できない目的は `not-run` にする。各目的の状態は `available` / `limited` / `unavailable` / `not-run` で記録し、代替案と差異は行に必ず持つ。
 
 マトリクスの行は目的観測から導出する。観測しなかった目的の行は `unavailable` ではなく `not-run` になり、行と目的の状態が矛盾しないことを検証関数で確認する。ターミナル上の表示など RPC 読み取りできない目的は `not-run` のままにする。

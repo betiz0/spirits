@@ -2,9 +2,11 @@
  * The managed command surface: argument grammar, persistence, the role badge, and the conversation
  * boundary.
  *
- * The route branch itself (`registerModelRoles` present or absent) is covered here by asserting the
- * commands exist only when the host has no role API; the routing side of that decision is in
- * `routing-register.test.ts`. Both run against the test doubles, so no pi process is involved.
+ * The route branch itself (`registerModelRoles` present or absent) is covered here by registering the
+ * whole extension against both hosts. The routing side of that decision is in
+ * `routing-register.test.ts`, and the boundary against real pi sessions is in
+ * `managed-commands-clear.test.ts`. Both files here run against the test doubles, so no pi process is
+ * involved.
  */
 
 import { afterAll, expect, test } from "bun:test";
@@ -32,8 +34,9 @@ import { registerManagedCommands } from "../src/commands/register.ts";
 import { inheritedRole, roleBadgeText } from "../src/commands/role.ts";
 import { patchSettingsFile } from "../src/commands/settings-store.ts";
 import type { SettingsPatch } from "../src/commands/settings-store.ts";
+import spiritsExtension from "../src/index.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
-import { FakePi, fakeCatalog, fakeCommandContext } from "./routing/fake-pi.ts";
+import { FakePi, fakeCatalog, fakeCommandContext, withoutRoleApi } from "./routing/fake-pi.ts";
 
 const MODEL_A: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5", name: "Sonnet", api: "anthropic" };
 const MODEL_B: PiModel = { provider: "openai", id: "gpt-5-mini", name: "GPT-5 Mini", api: "openai" };
@@ -296,6 +299,41 @@ test("a settings write creates the file when the agent dir has none", () => {
 	expect(readFileSync(path, "utf8")).toContain('"defaultModel": "model-a"');
 });
 
+// spec scenario "a settings file that is empty": pi treats an empty settings file as no settings, so
+// writing to one is not a corrupted-file case.
+test("an empty settings file is written as a settings object", () => {
+	const path = join(tempDir("settings-empty"), "settings.json");
+	writeFileSync(path, "", "utf8");
+	patchSettingsFile({ settingsPath: path, fields: { defaultModel: "model-a" } });
+	expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ defaultModel: "model-a" });
+});
+
+// A byte-order mark is what some editors leave behind. It is not part of the JSON text, so the file
+// stays readable by pi afterwards.
+test("a settings file with a byte-order mark is merged and written back without it", () => {
+	const path = join(tempDir("settings-bom"), "settings.json");
+	writeFileSync(path, "\uFEFF" + JSON.stringify({ base: true }), "utf8");
+	patchSettingsFile({ settingsPath: path, fields: { defaultModel: "model-a" } });
+
+	const text = readFileSync(path, "utf8");
+	expect(text.startsWith("\uFEFF")).toBe(false);
+	expect(JSON.parse(text)).toEqual({ base: true, defaultModel: "model-a" });
+});
+
+// spec requirement "managed 限定のコマンド登録": `registerModelRoles` の有無だけで分岐し、fork 経路では
+// 0 件、公式 Pi では 3 コマンド。entry point を通して確認するのは、分岐が登録の側にあるからである。
+test("the commands register on an official host and not on the fork", () => {
+	const fork = new FakePi();
+	spiritsExtension(fork);
+	expect([...fork.commands.keys()]).toEqual([]);
+
+	const official = withoutRoleApi(new FakePi());
+	spiritsExtension(official);
+	expect([...official.commands.keys()].sort()).toEqual(
+		[COMMAND_SPIRITS_CLEAR, COMMAND_SPIRITS_MODEL, COMMAND_SPIRITS_ROLE].sort(),
+	);
+});
+
 test("a settings file that is not JSON is reported instead of overwritten", () => {
 	const path = join(tempDir("settings-invalid"), "settings.json");
 	writeFileSync(path, "{ not json");
@@ -340,39 +378,6 @@ test("a boundary that is not on the branch, or one with no id, drops nothing", (
 	expect(clearedMessageCount(ctx.sessionManager)).toBe(0);
 });
 
-test("a compaction that would summarize cleared conversation is taken over without its content", () => {
-	const branch = [userEntry("1", "first"), entry("2", CLEAR_ENTRY_TYPE), userEntry("3", "after")];
-	const result = boundaryCompactionResult({
-		type: "session_before_compact",
-		preparation: { firstKeptEntryId: "1", tokensBefore: 4000 },
-		branchEntries: branch,
-		reason: "manual",
-		willRetry: false,
-		signal: new AbortController().signal,
-	});
-	expect(result?.compaction).toEqual({
-		summary: expect.stringContaining("/spirits-clear"),
-		firstKeptEntryId: "2",
-		tokensBefore: 4000,
-	});
-	expect(result?.compaction?.summary).not.toContain("first");
-});
-
-test("a compaction whose span holds nothing before the boundary is left to pi", () => {
-	const branch = [
-		userEntry("1", "first"),
-		entry("2", CLEAR_ENTRY_TYPE),
-		{ type: "compaction", id: "c", summary: "earlier", firstKeptEntryId: "2", tokensBefore: 10 } as SessionEntry,
-		userEntry("3", "after"),
-	];
-	expect(
-		boundaryCompactionResult({
-			type: "session_before_compact",
-			preparation: { firstKeptEntryId: "2", tokensBefore: 4000 },
-			branchEntries: branch,
-			reason: "threshold",
-			willRetry: false,
-			signal: new AbortController().signal,
-		}),
-	).toBeUndefined();
-});
+// Whether a summary would carry cleared conversation is a fact about pi's projection, and the fake
+// projection here cannot show it: it projects only message entries. The compaction takeover is
+// therefore tested against real pi sessions, in `managed-commands-clear.test.ts`.

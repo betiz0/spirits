@@ -99,11 +99,15 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 		// Fires on every prompt with the conversation pi rebuilt from the session file, so a command
 		// at the end of a finished turn, a resume, and an automatic compaction all land here.
 		const drop = clearedMessageCount(ctx.sessionManager);
-		if (drop <= 0) return;
-		return { messages: drop >= event.messages.length ? [] : event.messages.slice(drop) };
+		// Out-of-range means the projection and the message list no longer agree — another extension's
+		// context handler removed messages ahead of this one. Slicing then would cut conversation that
+		// outlives the boundary, and an empty list would send a prompt with no conversation at all, so
+		// leave the request alone (design Decision 4: the filter only ever shrinks what pi had).
+		if (drop <= 0 || drop >= event.messages.length) return;
+		return { messages: event.messages.slice(drop) };
 	});
 
-	pi.on("session_before_compact", (event) => boundaryCompactionResult(event));
+	pi.on("session_before_compact", (event, ctx) => boundaryCompactionResult(event, ctx.sessionManager));
 
 	pi.on("session_start", (_event, ctx) => {
 		// A resumed session takes its lock back from the entries this command surface wrote, and a

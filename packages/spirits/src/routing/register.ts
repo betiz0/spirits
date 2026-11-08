@@ -124,7 +124,15 @@ function wrapRouteReportingRole(
 	if (!onRole) return route;
 	return (request, ctx) => {
 		const result = route(request, ctx);
-		if (result.role) onRole(result.role, ctx);
+		// The hook reports a choice the route already made. A reporter that throws — a footer that will
+		// not take a status write — cannot take the user's request down with it.
+		if (result.role) {
+			try {
+				onRole(result.role, ctx);
+			} catch {
+				// Nothing to report to.
+			}
+		}
 		return result;
 	};
 }

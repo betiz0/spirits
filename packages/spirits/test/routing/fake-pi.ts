@@ -289,6 +289,15 @@ export function makeUserEntry(text: string): SessionEntry {
 export const AUTO_SELECTION: PiModel = { provider: "spirits", id: "auto", api: PI_VIRTUAL_MODEL_API };
 
 /**
+ * Make `pi` look like an official host: the role API the fork patches in is not there to read.
+ * Deleting the property is what pi does to an extension it did not patch, not assigning undefined.
+ */
+export function withoutRoleApi<T extends FakePi>(pi: T): T {
+	Object.defineProperty(pi, "registerModelRoles", { value: undefined, configurable: true });
+	return pi;
+}
+
+/**
  * Command context: the event context plus the `reload()` a command handler gets. `reloads` counts
  * them, because "nothing runs after reload" is a rule a test has to be able to see.
  */

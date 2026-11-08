@@ -36,6 +36,7 @@
  */
 
 import type {
+	ProjectedSessionEntry,
 	ReadonlySessionManager,
 	SessionBeforeCompactEvent,
 	SessionBeforeCompactResult,
@@ -53,6 +54,34 @@ export function clearBoundaryIndex(branch: readonly SessionEntry[]): number {
 }
 
 /**
+ * Branch position by entry id. The projection reports raw source entries, so an id is the only
+ * handle that maps a projected message back to its place on the branch.
+ */
+function branchPositions(branch: readonly SessionEntry[]): Map<string, number> {
+	const position = new Map<string, number>();
+	branch.forEach((entry, index) => {
+		if (entry.id) position.set(entry.id, index);
+	});
+	return position;
+}
+
+/**
+ * How many model-visible messages a projected entry contributes to the cleared conversation.
+ *
+ * An entry the projection invented, or one after the boundary, contributes nothing: it stays in the
+ * context. The `system` role is skipped because a system message is prompt state, not conversation.
+ */
+function clearedMessagesOf(
+	projected: ProjectedSessionEntry,
+	position: Map<string, number>,
+	boundary: number,
+): number {
+	const at = position.get(projected.sourceEntry.id ?? "");
+	if (at === undefined || at > boundary) return 0;
+	return projected.messages.filter((message) => message.role !== "system").length;
+}
+
+/**
  * How many model-visible messages the `context` handler must drop for the current branch.
  *
  * Zero means "leave the conversation alone", which is what a session with no boundary — or one whose
@@ -62,47 +91,72 @@ export function clearedMessageCount(sessionManager: ReadonlySessionManager): num
 	const branch = sessionManager.getBranch();
 	const boundary = clearBoundaryIndex(branch);
 	if (boundary < 0) return 0;
-	const boundaryId = branch[boundary].id;
-	if (!boundaryId) return 0;
+	if (!branch[boundary].id) return 0;
 
-	// Branch position by entry id. The projection reports raw source entries, so an id is the only
-	// handle that maps a projected message back to its place on the branch.
-	const position = new Map<string, number>();
-	branch.forEach((entry, index) => {
-		if (entry.id) position.set(entry.id, index);
-	});
-
+	const position = branchPositions(branch);
 	let drop = 0;
 	for (const projected of sessionManager.buildSessionProjection().entries) {
-		const at = position.get(projected.sourceEntry.id ?? "");
-		// An entry the projection invented, or anything after the boundary, stays in the context.
-		if (at === undefined || at > boundary) continue;
-		drop += projected.messages.filter((message) => message.role !== "system").length;
+		drop += clearedMessagesOf(projected, position, boundary);
 	}
 	return drop;
 }
 
 /**
+ * Whether the span pi is about to summarize still holds conversation the boundary removed.
+ *
+ * The span is the one `prepareCompaction` builds: the projected entries after the newest compaction
+ * that carries a summary, up to `preparation.firstKeptEntryId`, which is where the kept tail starts.
+ * Entries at or after that id survive the compaction, so only what lies before it can reach the
+ * summary.
+ */
+function summarizesClearedConversation(
+	event: SessionBeforeCompactEvent,
+	sessionManager: ReadonlySessionManager,
+	boundary: number,
+): boolean {
+	const position = branchPositions(event.branchEntries);
+	const projected = sessionManager.buildSessionProjection().entries;
+	// A projection with no compaction at all summarizes from the first entry; an id the projection
+	// does not carry leaves the span open at the end, which keeps the takeover rather than letting a
+	// cleared message into a summary.
+	// The summary source is the newest compaction that carries one, which is pi's own rule for the
+	// entry it resumes from. A projection with no such compaction summarizes from its first entry.
+	const from = projected.findIndex((entry) => entry.sourceEntry.type === "compaction" && entry.messages.length > 0) + 1;
+	const cut = projected.findIndex((entry) => entry.sourceEntry.id === event.preparation.firstKeptEntryId);
+	const to = cut === -1 ? projected.length : cut;
+
+	return projected
+		.slice(from, to)
+		.some((entry) => clearedMessagesOf(entry, position, boundary) > 0);
+}
+
+/**
  * Take a compaction over when its summary would carry cleared conversation content.
  *
- * A compaction summarizes everything from `firstKeptEntryId` down to the previous compaction (or the
- * session header). If a clear boundary sits inside that span, the summary would put the cleared
- * conversation back into the context, so the extension writes the compaction itself: the same
- * `firstKeptEntryId` pi prepared, and a summary that says the conversation was cleared and carries
- * none of it. When the boundary is already behind the summarized span, the automatic summary
- * proceeds untouched.
+ * A compaction summarizes everything from the previous compaction (or the session header) down to
+ * the entry it keeps. When that span still holds conversation the boundary removed, the summary would
+ * put the cleared conversation back into the context, so the extension writes the compaction itself:
+ * a summary that says the conversation was cleared and carries none of it, keeping from the boundary.
+ * Otherwise the automatic summary proceeds untouched.
+ *
+ * The test is what the span holds, not where the boundary sits. A session cleared while it had
+ * nothing to clear, or cleared right after a summary, has a span that reaches over the boundary and
+ * holds no cleared conversation; taking that one over would swap pi's real summary for a note, keep
+ * every message the summary would have dropped, and leave the context over the threshold for another
+ * round. The cleared conversation itself stays out of the request either way, because the `context`
+ * handler filters on every request.
  */
-export function boundaryCompactionResult(event: SessionBeforeCompactEvent): SessionBeforeCompactResult | undefined {
-	const entries = event.branchEntries;
-	const boundary = clearBoundaryIndex(entries);
+export function boundaryCompactionResult(
+	event: SessionBeforeCompactEvent,
+	sessionManager: ReadonlySessionManager,
+): SessionBeforeCompactResult | undefined {
+	const boundary = clearBoundaryIndex(event.branchEntries);
 	if (boundary < 0) return undefined;
 
-	const previousCompaction = entries.findLastIndex((entry) => entry.type === "compaction");
-	const firstSummarized = previousCompaction + 1;
-	if (boundary < firstSummarized) return undefined;
-
-	const firstKeptEntryId = entries[boundary].id;
+	const firstKeptEntryId = event.branchEntries[boundary].id;
 	if (!firstKeptEntryId) return undefined;
+
+	if (!summarizesClearedConversation(event, sessionManager, boundary)) return undefined;
 
 	return {
 		compaction: {

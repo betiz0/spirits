@@ -7,11 +7,21 @@
  * prompt sections, and the skill / prompt codemode tools. The branding module replaces pi's
  * startup header in TUI mode. The session TODO list adds the `manage_todos` tool. Dual model
  * routing registers the `spirits/auto` virtual model that splits requests between two roles.
+ *
+ * pi initializes an extension by calling this factory, and a throw anywhere inside it discards
+ * *every* registration the extension made (`core/extensions/loader.ts`: `load.discard()`). Only the
+ * core — `tsrepl`, `rlm`, the continual harness, the bundled skills, and the session TODO list — may
+ * fail the load. Each optional layer (the routing model, the managed commands, the startup header,
+ * the footer badge) is started through {@link optional} or {@link attempt}, which keeps the failure,
+ * names the layer once on the next session start, and hands back a working substitute.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { installBrandingHeader } from "./branding/header.ts";
 import { readRoutingSettings } from "./config.ts";
+import { MODEL_ROLE_NORMAL } from "./constants.ts";
+import { createRoleBadge } from "./commands/role.ts";
+import { registerManagedCommands } from "./commands/register.ts";
 import { registerBundledSkills } from "./harness/bundled-skills/index.ts";
 import { registerContinualHarness } from "./harness/install.ts";
 import { getAgentDir } from "./harness/paths.ts";
@@ -19,31 +29,101 @@ import { DEFAULT_MAX_DEPTH } from "./rlm/depth.ts";
 import { createRlmHostFn } from "./rlm/hostfn.ts";
 import { spawnChildSession } from "./rlm/spawn.ts";
 import { createChildModelResolver } from "./routing/child.ts";
+import type { RoutingPhase } from "./routing/phase.ts";
 import { registerDualModelRouting } from "./routing/register.ts";
-import { createRoleBadge } from "./commands/role.ts";
-import { registerManagedCommands } from "./commands/register.ts";
 import { registerManageTodos } from "./todo/tool.ts";
 import { registerTodoPanel } from "./todo/widget.ts";
 import { registerTsrepl } from "./tools.ts";
 
+/** The notice a failed optional layer produces, once per runtime. */
+const DEGRADED_NOTICE = "spirits: {feature} is unavailable in this runtime. tsrepl, rlm, memory, skills, and the session TODO list still work.";
+
+/**
+ * The role phase a session runs on when the routing layer did not register.
+ *
+ * It keeps the part the rest of the bundle reads — the current role, falling back to the saved
+ * default — and drops the skill phase, which only the routing event handlers drive. `rlm` reads it
+ * per child, and a parent on a physical model never reads it at all: the child gets the parent's
+ * model either way.
+ */
+export function fallbackRoutingPhase(readDefaultRole: () => string | undefined): Pick<RoutingPhase, "current" | "setRole"> {
+	let lock: string | undefined;
+	return {
+		current: () => lock ?? readDefaultRole() ?? MODEL_ROLE_NORMAL,
+		setRole: (role: string) => {
+			lock = role;
+		},
+	};
+}
+
 export default function spiritsExtension(pi: ExtensionAPI): void {
+	// Layers that failed and have not been reported yet, and the ones already reported. A layer that
+	// cannot start is a fact about this runtime, so the user hears it once, not once per request.
+	const pending: string[] = [];
+	const reported = new Set<string>();
+	const degrade = (feature: string): void => {
+		pending.push(feature);
+	};
+
+	/** Start an optional layer. Its failure costs that layer and nothing else. */
+	function optional<T>(feature: string, register: () => T, substitute: () => T): T {
+		try {
+			return register();
+		} catch {
+			degrade(feature);
+			return substitute();
+		}
+	}
+
+	/** Run an optional action, per session or per request. Its failure costs that action only. */
+	function attempt(feature: string, action: () => void): void {
+		try {
+			action();
+		} catch {
+			degrade(feature);
+		}
+	}
+
 	pi.on("session_start", (_event, ctx) => {
-		installBrandingHeader(ctx, () => pi.getSettings());
+		attempt("the startup header", () => installBrandingHeader(ctx, () => pi.getSettings()));
 	});
+	// Last, so a start that loses the header reports it on that same start, together with whatever the
+	// load itself could not register.
+	pi.on("session_start", (_event, ctx) => {
+		for (const feature of pending.splice(0)) {
+			if (reported.has(feature)) continue;
+			reported.add(feature);
+			ctx.ui.notify(DEGRADED_NOTICE.replace("{feature}", feature), "warning");
+		}
+	});
+
 	// Routing registers before the REPL tool: `rlm` and `routing` are sibling layers, so the entry
 	// point is the only place that can join them. The resolver reads the phase and the settings when a
 	// child starts, which is what makes a settings edit take effect on the next child.
 	// The badge shows the role that answered the last request, which the route reports through this
 	// hook on either route. On the fork route pi draws its own badge next to the model name as well;
 	// this line is the extension status line, not that one.
+	// A badge that cannot draw is contained inside the routing layer: the hook runs on the way to the
+	// user's answer, and a host that refuses a status write loses the footer line and nothing else.
 	const badge = createRoleBadge();
-	const routing = registerDualModelRouting(pi, { onRole: (role, ctx) => badge.update(role, ctx) });
+	const routing = optional(
+		"model routing",
+		() => registerDualModelRouting(pi, { onRole: (role, ctx) => badge.update(role, ctx) }),
+		() => ({
+			roleApi: false,
+			phase: fallbackRoutingPhase(() => readRoutingSettings(pi.getSettings()).defaultRole),
+		}),
+	);
 
 	// One bundle, two routes. `registerModelRoles` is the fork's role patch: where it is missing the
 	// host is an official Pi, and the commands that reach the same state through documented API —
 	// `/spirits-model`, `/spirits-role`, `/spirits-clear` — are what fills the gap. Where it exists,
 	// pi's `/model` already takes a role and these commands would only compete with it.
-	if (!routing.roleApi) registerManagedCommands(pi, { phase: routing.phase, badge });
+	if (!routing.roleApi) {
+		attempt("/spirits-model, /spirits-role, and /spirits-clear", () =>
+			registerManagedCommands(pi, { phase: routing.phase, badge }),
+		);
+	}
 
 	const rlm = createRlmHostFn({
 		pi,

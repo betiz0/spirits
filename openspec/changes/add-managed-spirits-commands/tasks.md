@@ -35,10 +35,10 @@
 
 ## 5. commands 層: `/spirits-clear`
 
-- [x] 5.1 `packages/spirits/src/commands/clear.ts` に境界の追記を実装する: `spirits_clear` custom entry を追記し、直前の境界が leaf 以降に無いときだけ追記する(連続実行で entry を増やしすぎない)。セッション ID と session ファイルは変更しない(`newSession()` を使わない)。`test/managed-commands.test.ts` で確認(spec `managed-commands` / `/spirits-clear` は区切りより前の会話を LLM 文脈から外す)
-- [x] 5.2 `context` フィルタを実装する: 境界 index 以前の entry が生む projection messages のうち `role !== "system"` の数 `drop` を求め、`0 < drop < event.messages.length` のときだけ `slice(drop)` を返す。system message を数えないことで pi の prompt/tool loadout entry を落とさないことを、pi の実関数を使うテストで確認(spec 同上)
-- [x] 5.3 単体テストで (a) 会話 0 のクリア(エラーなし)、(b) 1 往復のクリア(次の要求から以前の会話が消える)、(c) 2 回連続のクリア、(d) TODO / goal / memory の custom entry がそのまま残る、(e) モデルと thinking level が変わらない、(f) 区切りより後の要求にチャット表示を消すような変更が無い、を確認する(spec 同上、短い会話でも効く、続けて 2 回実行する、TODO と goal は残る)
-- [x] 5.4 `session_before_compact` の肩代わりを実装する: 要約範囲が境界より前を含むときだけ `{ compaction: { summary: <固定注記>, firstKeptEntryId: <境界 id>, tokensBefore } }` を返し、含まないときは素通す。固定注記にクリアした会話を含まないことを `test/managed-commands.test.ts` で確認(spec `managed-commands` / 自動 compaction はクリア済みの会話を文脈に戻さない、区切りより後の要約は邪魔しない)
+- [x] 5.1 `packages/spirits/src/commands/clear.ts` に境界の追記を実装する: `spirits_clear` custom entry を追記し、直前の境界が leaf 以降に無いときだけ追記する(連続実行で entry を増やしすぎない)。セッション ID と session ファイルは変更しない(`newSession()` を使わない)。実 `SessionManager` を使い、コマンドを 2 回実行しても entry は 1 件だけで session ID が変わらないことを `test/managed-commands-clear.test.ts` で確認(spec `managed-commands` / `/spirits-clear` は区切りより前の会話を LLM 文脈から外す)
+- [x] 5.2 `context` フィルタを実装する: 境界 index 以前の entry が生む projection messages のうち `role !== "system"` の数 `drop` を求め、`0 < drop < event.messages.length` のときだけ `slice(drop)` を返す。`drop` がリスト長以上になった場合は何も返さず素通しする(前の `context` handler が会話を削ったあとで slice すると、境界より後の会話まで切り捨てられ、0 件なら会話なしのプロンプトになる)。system message を数えないことで pi の prompt/tool loadout entry を落とさないことを、pi の実 `SessionManager` と `buildSessionProjection()` を使う `test/managed-commands-clear.test.ts` で確認(spec 同上)
+- [x] 5.3 単体テストで (a) 会話 0 のクリア(エラーなし)、(b) 1 往復のクリア(次の要求から以前の会話が消える)、(c) 2 回連続のクリア、(d) TODO / goal / memory の custom entry がそのまま残る、(e) モデルと thinking level が変わらない、を確認する(spec 同上、短い会話でも効く、続けて 2 回実行する、TODO と goal は残る)。`test/managed-commands-clear.test.ts`(実 `SessionManager`)。chat 表示そのものは単体では読めないので、(f) は専用 Pi の観測(`same-session-id` と、session ファイルが全 message entry を保つこと)で替える
+- [x] 5.4 `session_before_compact` の肩代わりを実装する: pi が要約する範囲に、境界より前で消された会話が残っているときだけ `{ compaction: { summary: <固定注記>, firstKeptEntryId: <境界 id>, tokensBefore } }` を返し、残っていなければ素通す。範囲は `buildSessionProjection()` のうち最新 compaction の後から `preparation.firstKeptEntryId` までとし、境界の位置だけでは判定しない(境界より前に消すべき会話が無いセッションまで引き取ると、本来の要約を 1 個失わせ、要約が捨てるはずだったメッセージを全部 keep する)。固定注記にクリアした会話を含まないこと、および素通しの 3 ケースを実 pi セッションで `test/managed-commands-clear.test.ts` を使い確認(spec `managed-commands` / 自動 compaction はクリア済みの会話を文脈に戻さない、区切りより後の要約は邪魔しない、消された会話が後ろに無い区切りでも邪魔しない)
 - [x] 5.5 resume 後にも効くことを専用 Pi 実測で確認する(§7)。単体では「境界 entry が branch に残れば効く」ことまでを検証する
 
 ## 6. managed 経路の環境変数と docs
@@ -59,9 +59,9 @@
 
 - [x] 8.1 `cd packages/spirits && bun test` 全体。failure 0 件を確認
 - [x] 8.2 `cd packages/spirits && bun run check`、および repo root で `npm run check`(biome / tsc / pinned deps / entry graphs)。全 error・warning・info を消す
-- [x] 8.3 clean な worktree で `bun scripts/build-managed-pi-inputs.ts --version 0.1.0 --out <dir>` から互換性ランナーを fixture mode と official mode で各 1 回走らせ、9 目的のうち observed の数と available / limited / unavailable / not-run の内訳を報告に記録する
-- [x] 8.4 fork 経路: 隔離 HOME + fake provider で role・`/model`・`/clear` が従来どおり動くことを 1 回確認し、使った fork バイナリの SHA256 を記録する。`/spirits-*` が登録されていないことも同じ実行で確認する
-- [x] 8.5 データ互換: `scripts/agent-data-compat/run.ts` を走らせ、managed で `/spirits-model` と `/spirits-role` が保存した settings と role を fork が読めることを確認する(既存手順どおり隔離 HOME・fake provider)
+- [x] 8.3 clean な worktree で `bun scripts/build-managed-pi-inputs.ts` から bundle と manifest を生成し、互換性ランナーを official mode で 1 回走らせて `evidence/official-compat-result.json` に保存する。9 目的のうち observed の数と available / limited の内訳、`role-badge` と `thinking-level` が `limited` である理由を報告に記録する。compaction・fork・`/tree`・resume の目的はこのランナーは観測しない(実装前の前提確認 `evidence/precondition-results.json` だけが根拠)
+- [x] 8.4 fork 経路: `evidence/data-compat-probe.ts` の fork 実行で、fork バイナリが `spirits_role` と managed の書いた settings を読み、`/spirits-*` を登録しないことを 1 回確認し、使った fork バイナリの SHA256 を記録する。role suffix 付き `/model` と core `/clear` の fork 経路そのものの実測は行っていない(観測したのは role 語彙の読み書きとコマンド一覧だけ)
+- [x] 8.5 データ互換: `scripts/agent-data-compat/run.ts` 本体ではなく `evidence/data-compat-probe.ts`(同じ fork バイナリ・同じ公式 artifact・fake provider を使う最小 probe)を走らせ、managed が保存した settings と role を fork が読めること、および fork が書いた `pi.virtual-model-state` の role を managed が引き継ぐことを確認する(12 項目)
 - [x] 8.6 証拠を redact して `evidence/` に保存する(official result.json と要約、fixture 要約、fork 経路 JSON、data-compat の該当項目)。`rg -n "sk-|Bearer |api_key|AKIA" evidence --glob '!README.md'` が 0 件であることを確認する
 
 ## 9. コミット分割
@@ -70,6 +70,15 @@
 - [x] 9.2 commit 2: 実装・テスト・ハーネス・docs(`git add` は明示パスのみ)
 - [x] 9.3 commit 3: 互換性ランナー・fork 経路・データ互換の証拠
 - [x] 9.4 archive と push は行わない
+
+## 10. archive 前の独立検証で出た指摘への対応
+
+- [x] 10.1 `specs/managed-pi/spec.md` の MODIFIED 要件「継承環境と session dir の sanitize」から既存シナリオ「identity の継承値」が落ちていたのを復元する(overlay 一本化の内容に合わせた THEN 文で)。確認: `openspec validate add-managed-spirits-commands --strict` が exit 0
+- [x] 10.2 `commands/register.ts` の `context` handler を `drop >= event.messages.length` で素通しに変更する(spec の `0 < drop < event.messages.length` と同じ条件)。確認: `test/managed-commands-clear.test.ts` 「a list shorter than the boundary is handed back untouched」
+- [x] 10.3 `commands/clear.ts` の compaction 引き取りを「その要約範囲に消された会話が実際に残っているか」の判定に変更する(`event.branchEntries` の位置と `buildSessionProjection()` の対応は entry id で取る)。確認: 同上「a boundary with nothing cleared behind it leaves the summary to pi」他 3 件
+- [x] 10.4 `index.ts` で中核でない機能(routing・専用コマンド・header)を 1 機能ずつ開始し、失敗時はその機能だけ落として次へ進む `optional` / `attempt` を入れる。通知は session start で 1 回だけ。routing が無い場合の位相は `fallbackRoutingPhase`(保存済みの既定 role + lock)で `rlm` に渡し、物理モデルを選ぶ親の挙動は変えない。badge の更新失敗は route 側で受け止める。spec `managed-pi` / 中核でない機能の失敗は中核に伝播しない。確認: `test/extension-degradation.test.ts` 6 件
+- [x] 10.5 `docs/spirits-managed-pi.md` に次を追記する: 区切りより前の entry が `getContextUsage()` の推算と自動 compaction の閾値に残ること(実測値入り)、`/tree` で境界より前に移ったときと fork 経路で開き直したときの影響、互換性ランナーの role / clear / model 観測の説明を今の実装(`/spirits-*` と fake provider の受信本文)に合わせる
+- [x] 10.6 タスク 8.3 / 8.4 / 8.5 の文言を実際に走らせた範囲に合わせる(fork 経路は probe にとどまる、`scripts/agent-data-compat/run.ts` 本体は走らせていない、compaction / fork / `/tree` / resume はランナーの観測対象外)
 
 ## 実測結果(§8)
 
@@ -82,4 +91,8 @@
 
 `scripts/agent-data-compat/run.ts` そのものは fork 側の全項目を観測する別変更の手順で、本项目が要求する settings / role の双方向読み書きは `evidence/data-compat-probe.ts` に絞った(同じ fork バイナリ、同じ公式 artifact、fake provider を使う)。
 
-単体テストは §2〜§5 の項目を 1 ファイル `packages/spirits/test/managed-commands.test.ts`(24 件)にまとめた。上記の各項目はそのテスト名に対応する。
+単体テストは §2〜§5 の項目を次の 3 ファイルに分けた。上記の各項目はそのテスト名に対応する。
+
+- `test/managed-commands.test.ts` … 引数文法、設定ファイル、badge、コマンド登録の分岐(テスト dub で足りるもの)
+- `test/managed-commands-clear.test.ts` … 境界の数え上げと compaction の引き取り(実 `SessionManager` と `buildSessionProjection()` を使う)
+- `test/extension-degradation.test.ts` … 中核でない機能が失敗したとき中核が残ること、通知が 1 回であること
