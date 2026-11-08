@@ -1,0 +1,330 @@
+{
+  "generatedBy": "managed-commands-probe.ts",
+  "overlaySha256": "883b0b1462dd22bbcfa5c5020aeb79979b74adc39d059d6dbc8fa8318135a6ad",
+  "outcomes": [
+    {
+      "id": "clear: the turn before the command carried the conversation",
+      "passed": true,
+      "detail": "[\"alpha question\"]"
+    },
+    {
+      "id": "clear: the turn after it carries nothing from before the command",
+      "passed": true,
+      "detail": "[\"beta question\"]"
+    },
+    {
+      "id": "clear: the boundary holds for later turns too",
+      "passed": true,
+      "detail": "[\"beta question\",\"gamma question\"]"
+    },
+    {
+      "id": "role: a normal turn routed to the default model",
+      "passed": true,
+      "detail": "fake-model"
+    },
+    {
+      "id": "role: /spirits-role strong made the next request use models.strong",
+      "passed": true,
+      "detail": "fake-strong"
+    },
+    {
+      "id": "role: /spirits-role normal sent the following request back to the default",
+      "passed": true,
+      "detail": "fake-model"
+    },
+    {
+      "id": "role: the lock survived the reload the command ran",
+      "passed": true,
+      "detail": "9 snapshots; roles seen: -,-,-,strong,strong,normal,normal,strong,strong"
+    },
+    {
+      "id": "model: the reference switched the model the provider saw",
+      "passed": true,
+      "detail": "fake-strong; {\"type\":\"extension_ui_request\",\"id\":\"5007d98d-a336-4cc1-a47a-b7b478da346f\",\"method\":\"notify\",\"message\":\"using compat-fake/fake-strong high strong\",\"notifyType\":\"info\"}"
+    },
+    {
+      "id": "model: pi's default model keys were persisted",
+      "passed": true,
+      "detail": "{\"defaultProvider\":\"compat-fake\",\"defaultModel\":\"fake-strong\",\"defaultThinkingLevel\":\"high\"}"
+    },
+    {
+      "id": "model: models.role was persisted",
+      "passed": true,
+      "detail": "{\"strong\":\"compat-fake/fake-strong\",\"role\":\"strong\"}"
+    },
+    {
+      "id": "model: keys spirits did not name survived the write",
+      "passed": true,
+      "detail": "{\"quietStartup\":true,\"defaultProvider\":\"compat-fake\",\"defaultModel\":\"fake-strong\",\"models\":{\"strong\":\"compat-fake/fake-strong\",\"role\":\"strong\"},\"enabledModels\":[\"compat-fake/fake-model\",\"compat-fake/fake-strong\"],\"spiritsForeign\":{\"keep\":true},\"defaultThinkingLevel\":\"high\"}"
+    },
+    {
+      "id": "badge: the role reached the extension status line",
+      "passed": true,
+      "detail": "{\"type\":\"extension_ui_request\",\"id\":\"d52687a7-f41d-4435-8d06-afae99f47b79\",\"method\":\"setStatus\",\"statusKey\":\"spirits\",\"statusText\":\"[normal]\"} | {\"type\":\"extension_ui_request\",\"id\":\"8c261d3d-c00f-46d7-aeca-43e8d778e425\",\"method\":\"setStatus\",\"statusKey\":\"spirits\",\"statusText\":\"[normal]\"} | {\"type\":\"extension_ui_request\",\"id\":\"b6ecc1a3-ee31-47c2-abd9-835f83b9113a\",\"method\":\"setStatus\",\"statusKey\":\"spirits\",\"statusText\":\"[normal]\"} | {\"type\":\"extension_ui_request\",\"id\":\"320628a2-c281-49ff-b528-0fc361ed89db\",\"method\":\"setStatus\",\"statusKey\":\"spirits\",\"statusText\":\"[normal]\"}"
+    },
+    {
+      "id": "route: the bundle ran on the official executable with no role API",
+      "passed": true,
+      "detail": "{\"type\":\"extension_ui_request\",\"id\":\"39307982-7ae8-4a0f-8834-684a64f43dc8\",\"meth"
+    }
+  ],
+  "passed": 13,
+  "failed": 0,
+  "providerRequests": [
+    {
+      "model": "fake-model",
+      "users": [
+        "alpha question"
+      ]
+    },
+    {
+      "model": "fake-model",
+      "users": [
+        "beta question"
+      ]
+    },
+    {
+      "model": "fake-strong",
+      "users": [
+        "beta question",
+        "gamma question"
+      ]
+    },
+    {
+      "model": "fake-model",
+      "users": [
+        "beta question",
+        "gamma question",
+        "delta question"
+      ]
+    },
+    {
+      "model": "fake-strong",
+      "users": [
+        "beta question",
+        "gamma question",
+        "delta question",
+        "epsilon question"
+      ]
+    }
+  ],
+  "settings": {
+    "quietStartup": true,
+    "defaultProvider": "compat-fake",
+    "defaultModel": "fake-strong",
+    "models": {
+      "strong": "compat-fake/fake-strong",
+      "role": "strong"
+    },
+    "enabledModels": [
+      "compat-fake/fake-model",
+      "compat-fake/fake-strong"
+    ],
+    "spiritsForeign": {
+      "keep": true
+    },
+    "defaultThinkingLevel": "high"
+  },
+  "notices": [
+    "{\"type\":\"extension_ui_request\",\"id\":\"39307982-7ae8-4a0f-8834-684a64f43dc8\",\"method\":\"notify\",\"message\":\"spirits: host has no role API. Model routing and skill-driven strong phases work; /model role, saved default roles, and the role badge are unavailable.\",\"notifyType\":\"warning\"}",
+    "{\"type\":\"extension_ui_request\",\"id\":\"f97a50c0-02a7-4d69-be8a-6cf1cc7cb14f\",\"method\":\"notify\",\"message\":\"conversation cleared from the model context\",\"notifyType\":\"info\"}",
+    "{\"type\":\"extension_ui_request\",\"id\":\"11e0b27c-255f-419a-9c73-d3c5381bc76f\",\"method\":\"notify\",\"message\":\"role locked to strong\",\"notifyType\":\"info\"}",
+    "{\"type\":\"extension_ui_request\",\"id\":\"06751894-493a-4658-8af1-f443eb627936\",\"method\":\"notify\",\"message\":\"spirits: host has no role API. Model routing and skill-driven strong phases work; /model role, saved default roles, and the role badge are unavailable.\",\"notifyType\":\"warning\"}",
+    "{\"type\":\"extension_ui_request\",\"id\":\"7d3e9df0-72b4-46c6-8a99-819a2da50f9c\",\"method\":\"notify\",\"message\":\"role locked to normal\",\"notifyType\":\"info\"}",
+    "{\"type\":\"extension_ui_request\",\"id\":\"004d4866-bd6a-419a-a0df-244ca8e5cebb\",\"method\":\"notify\",\"message\":\"spirits: host has no role API. Model routing and skill-driven strong phases work; /model role, saved default roles, and the role badge are unavailable.\",\"notifyType\":\"warning\"}",
+    "{\"type\":\"extension_ui_request\",\"id\":\"5007d98d-a336-4cc1-a47a-b7b478da346f\",\"method\":\"notify\",\"message\":\"using compat-fake/fake-strong high strong\",\"notifyType\":\"info\"}",
+    "{\"type\":\"extension_ui_request\",\"id\":\"6ba7a4c1-6975-449a-88b5-512c282a637a\",\"method\":\"notify\",\"message\":\"spirits: host has no role API. Model routing and skill-driven strong phases work; /model role, saved default roles, and the role badge are unavailable.\",\"notifyType\":\"warning\"}"
+  ],
+  "statusRequests": [
+    "{\"type\":\"extension_ui_request\",\"id\":\"d52687a7-f41d-4435-8d06-afae99f47b79\",\"method\":\"setStatus\",\"statusKey\":\"spirits\",\"statusText\":\"[normal]\"}",
+    "{\"type\":\"extension_ui_request\",\"id\":\"8c261d3d-c00f-46d7-aeca-43e8d778e425\",\"method\":\"setStatus\",\"statusKey\":\"spirits\",\"statusText\":\"[normal]\"}",
+    "{\"type\":\"extension_ui_request\",\"id\":\"b6ecc1a3-ee31-47c2-abd9-835f83b9113a\",\"method\":\"setStatus\",\"statusKey\":\"spirits\",\"statusText\":\"[normal]\"}",
+    "{\"type\":\"extension_ui_request\",\"id\":\"320628a2-c281-49ff-b528-0fc361ed89db\",\"method\":\"setStatus\",\"statusKey\":\"spirits\",\"statusText\":\"[normal]\"}",
+    "{\"type\":\"extension_ui_request\",\"id\":\"ff37f44b-e865-47b1-87a1-e1b4031ddd85\",\"method\":\"setStatus\",\"statusKey\":\"spirits\",\"statusText\":\"[strong]\"}",
+    "{\"type\":\"extension_ui_request\",\"id\":\"df715cad-def6-48f4-9cf6-3ea6daa82479\",\"method\":\"setStatus\",\"statusKey\":\"spirits\",\"statusText\":\"[strong]\"}",
+    "{\"type\":\"extension_ui_request\",\"id\":\"c3f05aa3-db89-48a9-b66e-dbd1b81714db\",\"method\":\"setStatus\",\"statusKey\":\"spirits\",\"statusText\":\"[normal]\"}",
+    "{\"type\":\"extension_ui_request\",\"id\":\"6456f4d8-4887-4fdb-aba8-b4af07c4f091\",\"method\":\"setStatus\",\"statusKey\":\"spirits\",\"statusText\":\"[normal]\"}",
+    "{\"type\":\"extension_ui_request\",\"id\":\"60865603-d72f-4425-a09c-097888ea993b\",\"method\":\"setStatus\",\"statusKey\":\"spirits\",\"statusText\":\"[strong]\"}"
+  ],
+  "watch": [
+    {
+      "why": "session_start",
+      "file": {
+        "quietStartup": true,
+        "defaultProvider": "compat-fake",
+        "defaultModel": "fake-model",
+        "models": {
+          "strong": "compat-fake/fake-strong"
+        },
+        "enabledModels": [
+          "compat-fake/fake-model",
+          "compat-fake/fake-strong"
+        ],
+        "spiritsForeign": {
+          "keep": true
+        }
+      },
+      "effective": null
+    },
+    {
+      "why": "agent_end",
+      "file": {
+        "quietStartup": true,
+        "defaultProvider": "compat-fake",
+        "defaultModel": "fake-model",
+        "models": {
+          "strong": "compat-fake/fake-strong"
+        },
+        "enabledModels": [
+          "compat-fake/fake-model",
+          "compat-fake/fake-strong"
+        ],
+        "spiritsForeign": {
+          "keep": true
+        }
+      },
+      "effective": null
+    },
+    {
+      "why": "agent_end",
+      "file": {
+        "quietStartup": true,
+        "defaultProvider": "compat-fake",
+        "defaultModel": "fake-model",
+        "models": {
+          "strong": "compat-fake/fake-strong"
+        },
+        "enabledModels": [
+          "compat-fake/fake-model",
+          "compat-fake/fake-strong"
+        ],
+        "spiritsForeign": {
+          "keep": true
+        }
+      },
+      "effective": null
+    },
+    {
+      "why": "session_start",
+      "file": {
+        "quietStartup": true,
+        "defaultProvider": "compat-fake",
+        "defaultModel": "fake-model",
+        "models": {
+          "strong": "compat-fake/fake-strong",
+          "role": "strong"
+        },
+        "enabledModels": [
+          "compat-fake/fake-model",
+          "compat-fake/fake-strong"
+        ],
+        "spiritsForeign": {
+          "keep": true
+        }
+      },
+      "effective": null
+    },
+    {
+      "why": "agent_end",
+      "file": {
+        "quietStartup": true,
+        "defaultProvider": "compat-fake",
+        "defaultModel": "fake-model",
+        "models": {
+          "strong": "compat-fake/fake-strong",
+          "role": "strong"
+        },
+        "enabledModels": [
+          "compat-fake/fake-model",
+          "compat-fake/fake-strong"
+        ],
+        "spiritsForeign": {
+          "keep": true
+        }
+      },
+      "effective": null
+    },
+    {
+      "why": "session_start",
+      "file": {
+        "quietStartup": true,
+        "defaultProvider": "compat-fake",
+        "defaultModel": "fake-model",
+        "models": {
+          "strong": "compat-fake/fake-strong",
+          "role": "normal"
+        },
+        "enabledModels": [
+          "compat-fake/fake-model",
+          "compat-fake/fake-strong"
+        ],
+        "spiritsForeign": {
+          "keep": true
+        }
+      },
+      "effective": null
+    },
+    {
+      "why": "agent_end",
+      "file": {
+        "quietStartup": true,
+        "defaultProvider": "compat-fake",
+        "defaultModel": "fake-model",
+        "models": {
+          "strong": "compat-fake/fake-strong",
+          "role": "normal"
+        },
+        "enabledModels": [
+          "compat-fake/fake-model",
+          "compat-fake/fake-strong"
+        ],
+        "spiritsForeign": {
+          "keep": true
+        }
+      },
+      "effective": null
+    },
+    {
+      "why": "session_start",
+      "file": {
+        "quietStartup": true,
+        "defaultProvider": "compat-fake",
+        "defaultModel": "fake-strong",
+        "models": {
+          "strong": "compat-fake/fake-strong",
+          "role": "strong"
+        },
+        "enabledModels": [
+          "compat-fake/fake-model",
+          "compat-fake/fake-strong"
+        ],
+        "spiritsForeign": {
+          "keep": true
+        },
+        "defaultThinkingLevel": "high"
+      },
+      "effective": null
+    },
+    {
+      "why": "agent_end",
+      "file": {
+        "quietStartup": true,
+        "defaultProvider": "compat-fake",
+        "defaultModel": "fake-strong",
+        "models": {
+          "strong": "compat-fake/fake-strong",
+          "role": "strong"
+        },
+        "enabledModels": [
+          "compat-fake/fake-model",
+          "compat-fake/fake-strong"
+        ],
+        "spiritsForeign": {
+          "keep": true
+        },
+        "defaultThinkingLevel": "high"
+      },
+      "effective": null
+    }
+  ]
+}

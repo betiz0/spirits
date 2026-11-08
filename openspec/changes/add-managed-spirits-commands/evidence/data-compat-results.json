@@ -1,0 +1,263 @@
+{
+  "checks": [
+    {
+      "name": "fork-1 routes the plain turn to the default model",
+      "pass": true,
+      "detail": "model=fake-model stderr=\"\""
+    },
+    {
+      "name": "fork-1 registers no spirits command surface",
+      "pass": true,
+      "detail": "none"
+    },
+    {
+      "name": "fork-1 wrote pi's own routing state entry",
+      "pass": true,
+      "detail": "model_change,thinking_level_change,message,pi.virtual-model-state"
+    },
+    {
+      "name": "managed-1 continues the fork's session id",
+      "pass": true,
+      "detail": "01a1b9bf-b632-73fd-b9ac-c39784fdf802 vs 01a1b9bf-b632-73fd-b9ac-c39784fdf802"
+    },
+    {
+      "name": "managed-1 inherits the role the fork left and routes strong",
+      "pass": true,
+      "detail": "pi state roles=[\"normal\",\"strong\"] model=fake-strong"
+    },
+    {
+      "name": "managed-1 added no routing state entry of its own yet",
+      "pass": true,
+      "detail": "[]"
+    },
+    {
+      "name": "managed-2 persisted model, level, and role under pi's own keys",
+      "pass": true,
+      "detail": "{\"quietStartup\":true,\"defaultProvider\":\"compat-fake\",\"defaultModel\":\"fake-model\",\"models\":{\"strong\":\"compat-fake/fake-strong\",\"role\":\"strong\"},\"enabledModels\":[\"*\"],\"spiritsForeign\":{\"keep\":true},\"defaultThinkingLevel\":\"minimal\"}"
+    },
+    {
+      "name": "managed-2 kept the foreign key and the other owner's strong entry",
+      "pass": true,
+      "detail": "{\"foreign\":{\"keep\":true},\"strong\":\"compat-fake/fake-strong\"}"
+    },
+    {
+      "name": "managed-2 wrote its own role entry and never pi's routing state",
+      "pass": true,
+      "detail": "spirits_role=[\"strong\"] custom=model_change,thinking_level_change,message,pi.virtual-model-state,spirits_role"
+    },
+    {
+      "name": "fork-2 resolves the model and level the managed route saved",
+      "pass": true,
+      "detail": "{\"defaultProvider\":\"compat-fake\",\"defaultModel\":\"fake-model\",\"models\":{\"strong\":\"compat-fake/fake-strong\",\"role\":\"strong\"},\"defaultThinkingLevel\":\"minimal\"}"
+    },
+    {
+      "name": "fork-2 loads the session that holds the spirits custom entry",
+      "pass": true,
+      "detail": "01a1b9bf-b632-73fd-b9ac-c39784fdf802 spirits_role=[\"strong\"]"
+    },
+    {
+      "name": "fork-2 answers with no load error",
+      "pass": true,
+      "detail": "model=fake-model stderr=\"\""
+    }
+  ],
+  "settings": {
+    "quietStartup": true,
+    "defaultProvider": "compat-fake",
+    "defaultModel": "fake-model",
+    "models": {
+      "strong": "compat-fake/fake-strong",
+      "role": "strong"
+    },
+    "enabledModels": [
+      "*"
+    ],
+    "spiritsForeign": {
+      "keep": true
+    },
+    "defaultThinkingLevel": "minimal"
+  },
+  "fork1": {
+    "agentDir": "/tmp/spirits-data-compat/agent",
+    "home": "/tmp/spirits-data-compat/home",
+    "sessionId": "01a1b9bf-b632-73fd-b9ac-c39784fdf802",
+    "known": {
+      "defaultProvider": "compat-fake",
+      "defaultModel": "fake-model",
+      "models": {
+        "strong": "compat-fake/fake-strong"
+      }
+    },
+    "unknownKeys": {
+      "quietStartup": true,
+      "enabledModels": [
+        "*"
+      ],
+      "spiritsForeign": {
+        "keep": true
+      }
+    },
+    "commands": [
+      "adc-inspect",
+      "llama",
+      "mcp",
+      "skill:sprt-opsx-verify-deep",
+      "skill:sprt-opsx-review-change",
+      "skill:sprt-architecture-guards"
+    ],
+    "currentModel": "spirits/auto",
+    "level": "medium",
+    "customTypes": [
+      "model_change",
+      "thinking_level_change",
+      "message",
+      "pi.virtual-model-state"
+    ],
+    "spiritsRoleEntries": [],
+    "piStateRoles": [
+      "normal"
+    ]
+  },
+  "managed1": {
+    "agentDir": "/tmp/spirits-data-compat/agent",
+    "home": "/tmp/spirits-data-compat/home",
+    "sessionId": "01a1b9bf-b632-73fd-b9ac-c39784fdf802",
+    "known": {
+      "defaultProvider": "compat-fake",
+      "defaultModel": "fake-model",
+      "models": {
+        "strong": "compat-fake/fake-strong"
+      }
+    },
+    "unknownKeys": {
+      "quietStartup": true,
+      "enabledModels": [
+        "*"
+      ],
+      "spiritsForeign": {
+        "keep": true
+      }
+    },
+    "commands": [
+      "spirits-model",
+      "spirits-role",
+      "spirits-clear",
+      "adc-inspect",
+      "llama",
+      "mcp",
+      "skill:sprt-opsx-verify-deep",
+      "skill:sprt-opsx-review-change",
+      "skill:sprt-architecture-guards"
+    ],
+    "currentModel": "spirits/auto",
+    "level": "medium",
+    "customTypes": [
+      "model_change",
+      "thinking_level_change",
+      "message",
+      "pi.virtual-model-state"
+    ],
+    "spiritsRoleEntries": [],
+    "piStateRoles": [
+      "normal",
+      "strong"
+    ]
+  },
+  "managed2": {
+    "agentDir": "/tmp/spirits-data-compat/agent",
+    "home": "/tmp/spirits-data-compat/home",
+    "sessionId": "01a1b9bf-b632-73fd-b9ac-c39784fdf802",
+    "known": {
+      "defaultProvider": "compat-fake",
+      "defaultModel": "fake-model",
+      "models": {
+        "strong": "compat-fake/fake-strong",
+        "role": "strong"
+      },
+      "defaultThinkingLevel": "minimal"
+    },
+    "unknownKeys": {
+      "quietStartup": true,
+      "enabledModels": [
+        "*"
+      ],
+      "spiritsForeign": {
+        "keep": true
+      }
+    },
+    "commands": [
+      "spirits-model",
+      "spirits-role",
+      "spirits-clear",
+      "adc-inspect",
+      "llama",
+      "mcp",
+      "skill:sprt-opsx-verify-deep",
+      "skill:sprt-opsx-review-change",
+      "skill:sprt-architecture-guards"
+    ],
+    "currentModel": "compat-fake/fake-model",
+    "level": "minimal",
+    "customTypes": [
+      "model_change",
+      "thinking_level_change",
+      "message",
+      "pi.virtual-model-state",
+      "spirits_role"
+    ],
+    "spiritsRoleEntries": [
+      "strong"
+    ],
+    "piStateRoles": [
+      "normal",
+      "strong"
+    ]
+  },
+  "fork2": {
+    "agentDir": "/tmp/spirits-data-compat/agent",
+    "home": "/tmp/spirits-data-compat/home",
+    "sessionId": "01a1b9bf-b632-73fd-b9ac-c39784fdf802",
+    "known": {
+      "defaultProvider": "compat-fake",
+      "defaultModel": "fake-model",
+      "models": {
+        "strong": "compat-fake/fake-strong",
+        "role": "strong"
+      },
+      "defaultThinkingLevel": "minimal"
+    },
+    "unknownKeys": {
+      "quietStartup": true,
+      "enabledModels": [
+        "*"
+      ],
+      "spiritsForeign": {
+        "keep": true
+      }
+    },
+    "commands": [
+      "adc-inspect",
+      "llama",
+      "mcp",
+      "skill:sprt-opsx-verify-deep",
+      "skill:sprt-opsx-review-change",
+      "skill:sprt-architecture-guards"
+    ],
+    "currentModel": "compat-fake/fake-model",
+    "level": "minimal",
+    "customTypes": [
+      "model_change",
+      "thinking_level_change",
+      "message",
+      "pi.virtual-model-state",
+      "spirits_role"
+    ],
+    "spiritsRoleEntries": [
+      "strong"
+    ],
+    "piStateRoles": [
+      "normal",
+      "strong"
+    ]
+  }
+}

@@ -133,6 +133,14 @@ managed では `spirits_role` custom entry に `{ role }` を追記し、`/spiri
 
 - `/spirits-clear` のチャット表示の消去を PB 待ちでなく拡張側でやる道(`setFooter` で表示を絞る等)は、fork と同じ見え方にならないため本変更では検討しない。必要になったら別 change。
 
+## 実装後の実測(§8)
+
+- 単体: `packages/spirits/test/managed-commands.test.ts` 24 件(`bun test` 全体で 864 pass / 0 fail)。
+- 専用 Pi 実測: `evidence/managed-commands-probe.ts` 13/13 pass。公式バイナリ + 本 bundle + fake provider。`/spirits-clear` の前後の要求本文、`/spirits-role strong` の振り分け先、`/spirits-model` の保存(`defaultProvider` / `defaultModel` / `defaultThinkingLevel` / `models.role`)、未知キーの保持、badge の `setStatus`、role API 不在の通知を 1 本の RPC 記録から確認する。
+- 互換性ランナー official: `evidence/official-compat-result.json`。`confirmed=29 limited=0 unavailable=0 not-run=3 failed=0`、9 目的は available 7 / limited 2(`role-badge`、`thinking-level`)。
+- データ互換: `evidence/data-compat-probe.ts` 12/12 pass。fork が書いた `pi.virtual-model-state` の role を managed が継承して strong に振り分け、managed が書いた settings を fork が解決し、`spirits_role` を含んだセッションを fork がエラーなく読み続ける。
+- 環境: 公式バイナリは `package.json` の `piConfig` からのみ identity を読むため、`computeManagedEnv` は `PI_APP_NAME` / `PI_CONFIG_DIR` を立てず、有れば除去する。
+
 ## 付録: 前提確認の再現手順
 
 `evidence/precondition-probe.ts`(公式 artifact の検証・bundle ビルド・staged RPC・fake provider を行う)を `bun evidence/precondition-probe.ts` で実行し、`evidence/precondition-results.json` に 19 項目の結果が出る。リポジトリ内の `scripts/managed-pi-compat/*` と `packages/spirits/src/managed-pi/*` を import する。実データ・実認証・実 provider は使わない。
