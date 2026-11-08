@@ -82,12 +82,20 @@
 
 ## 実測結果(§8)
 
-- 8.1 `cd packages/spirits && bun test` → 864 pass / 0 fail(96 files)。
+- 8.1 `cd packages/spirits && bun test` → 886 pass / 0 fail(98 files)。内訳は §10 の追加分 22 件を含む。
 - 8.2 `cd packages/spirits && bun run check` と repo root の `npm run check` → ともに exit 0(biome、pinned deps、runtime deps、ts-imports、entry graphs、install-lock、tsc、browser smoke)。
-- 8.3 official mode → `confirmed=29 limited=0 unavailable=0 not-run=3 failed=0`、`compatibilityMet=true`、`runnerProvenance.clean=true`(commit `5d1b0a09d`)。9 目的の内訳は available 7、limited 2(`role-badge` は拡張 status 行、`thinking-level` は pi の `/model` ピッカー非経由)、unavailable 0、not-run 0。結果は `evidence/official-compat-result.json`。
+- 8.3 official mode → `confirmed=29 limited=0 unavailable=0 not-run=3 failed=0`、`compatibilityMet=true`、`runnerProvenance.clean=true`(commit `fb2291b0c`、bundle SHA256 `7db6f613269adc91e547b84390670930a91ab3daddf59d3d40dd8957eb38f473`)。9 目的の内訳は available 7、limited 2(`role-badge` は拡張 status 行、`thinking-level` は pi の `/model` ピッカー非経由)、unavailable 0、not-run 0。`not-run` は 3 項目で、既存 agent dir への書き戻し・settings の永続書き込み・direct `execute` probe(補助)のいずれも本仕様または公式 Pi の API 表面の限界による。結果は `evidence/official-compat-result.json`。
+- 8.3b fixture mode → `confirmed=19 limited=3 unavailable=0 not-run=10 failed=0`、`compatibilityMet=false`(fixture は常に false)。目的観測は 9 件のうち 3 件で、fixture host はセル実行も子セッションも provider リクエストも作らないため `not-run` が残る。要約は `evidence/fixture-compat-summary.md`。
 - 8.4 fork 経路 → `evidence/data-compat-probe.ts` の fork 実行(`dist/spirits-linux-x64`、SHA256 `6b26ddc0dd445350ec552d8a11be80baea5fbca2b72ca135fb761f770ace00f6`)。`/spirits-*` は登録されず、`pi.virtual-model-state` を自分で書き、managed が書いた settings と `spirits_role` entry を読んで応答する。
 - 8.5 データ互換 → `evidence/data-compat-results.json` 12/12 pass。fork が書き込んだ role を managed が継承して strong で振り分け、managed が保存した `defaultProvider` / `defaultModel` / `defaultThinkingLevel` / `models.role` を fork が解決し、未知キー(`spiritsForeign`)と `models.strong` が双方の書き込みを越えて残る。
 - 8.6 `rg -n "sk-|Bearer |api_key|AKIA" openspec/changes/add-managed-spirits-commands/evidence` → 0 件。
+
+## 実測結果(§10)
+
+- 10.1 `openspec validate add-managed-spirits-commands --strict` → exit 0。
+- 10.2〜10.4 `cd packages/spirits && bun test` → 886 pass / 0 fail。追加したテストは `test/managed-commands-clear.test.ts`(実 `SessionManager` で 15 件: 数え上げ 6、コマンド 2、`context` フィルタ 3、compaction の引き取りと素通し 4)、`test/extension-degradation.test.ts`(6 件)、`test/managed-commands.test.ts` の 3.1 の分岐 1 件と空/BOM の設定ファイル 2 件。
+- 10.5 `rg -n "使用量|/tree|fork" docs/spirits-managed-pi.md` → 「`/spirits-clear` の境界が及ばない範囲」節に 3 項目とも出る。
+- 再実行後の `npm run check` → exit 0。公式ランナーの再実行は 8.3 のとおりで、内訳は `fb2291b0c` でも変わっていない。
 
 `scripts/agent-data-compat/run.ts` そのものは fork 側の全項目を観測する別変更の手順で、本项目が要求する settings / role の双方向読み書きは `evidence/data-compat-probe.ts` に絞った(同じ fork バイナリ、同じ公式 artifact、fake provider を使う)。
 

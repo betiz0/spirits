@@ -157,7 +157,7 @@
 		}
 	],
 	"runnerProvenance": {
-		"commit": "5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+		"commit": "fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 		"diffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
 		"untracked": [],
 		"clean": true
@@ -166,12 +166,12 @@
 	"artifactSha256": "df870ba0e344cb7b3358d8d8f19397b8b8d225a8669784736ad68a5c2169d53b",
 	"executableSha256": "61a84400938da652ed69aac9c1ad2ca23af3c9bd8cc2f46ce571ed84ae6a35e5",
 	"bundleVersion": "0.87.1",
-	"bundleSha256": "267256bf7a98ebe76781a4ec2647df22365d171827a8e4c8f3640d16556ce5a7",
+	"bundleSha256": "7db6f613269adc91e547b84390670930a91ab3daddf59d3d40dd8957eb38f473",
 	"manifestSetId": "pi-1.5.0",
-	"manifestSha256": "17827f20f0da4c04dce811a06f98074b892c402c76c85049034cfa8f24c8d578",
+	"manifestSha256": "31ab01acd69b02807b3517b819b17c9895c82b004c26d614cd9c7e1c21dbd1f8",
 	"overlayVersion": "1.5.0-spirits.1",
 	"overlaySha256": "883b0b1462dd22bbcfa5c5020aeb79979b74adc39d059d6dbc8fa8318135a6ad",
-	"targetCommit": "5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+	"targetCommit": "fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 	"workingTreeClean": true,
 	"runtime": {
 		"runner": "bun 1.4.2",
@@ -195,15 +195,15 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
@@ -214,15 +214,15 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
@@ -233,15 +233,15 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
@@ -252,21 +252,21 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
 			"item": "managed extension load",
 			"command": [
-				"/tmp/spirits-managed-compat-vzESzK/official-stage/pi/pi",
+				"/tmp/spirits-managed-compat-uKrDK8/official-stage/pi/pi",
 				"--mode",
 				"rpc",
 				"--no-session",
@@ -286,15 +286,15 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
@@ -305,15 +305,15 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
@@ -324,15 +324,15 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
@@ -343,15 +343,15 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
@@ -362,15 +362,15 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
@@ -381,15 +381,15 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
@@ -400,15 +400,15 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
@@ -419,15 +419,15 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
@@ -438,15 +438,15 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
@@ -457,21 +457,21 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
 			"item": "data read compatibility",
 			"command": [
-				"/tmp/spirits-managed-compat-vzESzK/official-stage/pi/pi",
+				"/tmp/spirits-managed-compat-uKrDK8/official-stage/pi/pi",
 				"--mode",
 				"rpc",
 				"--no-session",
@@ -486,7 +486,7 @@
 		{
 			"item": "auth read compatibility",
 			"command": [
-				"/tmp/spirits-managed-compat-vzESzK/official-stage/pi/pi",
+				"/tmp/spirits-managed-compat-uKrDK8/official-stage/pi/pi",
 				"--mode",
 				"rpc",
 				"--no-session",
@@ -501,7 +501,7 @@
 		{
 			"item": "external extension read compatibility",
 			"command": [
-				"/tmp/spirits-managed-compat-vzESzK/official-stage/pi/pi",
+				"/tmp/spirits-managed-compat-uKrDK8/official-stage/pi/pi",
 				"--mode",
 				"rpc",
 				"--no-session",
@@ -515,7 +515,7 @@
 		{
 			"item": "dedicated Pi write path",
 			"command": [
-				"/tmp/spirits-managed-compat-vzESzK/official-stage/pi/pi",
+				"/tmp/spirits-managed-compat-uKrDK8/official-stage/pi/pi",
 				"--mode",
 				"rpc",
 				"--no-session",
@@ -535,21 +535,21 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
 			"item": "settings write compatibility",
 			"command": [
-				"/tmp/spirits-managed-compat-vzESzK/official-stage/pi/pi",
+				"/tmp/spirits-managed-compat-uKrDK8/official-stage/pi/pi",
 				"--mode",
 				"rpc",
 				"--no-session",
@@ -564,7 +564,7 @@
 		{
 			"item": "model tool call reaches tsrepl",
 			"command": [
-				"/tmp/spirits-managed-compat-vzESzK/official-stage/pi/pi",
+				"/tmp/spirits-managed-compat-uKrDK8/official-stage/pi/pi",
 				"--mode",
 				"rpc",
 				"--no-session",
@@ -581,7 +581,7 @@
 		{
 			"item": "direct execute probe is auxiliary",
 			"command": [
-				"/tmp/spirits-managed-compat-vzESzK/official-stage/pi/pi",
+				"/tmp/spirits-managed-compat-uKrDK8/official-stage/pi/pi",
 				"--mode",
 				"rpc",
 				"--no-session",
@@ -601,21 +601,21 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
 			"item": "rlm child abort",
 			"command": [
-				"/tmp/spirits-managed-compat-vzESzK/official-stage/pi/pi",
+				"/tmp/spirits-managed-compat-uKrDK8/official-stage/pi/pi",
 				"--mode",
 				"rpc",
 				"--no-session",
@@ -633,7 +633,7 @@
 		{
 			"item": "rlm child creation",
 			"command": [
-				"/tmp/spirits-managed-compat-vzESzK/official-stage/pi/pi",
+				"/tmp/spirits-managed-compat-uKrDK8/official-stage/pi/pi",
 				"--mode",
 				"rpc",
 				"--no-session",
@@ -651,7 +651,7 @@
 		{
 			"item": "rlm child answer",
 			"command": [
-				"/tmp/spirits-managed-compat-vzESzK/official-stage/pi/pi",
+				"/tmp/spirits-managed-compat-uKrDK8/official-stage/pi/pi",
 				"--mode",
 				"rpc",
 				"--no-session",
@@ -669,7 +669,7 @@
 		{
 			"item": "rlm child usage",
 			"command": [
-				"/tmp/spirits-managed-compat-vzESzK/official-stage/pi/pi",
+				"/tmp/spirits-managed-compat-uKrDK8/official-stage/pi/pi",
 				"--mode",
 				"rpc",
 				"--no-session",
@@ -687,7 +687,7 @@
 		{
 			"item": "rlm physical model child",
 			"command": [
-				"/tmp/spirits-managed-compat-vzESzK/official-stage/pi/pi",
+				"/tmp/spirits-managed-compat-uKrDK8/official-stage/pi/pi",
 				"--mode",
 				"rpc",
 				"--no-session",
@@ -705,7 +705,7 @@
 		{
 			"item": "rlm auto parent",
 			"command": [
-				"/tmp/spirits-managed-compat-vzESzK/official-stage/pi/pi",
+				"/tmp/spirits-managed-compat-uKrDK8/official-stage/pi/pi",
 				"--mode",
 				"rpc",
 				"--no-session",
@@ -728,15 +728,15 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		},
 		{
@@ -747,15 +747,15 @@
 				"--mode",
 				"official",
 				"--artifact-root",
-				"/tmp/mc-stage",
+				"/tmp/mp-pre-official",
 				"--bundle",
 				"/home/betiz/project/spirits/dist/spirits-managed-pi-extension.js",
 				"--commit",
-				"5d1b0a09db5bdbd62411826a2a1d2cd4fef09322",
+				"fb2291b0c011f7416898ce9ba2089fa9682bbda6",
 				"--bundle-version",
 				"0.87.1",
 				"--out",
-				"/tmp/compat-official-clean.json"
+				"/tmp/mp-pre-official/result.json"
 			]
 		}
 	],
@@ -824,9 +824,9 @@
 			"state": "confirmed",
 			"detail": "written SKILL.md is raw markdown",
 			"data": {
-				"isolatedAgentDir": "/tmp/spirits-managed-compat-vzESzK/managed-pi/agent",
+				"isolatedAgentDir": "/tmp/spirits-managed-compat-uKrDK8/managed-pi/agent",
 				"bundledSkillFiles": 3,
-				"firstSkillFile": "/tmp/spirits-managed-compat-vzESzK/managed-pi/agent/bundled-skills/0.0.0-dev/sprt-opsx-verify-deep/SKILL.md"
+				"firstSkillFile": "/tmp/spirits-managed-compat-uKrDK8/managed-pi/agent/bundled-skills/0.0.0-dev/sprt-opsx-verify-deep/SKILL.md"
 			}
 		},
 		{
@@ -1001,14 +1001,14 @@
 					{
 						"kind": "tool-call",
 						"model": "fake-model",
-						"receivedAt": 317,
-						"respondedAt": 318
+						"receivedAt": 361,
+						"respondedAt": 362
 					},
 					{
 						"kind": "text",
 						"model": "fake-model",
-						"receivedAt": 330,
-						"closedAt": 3068,
+						"receivedAt": 373,
+						"closedAt": 3066,
 						"delayMs": 8000
 					}
 				]
@@ -1043,21 +1043,21 @@
 					{
 						"kind": "tool-call",
 						"model": "fake-model",
-						"receivedAt": 445,
-						"respondedAt": 445
+						"receivedAt": 441,
+						"respondedAt": 441
 					},
 					{
 						"kind": "text",
 						"model": "fake-model",
-						"receivedAt": 459,
+						"receivedAt": 460,
 						"respondedAt": 460,
 						"delayMs": 0
 					},
 					{
 						"kind": "text",
 						"model": "fake-model",
-						"receivedAt": 464,
-						"respondedAt": 464
+						"receivedAt": 465,
+						"respondedAt": 465
 					}
 				]
 			}
@@ -1072,21 +1072,21 @@
 					{
 						"kind": "tool-call",
 						"model": "fake-model",
-						"receivedAt": 424,
-						"respondedAt": 425
+						"receivedAt": 422,
+						"respondedAt": 422
 					},
 					{
 						"kind": "text",
 						"model": "fake-model",
-						"receivedAt": 439,
-						"respondedAt": 439,
+						"receivedAt": 436,
+						"respondedAt": 436,
 						"delayMs": 0
 					},
 					{
 						"kind": "text",
 						"model": "fake-model",
-						"receivedAt": 444,
-						"respondedAt": 444
+						"receivedAt": 440,
+						"respondedAt": 440
 					}
 				]
 			}
@@ -1238,14 +1238,14 @@
 						"purposeId": "conversation-clear",
 						"purpose": "Remove conversation from context while the display keeps it",
 						"state": "available",
-						"detail": "the request after the command carried compat-clear-after-1794117700628 and not compat-clear-before-1794117700628, while the session file kept every message entry"
+						"detail": "the request after the command carried compat-clear-after-1794128090002 and not compat-clear-before-1794128090002, while the session file kept every message entry"
 					},
 					{
 						"feature": "clear",
 						"purposeId": "same-session-id",
 						"purpose": "Keep the same session ID after clearing",
 						"state": "available",
-						"detail": "the session kept the ID 01a1b9bf-8d63-7270-8f1c-7d3db47272d0"
+						"detail": "the session kept the ID 01a1ba5e-14d9-7207-b716-df64a71b2d78"
 					},
 					{
 						"feature": "clear",
@@ -1258,19 +1258,19 @@
 				"clearAttempt": {
 					"attempted": true,
 					"before": {
-						"sessionId": "01a1b9bf-8d63-7270-8f1c-7d3db47272d0",
+						"sessionId": "01a1ba5e-14d9-7207-b716-df64a71b2d78",
 						"messageEntries": 7,
 						"todoEntries": 1
 					},
 					"after": {
-						"sessionId": "01a1b9bf-8d63-7270-8f1c-7d3db47272d0",
+						"sessionId": "01a1ba5e-14d9-7207-b716-df64a71b2d78",
 						"messageEntries": 7,
 						"todoEntries": 1
 					},
 					"context": {
 						"observed": true,
 						"cleared": true,
-						"detail": "the request after the command carried compat-clear-after-1794117700628 and not compat-clear-before-1794117700628, while the session file kept every message entry"
+						"detail": "the request after the command carried compat-clear-after-1794128090002 and not compat-clear-before-1794128090002, while the session file kept every message entry"
 					}
 				},
 				"clearDiagnostics": {
@@ -1299,9 +1299,9 @@
 			"state": "confirmed",
 			"detail": "the seeded existing agent dir kept its content and modification times across every launch",
 			"data": {
-				"existingAgentDir": "/tmp/spirits-managed-compat-vzESzK/home/.spirits/agent"
+				"existingAgentDir": "/tmp/spirits-managed-compat-uKrDK8/home/.spirits/agent"
 			}
 		}
 	],
-	"cwd": "/tmp/spirits-managed-compat-vzESzK/project"
+	"cwd": "/tmp/spirits-managed-compat-uKrDK8/project"
 }
