@@ -1,0 +1,184 @@
+{
+	"outcomes": [
+		{
+			"id": "A1.bundle-inlines-proper-lockfile",
+			"passed": true,
+			"detail": "the bundle carries the locker inline (57842 bytes)"
+		},
+		{
+			"id": "A3.registerModelRoles-absent",
+			"passed": true,
+			"detail": "registerModelRoles present on the official host: false"
+		},
+		{
+			"id": "A2.command-context-surface",
+			"passed": true,
+			"detail": "command ctx and api: {\"reload\":true,\"setStatus\":true,\"projection\":true,\"getSettings\":true,\"appendEntry\":true,\"setModel\":true}"
+		},
+		{
+			"id": "A2.reload-applies-written-settings",
+			"passed": true,
+			"detail": "the session_start after ctx.reload() reads settings={\"defaultProvider\":\"compat-fake\",\"defaultModel\":\"fake-model\",\"defaultThinkingLevel\":\"high\",\"models\":{\"strong\":\"compat-fake/fake-strong\",\"role\":\"strong\",\"expKey\":\"kept\"}} thinkingLevel=off model={\"provider\":\"unknown\",\"id\":\"unknown\"}",
+			"data": {
+				"starts": [
+					{
+						"reason": "startup",
+						"settings": {},
+						"level": "off",
+						"model": {
+							"provider": "unknown",
+							"id": "unknown"
+						}
+					},
+					{
+						"reason": "reload",
+						"settings": {
+							"defaultProvider": "compat-fake",
+							"defaultModel": "fake-model",
+							"defaultThinkingLevel": "high",
+							"models": {
+								"strong": "compat-fake/fake-strong",
+								"role": "strong",
+								"expKey": "kept"
+							}
+						},
+						"level": "off",
+						"model": {
+							"provider": "unknown",
+							"id": "unknown"
+						}
+					}
+				]
+			}
+		},
+		{
+			"id": "A1.race-with-settings-manager-keeps-both-sides",
+			"passed": true,
+			"detail": "the file parsed after 200 extension writes raced against 200 SettingsManager writes; models={\"strong\":\"compat-fake/fake-strong\",\"role\":\"strong\",\"expKey\":\"kept\",\"raceIndex\":199} defaultThinkingLevel=high",
+			"data": {
+				"hammerOut": "{\"rounds\":200,\"errors\":[\"manager.setThinkingLevel is not a function. (In 'manager.setThinkingLevel(index % 2 === 0 ? \\\"low\\\" : \\\"medium\\\")', 'manager.setThinkingLevel' is undefined)\",\"manager.setThinkingLevel is not a function. (In 'manager.setThinkingLevel(index % 2 === 0 ? \\\"low\\\" : \\\"medium\\\")', ",
+				"hammerErr": "",
+				"extensionLock": {
+					"rounds": 200,
+					"failures": []
+				}
+			}
+		},
+		{
+			"id": "A1.lock-released",
+			"passed": true,
+			"detail": "lock leftovers: none"
+		},
+		{
+			"id": "B(a).short-conversation-fails",
+			"passed": true,
+			"detail": "compact on a short conversation answered success=false error=Nothing to compact (session too small)"
+		},
+		{
+			"id": "B(a).hook-not-reached-when-unprepared",
+			"passed": true,
+			"detail": "session_before_compact fired 0 time(s) for the short conversation"
+		},
+		{
+			"id": "B(a).hook-reachable-when-prepared",
+			"passed": true,
+			"detail": "with compaction.keepRecentTokens=1 compact succeeded (success=true) and the hook fired 1 time(s)",
+			"data": {
+				"hooks": [
+					{
+						"reason": "manual",
+						"firstKeptEntryId": "ed910e81",
+						"intercepted": false
+					}
+				]
+			}
+		},
+		{
+			"id": "B(a).second-compact-fails",
+			"passed": true,
+			"detail": "compact right after a compaction answered success=false error=Already compacted"
+		},
+		{
+			"id": "B(a).summary-message-stays-in-context",
+			"passed": true,
+			"detail": "the request after a real compaction still carries the summary text: [{\"role\":\"developer\",\"content\":\"You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code.\\n\\n<tools>\\n- read: Read file contents\\n- bash: Execute bash commands (ls, grep, "
+		},
+		{
+			"id": "B(b).boundary-drops-earlier-context",
+			"passed": true,
+			"detail": "the request after the clear carries MARKER-TWO without MARKER-ONE: [{\"role\":\"developer\",\"content\":\"You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code.\\n\\n<tools>\\n- read: Read file contents\\n-"
+		},
+		{
+			"id": "B(b).works-on-a-short-conversation",
+			"passed": true,
+			"detail": "a one-exchange conversation with no compaction preparation still cleared"
+		},
+		{
+			"id": "B(b).two-consecutive-clears",
+			"passed": true,
+			"detail": "after three clears the request carries only MARKER-THREE: [{\"role\":\"developer\",\"content\":\"You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code.\\n\\n<tools>\\n- read: Read file contents\\n-"
+		},
+		{
+			"id": "B(b).boundary-survives-resume",
+			"passed": true,
+			"detail": "after --continue (3 session file(s)) the request carries MARKER-FOUR without the cleared markers: [{\"role\":\"developer\",\"content\":\"You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code.\\n\\n<tools>\\n- read: Read file contents\\n-"
+		},
+		{
+			"id": "B(b).automatic-compaction-fired",
+			"passed": true,
+			"detail": "session_before_compact fired 3 time(s), reasons threshold,threshold,threshold, intercepted 1",
+			"data": {
+				"hooks": [
+					{
+						"reason": "threshold",
+						"firstKeptEntryId": "8435de44",
+						"intercepted": false
+					},
+					{
+						"reason": "threshold",
+						"firstKeptEntryId": "5d2871b6",
+						"intercepted": true
+					},
+					{
+						"reason": "threshold",
+						"firstKeptEntryId": "2a95e2a8",
+						"intercepted": false
+					}
+				],
+				"compacted": [
+					{
+						"fromExtension": false,
+						"firstKeptEntryId": "8435de44",
+						"summary": "No prior history.\n\n---\n\n**Turn Context (split turn):**\n\nanswer [{\"type\":\"text\",\""
+					},
+					{
+						"fromExtension": true,
+						"firstKeptEntryId": "21d2fd0c",
+						"summary": "EXP-CLEARED-SUMMARY: content before the /spirits-clear boundary is out of contex"
+					},
+					{
+						"fromExtension": false,
+						"firstKeptEntryId": "2a95e2a8",
+						"summary": "answer [{\"type\":\"text\",\"text\":\"<conversation>\\n[User]: MARKER-SIX a\n\n---\n\n**Turn"
+					}
+				]
+			}
+		},
+		{
+			"id": "B(b).cleared-content-does-not-return",
+			"passed": true,
+			"detail": "the request after the automatic compaction carries no cleared marker: [{\"role\":\"developer\",\"content\":\"You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code.\\n\\n<tools>\\n- read: Read file contents\\n- bash: Execute bash commands (ls, grep, "
+		},
+		{
+			"id": "B(b).projection-shrinks-after-the-intercepted-compaction",
+			"passed": true,
+			"detail": "prefix counts read inside the host: cleared [2,0] (before the automatic compaction, after it); host stats {\"id\":\"stats-1\",\"type\":\"response\",\"command\":\"get_session_stats\",\"success\":true,\"data\":{\"sessionFile\":\"/tmp/spirits-pre-AoN6w3/managed-pi/agent/sessions/2026-11-08T03-47-28-932Z_01a1b944-b024-7198-9741-6e5efa8e910f.jsonl\",\"sessionId\":\"01a1b9"
+		},
+		{
+			"id": "B(b).extension-supplied-note-used",
+			"passed": true,
+			"detail": "compaction entries recorded by the host: [{\"fromExtension\":false,\"firstKeptEntryId\":\"8435de44\",\"summary\":\"No prior history.\\n\\n---\\n\\n**Turn Context (split turn):**\\n\\nanswer [{\\\"type\\\":\\\"text\\\",\\\"\"},{\"fromExtension\":true,\"firstKeptEntryId\":"
+		}
+	],
+	"work": "/tmp/spirits-pre-AoN6w3"
+}
