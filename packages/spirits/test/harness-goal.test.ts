@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type {
 	CustomEntry,
 	ReadonlySessionManager,
+	SessionProjection,
 	SessionEntry,
 	SessionMessageEntry,
 } from "@earendil-works/pi-coding-agent";
@@ -32,6 +33,16 @@ class FakeSessionManager {
 
 	getEntries(): readonly SessionEntry[] {
 		return this.#all;
+	}
+
+	buildSessionProjection(): SessionProjection {
+		return {
+			entries: this.#branch.map((entry) => ({
+				sourceEntry: entry,
+				messages: entry.type === "message" ? [entry.message] : [],
+			})),
+			messages: [],
+		};
 	}
 }
 

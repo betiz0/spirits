@@ -90,19 +90,37 @@ wrapper は起動前に次を設定する。値は解決済みの隔離 agent di
 
 - `SPIRITS_CODING_AGENT_DIR`: `<managed root>/agent` に固定する。
 - `SPIRITS_CODING_AGENT_SESSION_DIR`: `<managed root>/agent/sessions` に固定する。
-- `PI_APP_NAME`: `spirits` に固定する。
-- `PI_CONFIG_DIR`: `.pi` に固定する。
 - `PI_CODING_AGENT_DIR` と `PI_CODING_AGENT_SESSION_DIR`: 子プロセス環境から除去する。
+- `PI_APP_NAME` と `PI_CONFIG_DIR`: 立てない。公式 Pi は identity を実行ファイル隣の `package.json` の `piConfig` から決める (`APP_NAME = piConfigName || "pi"`) で、これらの環境変数自体を読まない。よって identity は overlay `package.json` のみに一本化し、fork 版のインストールが残す変数は除去する (立てても効かず、存在すれば存在するほど「効くノブがある」と誤解させる)。
 - `PI_PACKAGE_DIR`: 管理された Pi の package dir に固定する。
 - `PI_SKIP_VERSION_CHECK=1`: 常に固定する(呼び出し側の値は上書きし、通常起動と同じ扱い)。
 - `PI_TELEMETRY=0`: 未設定時だけ既定する。明示された値は保持する。
-- API キー、proxy、provider 設定など保存先と identity 以外の変数は保持する。
+- API キー、proxy、provider 設定など保存先以外の変数は保持する。
 
 session dir を環境で固定するのは、継承値やプロジェクトの `settings.sessionDir` が隔離領域外へ保存先を切り替えられないようにするためである。起動は `<managed root>/current/pi/pi` を絶対パスで spawn し、stdio と終了コードを引き継ぐ。
 
+## 設定の永続書き込み
+
+Pi の拡張 API は settings を読むが返さないため、`/spirits-model` と `/spirits-role` の永続化は Pi が書くファイルそのものへ寄せる。書き方は Pi の `FileSettingsStorage.withLock` と同じ手順に一致させる (`core/settings-manager.ts`)。
+
+- 対象は Pi の global settings (`<agent dir>/settings.json`)。project file は trust 判定を伴うので書かない。
+- `proper-lockfile` の `lockSync(path, { realpath: false })` を取り、`ELOCKED` を再試行する。
+- 取得後にファイルを読み、**変更するフィールドだけ**をマージして書き、解く。未知のキーは現内容からのマージで残る (`models.strong` と `models.role` が Pi のキーと同じ object に並べる)。
+- `withFileMutationQueue` は使わない。これは 1 プロセス内の直列化であり、競合する書き手は別のプロセス (fork 版 `spirits` や同じ agent dir を使う別の managed Pi) なので、効くのは file lock だけである。
+- 書いてから `ctx.reload()` を呼ぶ。reload はその拡張 runtime を置き換えるので、コマンドの `pi` ハンドルと context は reload 後に触らない。
+
+Pi 本体が読むのは `~/.spirits/agent/settings.json` (managed では隔離 agent dir) で、`enabledModels` など spirits が知らないキーは Pi の editor 側が保持する。spirits 側は `models.strong` / `models.role` / `defaultProvider` / `defaultModel` / `defaultThinkingLevel` を、fork 経路と同じキー名で使う。
+
+## 已知の制約
+
+- **role badge の位置**: managed 経路の role 表示は `ui.setStatus()` の拡張 status line に出る。fork 経路の footer 右側・モデル名の隣の badge とは別の場所であり、あれと同じ配置・同じ永続化ではない。
+- **`rlm` の子と第三者 provider**: 子セッションは拡張を読まない。managed 経路で provider をプログラム登録している拡張 (テストの fake provider など) がある場合、その provider は子から見える形にならない。実 provider は `auth.json` / `models.json` を通すため通常は影響がないが、拡張登録に依存する provider を `rlm` の子に使うことはできない。この制限は change `add-managed-spirits-commands` で受け入れ済みとして記録する。
+- **公式 Pi の帰属ヘッダー**: managed 経路の起動ヘッダーは公式 Pi のものになる。spirits 独自の branding ヘッダーに置き換える patch は入れない。
+- **`/spirits-model` の補完**: 公式 `/model` の補完メニュー・曖昧検索 (name/description を跨ぐ検索) は無い。参照は `provider/id` と its substring に限られる。
+
 ## 既存データの書き込み互換は未確認
 
-この change は既存 `~/.spirits/agent` の書き込み互換を実証していない。互換性ランナーは専用 Pi の拡張 API 経由でだけ書き込みを行う。settings の永続書き込みのように API が届かない項目は `not-run` にし、Node によるファイル読み書きで代用しない。代替経路で得た成功を互換性の成立として記録することもしない。本番移行や既存データの継続利用には、読み書き両方向を別 change で実証する必要がある。
+`~/.spirits/agent` の読み書き両方向の互換は [docs/agent-data-compat/](agent-data-compat/README.md) に実測を残す。settings の永続書き込みは上の「設定の永続書き込み」の手順で Pi と同じファイル・同じ lock を使うようになったが、sessions・auth・custom entry の書き戻しまで含めた双向の確認は、経路を変えた後も引き続き実測する必要がある。
 
 過去記録の訂正は [openspec/changes/archive/2026-11-03-add-managed-pi-route/completion-correction.md](../openspec/changes/archive/2026-11-03-add-managed-pi-route/completion-correction.md) に残す。元のチェックボックスは書き換えていない。
 
@@ -118,16 +136,22 @@ host の実体を bundle に含めないのは、rlm の子セッションが親
 
 ## role / `/clear` / `/model` の限定互換モード
 
-公式 Pi 1.5.0 には `registerModelRoles` がない。spirits 拡張は API の有無を起動時に判定し、ある場合は既存の role 登録を使う。ない場合は仮想モデル `spirits/auto`、skill に基づく strong フェーズ、設定からの既定 role 読み取りを残し、role 登録だけを省略する。起動時に一度だけ制限内容を通知し、role バッジや `/model ... role` が利用可能であるかのようには表示しない。
+公式 Pi 1.5.0 には `registerModelRoles` がない。spirits 拡張は API の有無を起動時に判定し、ある場合は既存の role 登録を使う。ない場合は仮想モデル `spirits/auto`、skill に基づく strong フェーズ、設定からの既定 role 読み取りを残したうえで、同じ状態に届く別コマンドを登録する。起動時に一度だけ制限内容を通知する。
+
+- `/spirits-model <ref> [level] [role]` … モデル、thinking level、role を 1 行で選ぶ。token は右から順に role、level を取り、残りを参照とする（`anthropic/claude-sonnet-4-5 high strong`、`sonnet strong`、`sonnet high`）。モデルは `pi.setModel()`、level は `pi.setThinkingLevel()`、role は phase lock で適用し、永続化は下の「設定の永続書き込み」に従う。最後に `ctx.reload()` を呼ぶので、そのコマンドの `pi` ハンドルと context はそれ以降使わない。
+- `/spirits-role normal|strong` … モデルを変えずに session の role を固定する。
+- `/spirits-clear` … 直前までの会話を LLM context から除く。`spirits_clear` の境界エントリを 1 件追加し、`context` イベントで境界より前の投影メッセージを落とす。session ID・chat 表示・TODO・goal・memory はそのまま。境界より前を約対象にする自動 compaction は `session_before_compact` で引き取り、消した会話を summary に戻さない。
+
+role の所在は経路で違う。fork 経路では role は Pi の `pi.virtual-model-state` エントリに載る（fork の role patch が書く）。公式 Pi でそのエントリは core の所有物なので、managed 経路は spirits 自身の `spirits_role` エントリに書き、Pi のエントリは読むだけにする（fork が始めた session を続けるための one-way handoff）。
 
 | 目的 | 現行機構 | 専用経路 | 代替 / 差異 |
 |---|---|---|---|
-| review などを strong へ自動振り分け | `spirits/auto`、skill フェーズ、`models.strong` | 制限付き (仮想モデルと strong フェーズは動く) | 拡張コマンドと独自 status line。`/model` role、保存キー、route の role、badge はない |
-| normal / strong の固定 | `/model` role suffix と role 登録 | 利用不可 | `/spirits-role` など明示コマンド。操作と保存キーが異なる |
-| 最後の role を表示 | core footer badge | 利用不可 | 拡張の status line。配置と永続化が異なる |
-| 会話だけを消す `/clear` | core `clearConversation()` | 利用不可 | 同一セッション ID を保つ限定 patch、または「新規セッション」への再定義。後者は同一 ID と履歴を失う |
-| model と thinking level | core `/model` parser と保存キー | 制限付き | 拡張コマンドと独自保存。補完と hint が異なる |
-| model + level + role | core parser と role 語彙 | 利用不可 | 限定 patch または role 選択の分離。UX と保存キーが異なる |
+| review などを strong へ自動振り分け | `spirits/auto`、skill フェーズ、`models.strong` | 利用可 | 同じ拡張側のルーティング。route が選んだ role は拡張の status line に出る |
+| normal / strong の固定 | `/model` role suffix と role 登録 | 利用可 | `/spirits-role <role>`。別コマンドで、phase lock・`spirits_role` エントリ・`models.role` を書く |
+| 最後の role を表示 | core footer badge | 利用可 | `ui.setStatus()` の拡張 status line。モデル名の隣ではなく footer の別の行に出る |
+| 会話だけを消す `/clear` | core `clearConversation()` | 利用可 | `/spirits-clear`。境界より前を LLM context から除く。chat 表示は残る（core の `/clear` は表示からも消す） |
+| model と thinking level | core `/model` parser と保存キー | 利用可 | `/spirits-model <ref> <level>`。補完メニューと曖昧検索はない。保存キーは Pi と同一 |
+| model + level + role | core parser と role 語彙 | 利用可 | `/spirits-model <ref> [level] [role]`。右から順に取る。Pi の `/model` はそのまま残る |
 
 「利用可」は専用経路で同等に動作、「制限付き」は一部の目的だけ維持、「利用不可」は同等の機能がない状態を指す。この change は既定経路の機能を削除しない。既存の `openspec/specs/` の要件は変更しない。
 

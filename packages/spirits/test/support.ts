@@ -7,7 +7,10 @@ import type {
 import type { HostFnScope } from "../src/repl/registry.ts";
 import type { ToolCallRecord } from "../src/repl/metrics.ts";
 
-const EMPTY_SESSION_MANAGER: ReadonlySessionManager = { getBranch: () => [] };
+const EMPTY_SESSION_MANAGER: ReadonlySessionManager = {
+	getBranch: () => [],
+	buildSessionProjection: () => ({ entries: [], messages: [] }),
+};
 
 const EMPTY_MODEL_REGISTRY: ExtensionModelRegistry = {
 	getAvailable: () => [],
@@ -28,7 +31,7 @@ export function makeToolContext(
 	} = {},
 ): ExtensionToolContext {
 	return {
-		ui: { setHeader: () => {}, setWidget: () => {}, notify: () => {} },
+		ui: { setHeader: () => {}, setWidget: () => {}, setStatus: () => {}, notify: () => {} },
 		mode: "tui",
 		cwd: options.cwd ?? process.cwd(),
 		signal: options.signal,

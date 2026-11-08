@@ -22,6 +22,9 @@ export const SPIRITS_CONFIG_DIR_NAME = ".spirits";
 /** Agent directory segment under the config root (`~/.spirits/agent`). */
 export const SPIRITS_AGENT_DIR_NAME = "agent";
 
+/** File name of pi's settings inside the agent directory. pi owns the file; the managed commands merge into it. */
+export const SETTINGS_FILE_NAME = "settings.json";
+
 // ---------------------------------------------------------------------------
 // Self update (`spirits update` and scripts/install.sh)
 // ---------------------------------------------------------------------------
@@ -154,6 +157,9 @@ export const SETTINGS_KEY_DEFAULT_PROVIDER = "defaultProvider";
 /** Settings key of pi's default model id, the normal target when it is set. */
 export const SETTINGS_KEY_DEFAULT_MODEL = "defaultModel";
 
+/** Settings key of pi's default thinking level, written by `/spirits-model <ref> <level>`. */
+export const SETTINGS_KEY_THINKING_LEVEL = "defaultThinkingLevel";
+
 /** Separates the provider from the model id in a model key. Shared with pi's model references. */
 export const MODEL_SPEC_SEPARATOR = "/";
 
@@ -178,8 +184,39 @@ export const MODEL_ROLES: readonly string[] = [MODEL_ROLE_NORMAL, MODEL_ROLE_STR
 /**
  * pi's custom entry type that stores the router state and the routed role on a session branch. pi
  * keeps the constant inside its package, so spirits reads and writes the entry through this name.
+ * On the managed route this entry belongs to the official core: spirits reads it (to inherit a role
+ * a fork wrote) and never writes it.
  */
 export const ROUTING_STATE_ENTRY_TYPE = "pi.virtual-model-state";
+
+// ---------------------------------------------------------------------------
+// Managed-route command surface (`/spirits-model`, `/spirits-role`, `/spirits-clear`)
+// ---------------------------------------------------------------------------
+
+/** Command that selects the model, thinking level, and role in one line where the host has no `/model` role vocabulary. */
+export const COMMAND_SPIRITS_MODEL = "spirits-model";
+
+/** Command that pins the session role without changing the model. */
+export const COMMAND_SPIRITS_ROLE = "spirits-role";
+
+/**
+ * spirits-owned session entry carrying the role the session is locked to on the managed route. The
+ * fork route records the role in pi's routing-state entry instead; this entry exists so the managed
+ * route never writes an entry the official core owns. Data: `{ role }`.
+ */
+export const ROLE_ENTRY_TYPE = "spirits_role";
+
+/** Command that removes the conversation before it from the LLM context. */
+export const COMMAND_SPIRITS_CLEAR = "spirits-clear";
+
+/**
+ * spirits-owned session entry marking a conversation boundary written by `/spirits-clear`. Entries
+ * before the newest one on the branch are dropped from the LLM context. Data: `{ at }`.
+ */
+export const CLEAR_ENTRY_TYPE = "spirits_clear";
+
+/** Extension status key holding the role badge shown on the footer's extension status line. */
+export const ROLE_STATUS_KEY = "spirits";
 
 /** Prefix of the skill commands the `input` event reports before pi expands them. */
 export const SKILL_COMMAND_PREFIX = "/skill:";
@@ -263,17 +300,24 @@ export const ENV_MANAGED_SESSION_DIR = "SPIRITS_CODING_AGENT_SESSION_DIR";
 /** Old session-dir name that must not redirect managed sessions outside the isolated agent dir. */
 export const ENV_OLD_SESSION_DIR = "PI_CODING_AGENT_SESSION_DIR";
 
-/** App-name override; the managed route pins it to the overlay identity. */
-export const ENV_APP_NAME = "PI_APP_NAME";
-
-/** Project config directory override; the managed route pins it to the bundle identity. */
-export const ENV_CONFIG_DIR = "PI_CONFIG_DIR";
-
-/** Config directory name the managed overlay package.json declares. */
-export const MANAGED_PI_CONFIG_DIR_NAME = ".pi";
+/**
+ * App-name and config-dir variables a fork-route install may have left in the environment. The
+ * official Pi reads neither (its identity comes from `piConfig` in the package.json beside the
+ * executable), so they are dropped from the child environment rather than pinned: leaving a
+ * fork-era value there would describe a knob the managed route does not have.
+ */
+export const ENV_OLD_APP_NAME = "PI_APP_NAME";
+export const ENV_OLD_CONFIG_DIR = "PI_CONFIG_DIR";
 
 /** Pi's package-dir override; the wrapper pins it to the managed package. */
 export const ENV_PACKAGE_DIR = "PI_PACKAGE_DIR";
 
 /** Base URLs for the managed manifest; fixtures override them through the existing release URL vars. */
 export const ENV_MANAGED_PI_MANIFEST_URL = "SPIRITS_MANAGED_PI_MANIFEST_URL";
+
+/**
+ * Summary a cleared conversation writes when the extension takes a compaction over. It names what
+ * happened and carries none of the cleared conversation, which is the point of the interception.
+ */
+export const CLEAR_COMPACTION_SUMMARY =
+	"Conversation cleared by /spirits-clear. Everything before that boundary is out of context and is not summarized here.";

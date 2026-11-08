@@ -28,24 +28,24 @@ export const ROLE_PURPOSES: readonly PurposeDefinition[] = [
 		feature: "role",
 		purpose: "Route review/deep work to strong while keeping one selection",
 		currentMechanism: "spirits/auto + skill phase + models.strong",
-		alternative: "Extension command plus own status line; limited Pi patch is a follow-up decision",
-		difference: "No /model role suffix, saved role key, route role field, or footer badge",
+		alternative: "The same extension routing; the route reports its role to the extension status line",
+		difference: "No /model role suffix or core footer badge; the routing decision itself is identical",
 	},
 	{
 		id: "model-role-vocabulary",
 		feature: "role",
 		purpose: "Pin normal or strong without changing the model",
 		currentMechanism: "/model role suffix and registerModelRoles",
-		alternative: "/spirits-role or settings-only lock",
-		difference: "New explicit command; no /model suffix",
+		alternative: "/spirits-role <role>: locks the phase, records a spirits_role entry, writes models.role",
+		difference: "A separate command; pi's /model keeps its own behaviour, and the lock survives resume and reload",
 	},
 	{
 		id: "role-badge",
 		feature: "role",
 		purpose: "Show which role handled the last request",
 		currentMechanism: "Core footer badge reading the route role",
-		alternative: "Extension status line/footer overlay",
-		difference: "Different placement and persistence; must not claim the core badge exists",
+		alternative: "ui.setStatus() on the extension status line, updated by the route",
+		difference: "Renders on the footer's extension status line, not beside the model name",
 	},
 ];
 
@@ -54,26 +54,26 @@ export const CLEAR_PURPOSES: readonly PurposeDefinition[] = [
 	{
 		id: "conversation-clear",
 		feature: "clear",
-		purpose: "Remove conversation from context and display",
+		purpose: "Remove conversation from context while the display keeps it",
 		currentMechanism: "Core clearConversation() and /clear",
-		alternative: "Limited Pi patch, or redefine the command as starting a new session",
-		difference: "ctx.newSession() creates a new file/ID and loses the same-ID history behaviour",
+		alternative: "/spirits-clear: a boundary entry plus a context handler that drops what precedes it",
+		difference: "The chat display keeps the earlier messages; pi's /clear removes them from the display too",
 	},
 	{
 		id: "same-session-id",
 		feature: "clear",
 		purpose: "Keep the same session ID after clearing",
 		currentMechanism: "Core clearConversation() keeps the session file and ID",
-		alternative: "Limited Pi patch that preserves the session file and ID",
-		difference: "A new session would change the ID and history",
+		alternative: "/spirits-clear appends one entry and rewrites nothing",
+		difference: "None for the ID; the session file keeps growing instead of being reset",
 	},
 	{
 		id: "todo-retention",
 		feature: "clear",
 		purpose: "Keep the TODO list after clearing",
 		currentMechanism: "TODO snapshots live outside the cleared conversation",
-		alternative: "Store the TODO list outside the cleared conversation",
-		difference: "A new session would drop the TODO list",
+		alternative: "Same: the boundary is a conversation cut, not a session reset",
+		difference: "None; a new session would drop the TODO list",
 	},
 ];
 
@@ -84,24 +84,24 @@ export const MODEL_PURPOSES: readonly PurposeDefinition[] = [
 		feature: "model",
 		purpose: "Choose the thinking level",
 		currentMechanism: "Core /model parser",
-		alternative: "Extension command plus own save path",
-		difference: "Command surface, completion, hints, and settings key ownership differ",
+		alternative: "/spirits-model <ref> <level>: pi's own setThinkingLevel plus defaultThinkingLevel",
+		difference: "A separate command with no completion menu; pi's /model is untouched",
 	},
 	{
 		id: "role-selection",
 		feature: "model",
 		purpose: "Combine model, thinking level, and role selection in one line",
 		currentMechanism: "Core parser, role vocabulary, settings save",
-		alternative: "Limited patch or split role selection into an extension command",
-		difference: "UX and saved key differ",
+		alternative: "/spirits-model <ref> [level] [role], parsed from the right",
+		difference: "No completion or fuzzy search over provider/id/name/description",
 	},
 	{
 		id: "default-save",
 		feature: "model",
 		purpose: "Save the chosen model and level as defaults",
 		currentMechanism: "Core /model save keys",
-		alternative: "Extension-owned save key",
-		difference: "Saved key ownership differs",
+		alternative: "Merge-write of pi's own keys into pi's global settings.json, under pi's file lock",
+		difference: "Same keys and same file; no project-file write, so no trust prompt",
 	},
 ];
 
@@ -187,68 +187,80 @@ export interface ClearStateRecord {
 	todoEntries: number;
 }
 
+/**
+ * Whether the model still sees the conversation that preceded the command, decided from the request
+ * the fake provider received: a marker sent before the command is absent from the request after it.
+ * The session file keeps every message, so the entry count cannot answer this.
+ */
+export interface ClearContextObservation {
+	observed: boolean;
+	cleared?: boolean;
+	detail: string;
+}
+
 /** One `/clear` attempt: the state before and after the command the harness sent. */
 export interface ClearAttempt {
 	attempted: boolean;
 	reason?: string;
 	before?: ClearStateRecord;
 	after?: ClearStateRecord;
+	/** What the model saw around the command. Without it the conversation purpose is not-run. */
+	context?: ClearContextObservation;
 }
 
 /**
  * Judge the three `/clear` purposes from one attempt.
  *
- * Nothing was cleared means nothing was observed: the built-in command lives on the interactive
- * surface, so a prompt that leaves the conversation in place is a harness limitation, not evidence
- * that the purpose is unmet. Only a conversation that actually shrank can decide the other two.
+ * The conversation purpose is decided by what the model sees, not by the session file: the managed
+ * command keeps every message entry so the chat display survives, and removes the earlier
+ * conversation from the request. The other two purposes are read from the session state recorded
+ * around the command. An attempt that produced no observation stays `not-run`.
  */
 export function clearPurposeObservations(attempt: ClearAttempt): PurposeObservation[] {
 	const definitions = purposesFor("clear");
 	if (!attempt.attempted) {
-		return definitions.map((definition) => purposeNotRun(definition, attempt.reason ?? "no /clear attempt was made"));
+		return definitions.map((definition) => purposeNotRun(definition, attempt.reason ?? "no clear attempt was made"));
 	}
+	const conversation = definitionFor("clear", "conversation-clear");
+	const observations: PurposeObservation[] = [
+		attempt.context?.observed === true
+			? observePurposeState(
+					conversation,
+					attempt.context.cleared === true ? "available" : "unavailable",
+					attempt.context.detail,
+				)
+			: purposeNotRun(conversation, attempt.reason ?? "the request content around the command was not observed"),
+	];
+
 	const { before, after } = attempt;
 	if (before === undefined || after === undefined) {
-		return definitions.map((definition) =>
-			purposeNotRun(definition, attempt.reason ?? "the probe reported no session state around the /clear attempt"),
-		);
+		for (const definition of definitions) {
+			if (definition.id === "conversation-clear") continue;
+			observations.push(purposeNotRun(definition, attempt.reason ?? "the probe reported no session state around the attempt"));
+		}
+		return observations;
 	}
-	const cleared = after.messageEntries < before.messageEntries;
-	if (!cleared) {
-		// A clear shrank the conversation. Anything else means the built-in clear path did not run
-		// here, and the numbers say which: a host that treated `/clear` as a prompt grows it.
-		const reason =
-			attempt.reason ??
-			(after.messageEntries > before.messageEntries
-				? `the conversation grew from ${before.messageEntries} to ${after.messageEntries} entries when the harness sent /clear, so the host treated it as a prompt and the built-in clear path did not run on this surface`
-				: `the conversation stayed at ${before.messageEntries} entries when the harness sent /clear, so the built-in clear path did not run on this surface`);
-		return definitions.map((definition) => purposeNotRun(definition, reason));
-	}
-	return [
-		observePurposeState(definitionFor("clear", "conversation-clear"), "available", "the conversation shrank while the session kept running"),
-		attempt.after !== undefined && after.sessionId === before.sessionId
-			? observePurposeState(
-					definitionFor("clear", "same-session-id"),
-					"available",
-					`the session kept the ID ${after.sessionId} across the clear`,
-				)
+	observations.push(
+		after.sessionId === before.sessionId
+			? observePurposeState(definitionFor("clear", "same-session-id"), "available", `the session kept the ID ${after.sessionId}`)
 			: observePurposeState(
 					definitionFor("clear", "same-session-id"),
 					"unavailable",
 					`the session ID changed from ${before.sessionId} to ${after.sessionId}`,
 				),
-			after.todoEntries > 0
-				? observePurposeState(
-						definitionFor("clear", "todo-retention"),
-						"available",
-						`${after.todoEntries} TODO entries survived the clear`,
-					)
-				: observePurposeState(
-						definitionFor("clear", "todo-retention"),
-						"unavailable",
-						"no TODO entry survived the clear",
-					),
-	];
+		after.todoEntries > 0
+			? observePurposeState(
+					definitionFor("clear", "todo-retention"),
+					"available",
+					`${after.todoEntries} TODO entries survived the command`,
+				)
+			: observePurposeState(
+					definitionFor("clear", "todo-retention"),
+					"unavailable",
+					"no TODO entry survived the command",
+				),
+	);
+	return observations;
 }
 
 /** One `/model`-purpose attempt made through the dedicated Pi runtime. */

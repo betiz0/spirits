@@ -20,6 +20,8 @@ import { createRlmHostFn } from "./rlm/hostfn.ts";
 import { spawnChildSession } from "./rlm/spawn.ts";
 import { createChildModelResolver } from "./routing/child.ts";
 import { registerDualModelRouting } from "./routing/register.ts";
+import { createRoleBadge } from "./commands/role.ts";
+import { registerManagedCommands } from "./commands/register.ts";
 import { registerManageTodos } from "./todo/tool.ts";
 import { registerTodoPanel } from "./todo/widget.ts";
 import { registerTsrepl } from "./tools.ts";
@@ -31,7 +33,18 @@ export default function spiritsExtension(pi: ExtensionAPI): void {
 	// Routing registers before the REPL tool: `rlm` and `routing` are sibling layers, so the entry
 	// point is the only place that can join them. The resolver reads the phase and the settings when a
 	// child starts, which is what makes a settings edit take effect on the next child.
-	const routing = registerDualModelRouting(pi);
+	// The badge shows the role that answered the last request, which the route reports through this
+	// hook on either route. On the fork route pi draws its own badge next to the model name as well;
+	// this line is the extension status line, not that one.
+	const badge = createRoleBadge();
+	const routing = registerDualModelRouting(pi, { onRole: (role, ctx) => badge.update(role, ctx) });
+
+	// One bundle, two routes. `registerModelRoles` is the fork's role patch: where it is missing the
+	// host is an official Pi, and the commands that reach the same state through documented API —
+	// `/spirits-model`, `/spirits-role`, `/spirits-clear` — are what fills the gap. Where it exists,
+	// pi's `/model` already takes a role and these commands would only compete with it.
+	if (!routing.roleApi) registerManagedCommands(pi, { phase: routing.phase, badge });
+
 	const rlm = createRlmHostFn({
 		pi,
 		depth: 0,

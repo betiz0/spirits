@@ -11,6 +11,9 @@
 
 import type {
 	ExtensionAPI,
+	ExtensionContext,
+	ModelRoute,
+	ModelRouteRequest,
 	SessionEntry,
 	SessionStartEvent,
 	ThinkingLevel,
@@ -80,10 +83,20 @@ export interface RoutingRegistrationResult {
 	/** True when the optional role registration API exists on this host. */
 	roleApi: boolean;
 	/**
-	 * Read-only view of the role phase, for the one reader outside this layer: the entry layer hands
-	 * it to the child-model resolution, so a child of an `spirits/auto` parent follows the phase.
+	 * View of the role phase, for the readers outside this layer: the entry layer hands it to the
+	 * child-model resolution, so a child of an `spirits/auto` parent follows the phase, and the
+	 * managed commands lock it when `/spirits-role` or `/spirits-model` names a role.
 	 */
-	phase: Pick<RoutingPhase, "current">;
+	phase: Pick<RoutingPhase, "current" | "setRole">;
+}
+
+/** Observers a host attaches to the routing decisions. */
+export interface RoutingHooks {
+	/**
+	 * Called with the role that will handle a request. The managed route uses it to keep the footer
+	 * badge on the role that actually answered, which is not always the session lock.
+	 */
+	onRole?: (role: string, ctx: ExtensionContext) => void;
 }
 
 /** The optional piece of the host API the official Pi 1.5.0 does not provide. */
@@ -98,8 +111,26 @@ function getRegisterModelRoles(pi: ExtensionAPI): RoleCapablePi["registerModelRo
 const DEGRADED_ROLE_NOTICE =
 	"spirits: host has no role API. Model routing and skill-driven strong phases work; /model role, saved default roles, and the role badge are unavailable.";
 
+/**
+ * Report the role a route chose, then hand the route back to pi unchanged.
+ *
+ * The route already carries the role in its result, so this wrapper is the whole observation point:
+ * the routing decisions stay in `routing/`, and the host surface that shows the role stays outside.
+ */
+function wrapRouteReportingRole(
+	route: (request: ModelRouteRequest, ctx: ExtensionContext) => ModelRoute,
+	onRole: RoutingHooks["onRole"],
+): (request: ModelRouteRequest, ctx: ExtensionContext) => ModelRoute {
+	if (!onRole) return route;
+	return (request, ctx) => {
+		const result = route(request, ctx);
+		if (result.role) onRole(result.role, ctx);
+		return result;
+	};
+}
+
 /** Register `spirits/auto` and wire the skill phase, the `/model` roles, and the default role to it. */
-export function registerDualModelRouting(pi: ExtensionAPI): RoutingRegistrationResult {
+export function registerDualModelRouting(pi: ExtensionAPI, hooks: RoutingHooks = {}): RoutingRegistrationResult {
 	const phase = createRoutingPhase();
 	const guard = createNotificationGuard();
 
@@ -108,12 +139,15 @@ export function registerDualModelRouting(pi: ExtensionAPI): RoutingRegistrationR
 		id: ROUTING_MODEL_ID,
 		name: ROUTING_MODEL_NAME,
 		thinkingLevels: ALL_THINKING_LEVELS,
-		route: createRoutingRoute({
-			phase,
-			// Read per request: a settings edit or `/reload` takes effect on the next request.
-			readSettings: () => readRoutingSettings(pi.getSettings()),
-			guard,
-		}),
+		route: wrapRouteReportingRole(
+			createRoutingRoute({
+				phase,
+				// Read per request: a settings edit or `/reload` takes effect on the next request.
+				readSettings: () => readRoutingSettings(pi.getSettings()),
+				guard,
+			}),
+			hooks.onRole,
+		),
 	});
 
 	// pi passes the role of `/model <model> [level] <role>` back here after it applied the model, for
@@ -166,5 +200,5 @@ export function registerDualModelRouting(pi: ExtensionAPI): RoutingRegistrationR
 		phase.settle();
 		guard.settle();
 	});
-	return { roleApi: registerModelRoles !== undefined, phase: { current: phase.current } };
+	return { roleApi: registerModelRoles !== undefined, phase: { current: phase.current, setRole: phase.setRole } };
 }

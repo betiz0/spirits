@@ -18,13 +18,21 @@ test("uses the resolved isolated agent directory", () => {
 	expect(compute({ SPIRITS_CODING_AGENT_DIR: "/tmp/managed-agent" }).SPIRITS_CODING_AGENT_DIR).toBe(AGENT_DIR);
 });
 
-test("pins identity and session storage", () => {
-	const env = compute({ PI_APP_NAME: "elsewhere", PI_CONFIG_DIR: ".elsewhere", PI_PACKAGE_DIR: "/tmp/decoy" });
+test("pins session storage and the package directory", () => {
+	const env = compute({ PI_PACKAGE_DIR: "/tmp/decoy" });
 	expect(env.SPIRITS_CODING_AGENT_SESSION_DIR).toBe(join(AGENT_DIR, "sessions"));
 	expect(managedSessionDir(AGENT_DIR)).toBe(join(AGENT_DIR, "sessions"));
-	expect(env.PI_APP_NAME).toBe("spirits");
-	expect(env.PI_CONFIG_DIR).toBe(".pi");
 	expect(env.PI_PACKAGE_DIR).toBe(PACKAGE_DIR);
+});
+
+test("sets no identity variable, because the official binary reads none", () => {
+	// Pi takes the app name and the config directory from `piConfig` in the package.json beside the
+	// executable (`APP_NAME = piConfigName || "pi"`), so the overlay is the only thing that can set
+	// them. A variable here would be dead on the managed route and would imply a knob that does not
+	// exist; the fork route is the one that honors these, and it is not this function's caller.
+	const env = compute({ PI_APP_NAME: "elsewhere", PI_CONFIG_DIR: ".elsewhere" });
+	expect(env.PI_APP_NAME).toBeUndefined();
+	expect(env.PI_CONFIG_DIR).toBeUndefined();
 });
 
 test("removes the old agent and session variables", () => {

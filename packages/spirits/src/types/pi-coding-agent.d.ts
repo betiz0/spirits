@@ -23,6 +23,8 @@ export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhi
 export interface PiModel {
 	provider: string;
 	id: string;
+	/** Display name pi carries for the model. */
+	name?: string;
 	/**
 	 * pi's api id. A virtual catalog entry is `"pi-virtual"`, which pi does not export a helper for
 	 * outside its package. Absent on test doubles.
@@ -102,9 +104,15 @@ export interface Component {
 /** Header factory argument; the spirits header does not use the TUI handle. */
 export type TUI = unknown;
 
-/** Effective settings subset the spirits extension reads. */
+/** Effective settings subset the spirits extension reads and writes. */
 export interface ExtensionSettings {
 	quietStartup?: boolean | "header";
+	/** Provider of pi's default model. pi owns this key; `/spirits-model` writes it. */
+	defaultProvider?: string;
+	/** Model id of pi's default model. pi owns this key; `/spirits-model` writes it. */
+	defaultModel?: string;
+	/** pi's default thinking level, written by `/spirits-model <ref> <level>`. */
+	defaultThinkingLevel?: ThinkingLevel;
 	/**
 	 * spirits-owned settings keys. pi's `Settings` type does not declare them; pi keeps unknown
 	 * keys in the settings file when it saves a known setting, so no core change is needed.
@@ -134,6 +142,8 @@ export interface ExtensionUIContext {
 	): void;
 	/** Show a notice. The only user-facing channel that works in every run mode. */
 	notify(message: string, type?: "info" | "warning" | "error"): void;
+	/** Set status text in the footer/status bar. `undefined` clears it. */
+	setStatus(key: string, text: string | undefined): void;
 }
 
 /** Fired when a session is started, loaded, or reloaded. */
@@ -310,6 +320,79 @@ export interface CallableToolInfo {
 	outputSchema?: unknown;
 }
 
+/**
+ * Context handed to a registered command handler: the event context plus session control.
+ *
+ * `reload()` replaces this extension runtime, and pi marks the command's `pi` handle and this
+ * context stale afterwards, so a handler must not touch either one once `reload()` resolves.
+ */
+export interface ExtensionCommandContext extends ExtensionContext {
+	/** Reload extensions, skills, prompts, themes, and context files. */
+	reload(): Promise<void>;
+}
+
+/** A command registered with `pi.registerCommand()`. */
+export interface RegisteredCommandOptions {
+	description?: string;
+	handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> | void;
+}
+
+/**
+ * The conversation about to be sent, without the system messages. pi rebuilds it from the session
+ * file before every request, so a handler that returns a shorter list is applied to every following
+ * request as well.
+ */
+export interface ContextEvent {
+	type: "context";
+	messages: AgentMessage[];
+}
+
+/** Result of a `context` handler. Absent `messages` leaves the conversation alone. */
+export interface ContextEventResult {
+	messages?: AgentMessage[];
+}
+
+/** What pi prepared for a compaction. Only the fields spirits reads are mirrored. */
+export interface CompactionPreparation {
+	/** Entry the kept conversation starts at; everything before it is summarized. */
+	firstKeptEntryId: string;
+	/** Estimated context tokens before the compaction. */
+	tokensBefore: number;
+}
+
+/** Compaction content an extension hands back from `session_before_compact`. */
+export interface CompactionResult {
+	summary: string;
+	/** Entry the kept conversation starts at. */
+	firstKeptEntryId: string;
+	tokensBefore: number;
+	estimatedTokensAfter?: number;
+	details?: unknown;
+}
+
+/**
+ * Fired before pi compacts the context, for a manual `/compact` and for the automatic paths alike.
+ * Note that pi skips a compaction it cannot prepare (a session too small, or one already compacted)
+ * *before* dispatching this event, so a handler never sees those attempts.
+ */
+export interface SessionBeforeCompactEvent {
+	type: "session_before_compact";
+	preparation: CompactionPreparation;
+	/** Raw branch entries, in order. */
+	branchEntries: SessionEntry[];
+	customInstructions?: string;
+	/** What triggered the compaction. */
+	reason: "manual" | "threshold" | "overflow";
+	willRetry: boolean;
+	signal: AbortSignal;
+}
+
+/** Result of a `session_before_compact` handler. */
+export interface SessionBeforeCompactResult {
+	cancel?: boolean;
+	compaction?: CompactionResult;
+}
+
 /** Context passed to tool `execute()`: the extension context plus `executeTool()`. */
 export interface ExtensionToolContext extends ExtensionContext {
 	/** Tools {@link executeTool} can call. */
@@ -359,6 +442,14 @@ export interface ExtensionAPI {
 	 * replaces it, which is what an extension reload does.
 	 */
 	registerModelRoles(definition: ModelRoleRegistration): void;
+	/** Register a `/`-command the user can type. The handler gets a command-capable context. */
+	registerCommand(name: string, options: RegisteredCommandOptions): void;
+	/** Select a model for this session without changing the configured default. */
+	setModel(model: PiModel): Promise<boolean>;
+	/** Current thinking level of the session. */
+	getThinkingLevel(): ThinkingLevel;
+	/** Set the session's thinking level. */
+	setThinkingLevel(level: ThinkingLevel): void;
 	/** Subscribe to a session event. Returns an unsubscribe function. */
 	on(
 		event: "before_agent_start",
@@ -372,6 +463,11 @@ export interface ExtensionAPI {
 	): () => void;
 	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): () => void;
 	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): () => void;
+	on(event: "context", handler: ExtensionHandler<ContextEvent, ContextEventResult>): () => void;
+	on(
+		event: "session_before_compact",
+		handler: ExtensionHandler<SessionBeforeCompactEvent, SessionBeforeCompactResult>,
+	): () => void;
 }
 
 /** Extension event handler. Return a result to influence the session, or void to observe only. */
@@ -414,6 +510,8 @@ export interface BeforeAgentStartEventResult {
 export interface SessionMessageEntry {
 	type: "message";
 	message: AgentMessage;
+	/** See {@link CustomEntry.id}. */
+	id?: string;
 }
 
 /** An extension-defined entry that is not sent to the LLM. */
@@ -421,6 +519,12 @@ export interface CustomEntry<T = unknown> {
 	type: "custom";
 	customType: string;
 	data?: T;
+	/**
+	 * pi's entry id. pi always writes one; the mirror keeps it optional because the doubles that model
+	 * only the shape a reader walks omit it, and a reader has to treat a missing id as unlocatable
+	 * rather than guess.
+	 */
+	id?: string;
 }
 
 /**
@@ -430,15 +534,45 @@ export interface CustomEntry<T = unknown> {
  */
 export interface SessionStateChangeEntry {
 	type: "model_change" | "thinking_level_change";
+	id?: string;
+}
+
+/**
+ * pi's compaction entry. A reader uses it to tell which entries a compaction already summarized; an
+ * extension supplies one through `session_before_compact`, never through the session manager.
+ */
+export interface CompactionSessionEntry {
+	type: "compaction";
+	summary: string;
+	firstKeptEntryId: string;
+	tokensBefore: number;
+	id?: string;
 }
 
 /** Session entry shapes spirits walks on the current branch. */
-export type SessionEntry = SessionMessageEntry | CustomEntry | SessionStateChangeEntry;
+export type SessionEntry = SessionMessageEntry | CustomEntry | SessionStateChangeEntry | CompactionSessionEntry;
 
-/** Read-only session manager. Spirits only resolves the current branch. */
+/** One raw entry's contribution to the model context, after context edits. */
+export interface ProjectedSessionEntry {
+	sourceEntry: SessionEntry;
+	/** Model-visible messages of this entry. Empty for state-only entries and omissions. */
+	messages: AgentMessage[];
+}
+
+/** The context pi would send, built from the branch. */
+export interface SessionProjection {
+	entries: ProjectedSessionEntry[];
+	messages: AgentMessage[];
+}
+
+/** Read-only session manager. Spirits resolves the branch and the context built from it. */
 export interface ReadonlySessionManager {
 	/** Entries from the root to the current leaf, in order. */
 	getBranch(): readonly SessionEntry[];
+	/** The context projection pi builds from the branch: kept entries and the messages they yield. */
+	buildSessionProjection(): SessionProjection;
+	/** The context pi builds from the current branch, per contributing entry. */
+	buildSessionProjection(): SessionProjection;
 }
 
 // ============================================================================
@@ -525,6 +659,8 @@ export class SessionManager {
 	getSessionFile(): string | undefined;
 	/** Entries from the root to the current leaf, in order. */
 	getBranch(): readonly SessionEntry[];
+	/** The context projection pi builds from the branch: kept entries and the messages they yield. */
+	buildSessionProjection(): SessionProjection;
 	/** Append a conversation message. The first one flushes the session file to disk. */
 	appendMessage(message: AgentMessage & { timestamp?: number }): string;
 	/** Append a custom extension entry as a child of the current leaf. */

@@ -127,6 +127,9 @@ const SKILL_COMMAND_PREFIX = "/skill:";
 const STRONG_PHASE_SKILL = "sprt-opsx-review-change";
 /** Prompt markers, so the request that carried one can be matched with the model that served it. */
 const PLAIN_PROMPT = "compat plain prompt answer ok";
+/** Turns that only measure the role pin, so their model choice is unambiguous. */
+const PINNED_PROMPT = "compat pinned role prompt answer ok";
+const UNPINNED_PROMPT = "compat unpinned role prompt answer ok";
 const STRONG_PROMPT = "compat strong prompt answer ok";
 /**
  * Extension commands write their result file synchronously and the RPC surface reports no
@@ -188,6 +191,10 @@ interface ProbeResult {
 	purposeStates?: Record<string, { sessionId?: string; messageEntries?: number; todoEntries?: number }>;
 	before?: { level?: string; model?: { provider: string; id: string }; defaults?: Record<string, string | undefined> };
 	after?: { level?: string; model?: { provider: string; id: string }; defaults?: Record<string, string | undefined> };
+	/** What `/compat-purpose-readback` reported: the runtime state after someone else changed it. */
+	level?: string;
+	model?: { provider: string; id: string };
+	defaults?: Record<string, string | undefined>;
 	levelChanged?: boolean;
 	setModelResult?: boolean;
 	defaultsChanged?: boolean;
@@ -250,6 +257,13 @@ function expandHome(path: string): string {
 
 function modelEvents(records: readonly RpcRecord[], type: string): RpcRecord[] {
 	return records.filter((record) => record.type === type);
+}
+
+/** `setStatus` requests the host received, with the text the extension asked for. */
+function statusSetRecords(records: readonly RpcRecord[]): string[] {
+	return records
+		.filter((record) => record.type === "extension_ui_request" && record.method === "setStatus")
+		.map((record) => String((record as { statusText?: unknown }).statusText ?? ""));
 }
 
 function promptCommand(id: string, message: string) {
@@ -1181,6 +1195,20 @@ async function main(): Promise<number> {
 								waitFor: (records, since) => modelEvents(records.slice(since), "agent_settled").length > 0,
 								timeoutMs: RPC_TIMEOUT_MS,
 							},
+							// The pin is a separate command, so it is measured separately: the selection stays
+							// `spirits/auto` and only the role changes, and the very next request has to follow it.
+							{ requests: [promptCommand("pin-strong", "/spirits-role strong")], waitFor: () => false, timeoutMs: PURPOSE_SETTLE_MS },
+							{
+								requests: [promptCommand("pinned-1", PINNED_PROMPT)],
+								waitFor: (records, since) => modelEvents(records.slice(since), "agent_settled").length > 0,
+								timeoutMs: RPC_TIMEOUT_MS,
+							},
+							{ requests: [promptCommand("pin-normal", "/spirits-role normal")], waitFor: () => false, timeoutMs: PURPOSE_SETTLE_MS },
+							{
+								requests: [promptCommand("unpinned-1", UNPINNED_PROMPT)],
+								waitFor: (records, since) => modelEvents(records.slice(since), "agent_settled").length > 0,
+								timeoutMs: RPC_TIMEOUT_MS,
+							},
 						],
 						timeoutMs: RPC_TIMEOUT_MS,
 					});
@@ -1193,40 +1221,117 @@ async function main(): Promise<number> {
 						reason: roleRun.records.some((record) => record.type === "response" && record.id === "auto-model" && record.success === false)
 							? "the dedicated Pi refused the spirits/auto selection"
 							: undefined,
+						roleVocabulary: {
+							observed: true,
+							state:
+								modelUsedFor(roleProvider, PINNED_PROMPT) === STRONG_MODEL_ID &&
+								modelUsedFor(roleProvider, UNPINNED_PROMPT) === FAKE_MODEL_ID
+									? "available"
+									: "unavailable",
+							detail:
+								modelUsedFor(roleProvider, PINNED_PROMPT) === STRONG_MODEL_ID &&
+								modelUsedFor(roleProvider, UNPINNED_PROMPT) === FAKE_MODEL_ID
+									? `/spirits-role strong sent the next request to ${STRONG_MODEL_ID} and /spirits-role normal sent the one after it back to ${FAKE_MODEL_ID}, with the selection unchanged`
+									: `/spirits-role strong served ${String(modelUsedFor(roleProvider, PINNED_PROMPT))} and normal served ${String(modelUsedFor(roleProvider, UNPINNED_PROMPT))}, expected ${STRONG_MODEL_ID} then ${FAKE_MODEL_ID}`,
+						},
+						// The badge is a footer surface, but drawing it is an RPC call the harness does see:
+						// the extension asks the host to set status text, and that request names the role.
+						roleBadge: statusSetRecords(roleRun.records).length > 0
+							? {
+									observed: true,
+									state: "limited",
+									detail: `the extension asked the host to draw ${statusSetRecords(roleRun.records).length} role status line(s) over RPC, which is the extension status line, not the core footer badge`,
+								}
+							: { observed: false, detail: "the extension never asked the host to set status text" },
 					};
 				} finally {
 					roleProvider.stop();
 				}
 				purposes.push(...rolePurposeObservations(strongAttempt));
 
-				// /model: level selection and the saved defaults, read back through the runtime.
-				const modelPurpose = await probeOnce(
-					"purpose-model-1",
-					"/compat-purpose-model",
-					"purpose-model.json",
-					[PROVIDER_EXTENSION],
-					{ ...noRealCredentials, [FAKE_PROVIDER_ENV]: "http://127.0.0.1:9" },
-				);
+				// /spirits-model: one line for the model, the thinking level, and the role. The line owns
+				// every change; the probe only reads the runtime back, and the settings file is read from
+				// disk so the persistence is measured rather than asserted by the writer.
+				const modelPurposePath = join(runner.workRoot, "purpose-model.json");
+				const settingsPath = join(runner.agentDir, "settings.json");
+				const defaultKeys = (settings: Record<string, unknown>) => ({
+					defaultProvider: settings.defaultProvider,
+					defaultModel: settings.defaultModel,
+					defaultThinkingLevel: settings.defaultThinkingLevel,
+					role: (settings.models as { role?: string } | undefined)?.role,
+				});
+				// A fixture without a settings file is a legitimate starting point: the command creates one.
+				const readSettingsFile = async (): Promise<Record<string, unknown>> => {
+					try {
+						return JSON.parse(await readFile(settingsPath, "utf8")) as Record<string, unknown>;
+					} catch {
+						return {};
+					}
+				};
+				const settingsBefore = defaultKeys(await readSettingsFile());
+				const modelRun = await stagedProbe({
+					command: launchCommand([PROVIDER_EXTENSION, launch.extensionPath]),
+					cwd: runner.workRoot,
+					env: { ...baseEnv, [PROBE_RESULT_ENV]: modelPurposePath, ...noRealCredentials, [FAKE_PROVIDER_ENV]: "http://127.0.0.1:9" },
+					stages: [
+						{ requests: [{ id: "mp-model", type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID }] },
+						{
+							requests: [promptCommand("mp-run", `/spirits-model ${COMPAT_PROVIDER}/${FAKE_MODEL_ID} medium strong`)],
+							waitFor: () => false,
+							timeoutMs: PURPOSE_SETTLE_MS,
+						},
+						{
+							requests: [promptCommand("mp-read", "/compat-purpose-readback")],
+							waitFor: (records, since) => records.slice(since).some((record) => record.type === "response" && record.id === "mp-read"),
+							timeoutMs: RPC_TIMEOUT_MS,
+						},
+					],
+					timeoutMs: RPC_TIMEOUT_MS,
+				});
+				const modelReadback = await readProbeResult(modelPurposePath);
+				const settingsAfter = defaultKeys(await readSettingsFile());
 				purposes.push(
 					...modelPurposeObservations({
-						attempted: modelPurpose.probe !== undefined,
-						reason: modelPurpose.probe === undefined ? "the probe reported no model-purpose attempt" : undefined,
-						levelChanged: modelPurpose.probe?.levelChanged,
-						setModelResult: modelPurpose.probe?.setModelResult,
-						defaultsChanged: modelPurpose.probe?.defaultsChanged,
+						attempted: modelReadback !== undefined,
+						reason: modelReadback === undefined ? `the readback reported nothing (${modelRun.stderr.trim().slice(0, 160)})` : undefined,
+						levelChanged: modelReadback?.level === "medium",
+						setModelResult: modelReadback?.model?.id === FAKE_MODEL_ID,
+						defaultsChanged:
+							JSON.stringify(settingsAfter) !== JSON.stringify(settingsBefore) &&
+							settingsAfter.defaultModel === FAKE_MODEL_ID &&
+							settingsAfter.role === "strong",
+						// The role is the third slot of the same line, so a written `models.role` is the
+						// observation of the role vocabulary on this surface.
+						roleVocabulary: {
+							observed: true,
+							state: settingsAfter.role === "strong" ? "available" : "unavailable",
+							detail:
+								settingsAfter.role === "strong"
+									? "/spirits-model <ref> <level> <role> wrote models.role while the line selected the model"
+									: `the line left models.role at ${JSON.stringify(settingsAfter.role)}`,
+						},
 					}),
 				);
 
-				// /clear: session ID, conversation size, and TODO entries recorded around the command.
+				// /spirits-clear: the session state is recorded around the command, and the conversation
+				// purpose is decided from the request the provider received — the session file keeps every
+				// message on purpose, so only the request can show what left the model's context.
 				const todoToolCall: FakeToolCall = {
 					name: "manage_todos",
 					arguments: { updates: [{ op: "add", text: "compat todo" }] },
 				};
+				const clearBeforeMarker = `compat-clear-before-${Date.now()}`;
+				const clearAfterMarker = `compat-clear-after-${Date.now()}`;
 				const clearProvider = startFakeProvider(todoToolCall, {
-					reply: (body) =>
-						JSON.stringify(body ?? "").includes('"role":"tool"')
-							? { kind: "text", text: "seeded" }
-							: { kind: "tool-call", toolCall: todoToolCall },
+					// Only the seed turn answers with a tool call, so the marked turns stay plain and the
+					// last request is the one that carries the conversation after the boundary.
+					reply: (body) => {
+						const json = JSON.stringify(body ?? "");
+						if (json.includes("compat seed a todo") && !json.includes('"role":"tool"')) {
+							return { kind: "tool-call", toolCall: todoToolCall };
+						}
+						return { kind: "text", text: "ok" };
+					},
 				});
 				let clearAttempt: Parameters<typeof clearPurposeObservations>[0];
 				const clearPurposePath = join(runner.workRoot, "purpose-clear.json");
@@ -1249,9 +1354,19 @@ async function main(): Promise<number> {
 								waitFor: (records, since) => modelEvents(records.slice(since), "tool_execution_end").length > 0,
 								timeoutMs: RPC_TIMEOUT_MS,
 							},
+							{
+								requests: [promptCommand("clear-marker-before", clearBeforeMarker)],
+								waitFor: (records, since) => modelEvents(records.slice(since), "agent_settled").length > 0,
+								timeoutMs: RPC_TIMEOUT_MS,
+							},
 							{ requests: [promptCommand("clear-before", "/compat-purpose-state before")], waitFor: () => false, timeoutMs: PURPOSE_SETTLE_MS },
-							{ requests: [promptCommand("clear-run", "/clear")], waitFor: () => false, timeoutMs: PURPOSE_SETTLE_MS },
+							{ requests: [promptCommand("clear-run", "/spirits-clear")], waitFor: () => false, timeoutMs: PURPOSE_SETTLE_MS },
 							{ requests: [promptCommand("clear-after", "/compat-purpose-state after")], waitFor: () => false, timeoutMs: PURPOSE_SETTLE_MS },
+							{
+								requests: [promptCommand("clear-marker-after", clearAfterMarker)],
+								waitFor: (records, since) => modelEvents(records.slice(since), "agent_settled").length > 0,
+								timeoutMs: RPC_TIMEOUT_MS,
+							},
 						],
 						timeoutMs: RPC_TIMEOUT_MS,
 					});
@@ -1260,11 +1375,23 @@ async function main(): Promise<number> {
 						stderr: clearRun.stderr.trim(),
 						recordTypes: [...new Set(clearRun.records.map((record) => String(record.type)))],
 					};
+					const lastRequest = clearProvider.requests.at(-1);
+					const lastBody = JSON.stringify(lastRequest?.body ?? "");
 					clearAttempt = {
 						attempted: true,
 						before: states?.before as ClearStateRecord | undefined,
 						after: states?.after as ClearStateRecord | undefined,
-						reason: clearRun.stderr.includes("unknown command") ? "the host rejected /clear on the RPC surface" : undefined,
+						context:
+							lastRequest === undefined
+								? { observed: false, detail: "the fake provider recorded no request around the clear" }
+								: {
+										observed: lastBody.includes(clearAfterMarker),
+										cleared: lastBody.includes(clearAfterMarker) && !lastBody.includes(clearBeforeMarker),
+										detail: lastBody.includes(clearBeforeMarker)
+											? `the request after the command still carried the conversation from before it (${clearBeforeMarker})`
+											: `the request after the command carried ${clearAfterMarker} and not ${clearBeforeMarker}, while the session file kept every message entry`,
+									},
+						reason: clearRun.stderr.includes("unknown command") ? "the host rejected /spirits-clear on the RPC surface" : undefined,
 					};
 				} finally {
 					clearProvider.stop();

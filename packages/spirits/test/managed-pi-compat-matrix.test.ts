@@ -31,7 +31,8 @@ test("role items are classified separately", () => {
 test("clear items include the session-id difference", () => {
 	const row = matrixRows("clear")[0]!;
 	expect(row.purpose).toContain("Remove conversation");
-	expect(purposesFor("clear").some((purpose) => purpose.difference?.includes("would change the ID"))).toBe(true);
+	// The command must not turn into a new session, so the ID difference stays named.
+	expect(purposesFor("clear").some((purpose) => purpose.difference?.includes("new session"))).toBe(true);
 });
 
 test("model items separate level from role", () => {
@@ -101,36 +102,40 @@ test("command list absence does not decide unavailability", () => {
 test("clear purposes come from observations", () => {
 	const before = { sessionId: "s-1", messageEntries: 6, todoEntries: 1 };
 	// Nothing observed: every purpose is `not-run`, never `unavailable`.
-	const unattempted = clearPurposeObservations({ attempted: false, reason: "the RPC surface cannot drive /clear" });
+	const unattempted = clearPurposeObservations({ attempted: false, reason: "the RPC surface cannot drive the command" });
 	expect(unattempted.map((observation) => observation.state)).toEqual(["not-run", "not-run", "not-run"]);
-	expect(unattempted[0]?.detail).toContain("cannot drive /clear");
-	// A prompt that left the conversation in place exercised nothing.
-	const untouched = clearPurposeObservations({
-		attempted: true,
-		before,
-		after: { ...before },
-	});
-	expect(untouched.every((observation) => observation.state === "not-run")).toBe(true);
-	// A host that answers /clear as an ordinary prompt grows the conversation. That is still no
-	// evidence about the clear purpose, and the reason states what was counted.
-	const grew = clearPurposeObservations({
-		attempted: true,
-		before,
-		after: { sessionId: "s-1", messageEntries: 8, todoEntries: 1 },
-	});
-	expect(grew.every((observation) => observation.state === "not-run")).toBe(true);
-	expect(grew[0]?.detail).toContain("grew from 6 to 8");
-	// A conversation that shrank decides all three purposes from what came back.
+	expect(unattempted[0]?.detail).toContain("cannot drive the command");
+
+	// The session file keeps its message entries by design, so a run that sent the command without a
+	// request observation decides nothing about the conversation.
+	const noRequest = clearPurposeObservations({ attempted: true, before, after: { ...before } });
+	expect(noRequest.map((observation) => observation.state)).toEqual(["not-run", "available", "available"]);
+	expect(noRequest[0]?.detail).toContain("request content");
+
+	// What the model was shown is the measurement: the earlier turn is gone from the request.
 	const cleared = clearPurposeObservations({
 		attempted: true,
 		before,
-		after: { sessionId: "s-1", messageEntries: 0, todoEntries: 1 },
+		after: { sessionId: "s-1", messageEntries: 7, todoEntries: 1 },
+		context: { observed: true, cleared: true, detail: "the request after the command carried only the later turn" },
 	});
 	expect(cleared.map((observation) => observation.state)).toEqual(["available", "available", "available"]);
+
+	// A command that left the conversation in the request is an observed failure, not a gap.
+	const stuck = clearPurposeObservations({
+		attempted: true,
+		before,
+		after: { sessionId: "s-1", messageEntries: 7, todoEntries: 1 },
+		context: { observed: true, cleared: false, detail: "the request still carried the earlier turn" },
+	});
+	expect(stuck[0]?.state).toBe("unavailable");
+
+	// A command that opened a new session loses the session ID and the TODO list with it.
 	const newSession = clearPurposeObservations({
 		attempted: true,
 		before,
 		after: { sessionId: "s-2", messageEntries: 0, todoEntries: 0 },
+		context: { observed: true, cleared: true, detail: "nothing was in the request" },
 	});
 	expect(newSession.map((observation) => observation.state)).toEqual(["available", "unavailable", "unavailable"]);
 });

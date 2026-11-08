@@ -3,6 +3,8 @@ import type {
 	AgentSettledEvent,
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
+	ContextEvent,
+	ContextEventResult,
 	ExtensionHandler,
 	ExtensionMode,
 	ExtensionToolContext,
@@ -13,6 +15,8 @@ import type {
 	ResourcesDiscoverResult,
 	SessionEntry,
 	SessionStartEvent,
+	SessionBeforeCompactEvent,
+	SessionBeforeCompactResult,
 	SessionTreeEvent,
 } from "@earendil-works/pi-coding-agent";
 import { ENV_TODO_MAX_LINES } from "../src/constants.ts";
@@ -36,7 +40,7 @@ function todoEntry(data: unknown): SessionEntry {
 type SetWidgetCall = { key: string; content: unknown; options?: { placement?: string } };
 
 function panelContext(mode: ExtensionMode, branch: readonly SessionEntry[], calls: SetWidgetCall[]): ExtensionToolContext {
-	const ctx = makeToolContext({ sessionManager: { getBranch: () => branch } });
+	const ctx = makeToolContext({ sessionManager: { getBranch: () => branch, buildSessionProjection: () => ({ entries: [], messages: [] }) } });
 	ctx.mode = mode;
 	const record = ((key: string, content: unknown, options?: { placement?: string }) => {
 		calls.push({ key, content, options });
@@ -75,6 +79,11 @@ class FakePi {
 	): () => void;
 	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): () => void;
 	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): () => void;
+	on(event: "context", handler: ExtensionHandler<ContextEvent, ContextEventResult>): () => void;
+	on(
+		event: "session_before_compact",
+		handler: ExtensionHandler<SessionBeforeCompactEvent, SessionBeforeCompactResult>,
+	): () => void;
 	on(event: string, handler: unknown): () => void {
 		if (event === "session_start") {
 			this.sessionStartHandlers.push(handler as ExtensionHandler<SessionStartEvent>);

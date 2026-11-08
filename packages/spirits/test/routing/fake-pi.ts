@@ -10,7 +10,10 @@ import type {
 	AgentSettledEvent,
 	BeforeAgentStartEvent,
 	BeforeAgentStartEventResult,
+	ContextEvent,
+	ContextEventResult,
 	ExtensionAPI,
+	ExtensionCommandContext,
 	ExtensionContext,
 	ExtensionHandler,
 	ExtensionToolContext,
@@ -20,11 +23,15 @@ import type {
 	ModelRoleRegistration,
 	ModelRouteRequest,
 	PiModel,
+	RegisteredCommandOptions,
 	ResourcesDiscoverEvent,
 	ResourcesDiscoverResult,
+	SessionBeforeCompactEvent,
+	SessionBeforeCompactResult,
 	SessionEntry,
 	SessionStartEvent,
 	SessionTreeEvent,
+	ThinkingLevel,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
@@ -46,6 +53,32 @@ export class FakePi implements ExtensionAPI {
 	/** The `registerModelRoles()` registration, which a re-registration replaces. */
 	modelRoles?: ModelRoleRegistration;
 	settings: Record<string, unknown> = {};
+	/** Commands registered through `registerCommand()`, in registration order. */
+	readonly commands = new Map<string, RegisteredCommandOptions>();
+	/** Models handed to `setModel()`, in order. */
+	readonly modelChanges: PiModel[] = [];
+	/** Thinking levels handed to `setThinkingLevel()`, in order. */
+	readonly thinkingChanges: ThinkingLevel[] = [];
+	/** When set, `setModel()` refuses the way pi refuses a model it cannot select. */
+	refuseModelChange = false;
+
+	registerCommand(name: string, options: RegisteredCommandOptions): void {
+		this.commands.set(name, options);
+	}
+
+	async setModel(model: PiModel): Promise<boolean> {
+		if (this.refuseModelChange) return false;
+		this.modelChanges.push(model);
+		return true;
+	}
+
+	getThinkingLevel(): ThinkingLevel {
+		return this.thinkingChanges.at(-1) ?? "off";
+	}
+
+	setThinkingLevel(level: ThinkingLevel): void {
+		this.thinkingChanges.push(level);
+	}
 
 	registerTool<TParams extends TSchema = TSchema, TDetails = unknown, TState = unknown>(
 		tool: ToolDefinition<TParams, TDetails, TState>,
@@ -83,6 +116,11 @@ export class FakePi implements ExtensionAPI {
 	): () => void;
 	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): () => void;
 	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): () => void;
+	on(event: "context", handler: ExtensionHandler<ContextEvent, ContextEventResult>): () => void;
+	on(
+		event: "session_before_compact",
+		handler: ExtensionHandler<SessionBeforeCompactEvent, SessionBeforeCompactResult>,
+	): () => void;
 	on(event: string, handler: unknown): () => void {
 		const list = this.handlers.get(event) ?? [];
 		const recorded = handler as RecordedHandler;
@@ -170,15 +208,33 @@ export function fakeCatalog(options: {
 	authedProviders?: readonly string[];
 	model?: PiModel;
 	branch?: readonly SessionEntry[];
-} = {}): { ctx: ExtensionContext; notices: string[] } {
+} = {}): { ctx: ExtensionContext; notices: string[]; statuses: Map<string, string | undefined> } {
 	const authed = new Set(options.authedProviders ?? []);
 	const notices: string[] = [];
+	const statuses = new Map<string, string | undefined>();
 	return {
 		notices,
+		statuses,
 		ctx: {
-			ui: { setHeader: () => {}, setWidget: () => {}, notify: (message: string) => notices.push(message) },
+			ui: {
+				setHeader: () => {},
+				setWidget: () => {},
+				notify: (message: string) => notices.push(message),
+				setStatus: (key: string, text: string | undefined) => statuses.set(key, text),
+			},
 			model: options.model,
-			sessionManager: { getBranch: () => [...(options.branch ?? [])] },
+			// pi's projection contributes one model-visible message per conversation entry and none
+			// for state-only entries, which is what a clear boundary counts.
+			sessionManager: {
+				getBranch: () => [...(options.branch ?? [])],
+				buildSessionProjection: () => ({
+					entries: (options.branch ?? []).map((entry) => ({
+						sourceEntry: entry,
+						messages: entry.type === "message" ? [entry.message] : [],
+					})),
+					messages: [],
+				}),
+			},
 			modelRegistry: {
 				getAvailable: () => [...(options.available ?? [])],
 				find: (provider: string, modelId: string) =>
@@ -231,3 +287,20 @@ export function makeUserEntry(text: string): SessionEntry {
  * catalog entry carries the virtual api id, which is how a reader tells it from a physical model.
  */
 export const AUTO_SELECTION: PiModel = { provider: "spirits", id: "auto", api: PI_VIRTUAL_MODEL_API };
+
+/**
+ * Command context: the event context plus the `reload()` a command handler gets. `reloads` counts
+ * them, because "nothing runs after reload" is a rule a test has to be able to see.
+ */
+export function fakeCommandContext(
+	options: Parameters<typeof fakeCatalog>[0] = {},
+): { ctx: ExtensionCommandContext; notices: string[]; statuses: Map<string, string | undefined>; reloads: () => number } {
+	const { ctx, notices, statuses } = fakeCatalog(options);
+	let reloadCount = 0;
+	return {
+		notices,
+		statuses,
+		reloads: () => reloadCount,
+		ctx: { ...ctx, reload: async () => { reloadCount += 1; } } as ExtensionCommandContext,
+	};
+}

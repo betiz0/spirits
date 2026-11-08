@@ -8,10 +8,15 @@ import type {
 	InputEvent,
 	InputEventResult,
 	ResourcesDiscoverEvent,
+	ContextEvent,
+	ContextEventResult,
 	ResourcesDiscoverResult,
 	SessionEntry,
 	SessionStartEvent,
+	ThinkingLevel,
 	SessionTreeEvent,
+	SessionBeforeCompactEvent,
+	SessionBeforeCompactResult,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
@@ -44,6 +49,18 @@ class FakePi implements ExtensionAPI {
 
 	registerModelRoles(): void {}
 
+	registerCommand(): void {}
+
+	async setModel(): Promise<boolean> {
+		return true;
+	}
+
+	getThinkingLevel(): ThinkingLevel {
+		return "off";
+	}
+
+	setThinkingLevel(): void {}
+
 	on(
 		event: "before_agent_start",
 		handler: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>,
@@ -56,6 +73,11 @@ class FakePi implements ExtensionAPI {
 	): () => void;
 	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): () => void;
 	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): () => void;
+	on(event: "context", handler: ExtensionHandler<ContextEvent, ContextEventResult>): () => void;
+	on(
+		event: "session_before_compact",
+		handler: ExtensionHandler<SessionBeforeCompactEvent, SessionBeforeCompactResult>,
+	): () => void;
 	on(_event: string, _handler: unknown): () => void {
 		return () => {};
 	}
@@ -80,7 +102,7 @@ async function runTool(
 		{ updates },
 		undefined,
 		undefined,
-		makeToolContext({ sessionManager: { getBranch: () => branch } }),
+		makeToolContext({ sessionManager: { getBranch: () => branch, buildSessionProjection: () => ({ entries: [], messages: [] }) } }),
 	);
 }
 

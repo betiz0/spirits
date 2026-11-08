@@ -301,6 +301,22 @@ export default function probeExtension(pi: ExtensionAPI): void {
 	});
 
 	/**
+	 * Read the session's model, thinking level, and pi's default keys back, without changing any of
+	 * them. A product command owns the change; this only reports what the runtime holds afterwards,
+	 * so an observation never measures the harness's own write.
+	 */
+	pi.registerCommand("compat-purpose-readback", {
+		description: "Report the current model, thinking level, and saved default keys",
+		handler: (_args: string, ctx: ExtensionCommandContext) => {
+			writeJson(process.env[RESULT_ENV], {
+				level: pi.getThinkingLevel(),
+				model: readModel(ctx),
+				defaults: readDefaultKeys(pi),
+			});
+		},
+	});
+
+	/**
 	 * Model-purpose attempt: change the thinking level and the model through the runtime, then read
 	 * the values and the default settings keys back.
 	 */

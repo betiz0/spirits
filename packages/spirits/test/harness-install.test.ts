@@ -9,6 +9,7 @@ import type {
 	ExtensionAPI,
 	ExtensionHandler,
 	InputEvent,
+	ThinkingLevel,
 	InputEventResult,
 	ResourcesDiscoverEvent,
 	ResourcesDiscoverResult,
@@ -48,6 +49,18 @@ class FakePi implements ExtensionAPI {
 
 	registerModelRoles(): void {}
 
+	registerCommand(): void {}
+
+	async setModel(): Promise<boolean> {
+		return true;
+	}
+
+	getThinkingLevel(): ThinkingLevel {
+		return "off";
+	}
+
+	setThinkingLevel(): void {}
+
 	on(
 		event: "before_agent_start",
 		handler: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>,
@@ -60,6 +73,7 @@ class FakePi implements ExtensionAPI {
 	): () => void;
 	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): () => void;
 	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): () => void;
+	on(event: string, handler: unknown): () => void;
 	on(event: string, handler: unknown): () => void {
 		if (event === "session_start") {
 			this.sessionHandlers.push(handler as ExtensionHandler<SessionStartEvent>);

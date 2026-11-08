@@ -37,8 +37,9 @@
   "spirits:todo": ["spirits:repl", "spirits:shared", "packages/coding-agent", "packages/tui"],
   "spirits:update": ["spirits:shared", "packages/coding-agent", "packages/tui"],
   "spirits:routing": ["spirits:shared", "packages/coding-agent"],
+  "spirits:commands": ["spirits:shared", "spirits:routing", "packages/coding-agent"],
   "spirits:managed-pi": ["spirits:shared", "spirits:update", "packages/coding-agent", "packages/tui"],
-  "spirits:entry": ["spirits:repl", "spirits:shared", "spirits:rlm", "spirits:harness", "spirits:todo", "spirits:routing", "packages/coding-agent", "packages/tui"],
+  "spirits:entry": ["spirits:repl", "spirits:shared", "spirits:rlm", "spirits:harness", "spirits:todo", "spirits:routing", "spirits:commands", "packages/coding-agent", "packages/tui"],
   "spirits:bin": ["spirits:entry", "spirits:shared", "spirits:update", "spirits:managed-pi", "packages/coding-agent"]
 }
 ```
@@ -51,6 +52,7 @@
   "spirits:todo": ["packages/spirits/src/todo/"],
   "spirits:update": ["packages/spirits/src/update/"],
   "spirits:routing": ["packages/spirits/src/routing/"],
+  "spirits:commands": ["packages/spirits/src/commands/"],
   "spirits:managed-pi": ["packages/spirits/src/managed-pi/"],
   "spirits:shared": [
     "packages/spirits/src/config.ts",
