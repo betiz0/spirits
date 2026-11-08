@@ -33,6 +33,25 @@ bun scripts/agent-data-compat/run.ts \
 `<work>/homes/<slot>/.spirits/agent`(fork)と `<work>/homes/<slot>/.spirits/managed-pi/agent`
 (managed)で、スロット名はフェーズ名と同じ。
 
+## 実測アーティファクトの来歴
+
+`result.json` に残ったダイジェストがどのコード由来かをここで固定する。`summary.md` 冒頭の
+`runner commit` は **ランナーを流した時点の HEAD** であり、拡張 bundle をビルドしたコミットでは
+ない(bundle は `git status` を見ずにビルドされるため、両者は別々に記録する必要がある)。ランナーは
+`identity.bundleVersion` を `local-build@<runner commit>` で上書きする
+(`scripts/agent-data-compat/run.ts`)ので、結果 JSON だけからは bundle のビルド元が復元できない。
+
+| 対象 | 値 | 来歴 |
+|---|---|---|
+| 拡張 bundle | `cd5f3456a1a7a0febb100a25f068ffbf629dc35093b955a87edf0446ac990ea7` | コミット `35595d326` の clean worktree(`git worktree add --detach` し、`node_modules` は実体への symlink を並べた)で `bun scripts/build-managed-pi-inputs.ts --version 0.0.0 --out <dir>` を再実行すると、この sha256 がバイト単位で再現した。よって元になったコミットは `35595d326`。`35595d326` は `2467ad412`(rlm 修正)から `packages/*/src` の変更が無いので、bundle 内の製品コードは `2467ad412` と同一 |
+| 未コミットの変更 | bundle のバイト列に効果のあるものは含めない | 上の再現はコミット済みソースだけのある clean ツリーで成立する。ビルド時に作業ツリーへ未コミットの変更が有ったとしても、bundle の出力に影響の無い変更に限られる |
+| artifact root の manifest | `0e3a9647b2b5f4be812cf5a495c6c689164f27f89421803471061abe21e41e08` | Pi 側の pin 専用(`extension.version` 0.1.0、`extension.artifact.sha256` は `51f306d1…` で実測 bundle `cd5f3456` とは別物)。ランナーは `--bundle` で渡したファイル自体を SHA256 して `bundleSha256` に記録し、manifest の extension digest は照合しない(`scripts/managed-pi-compat/official.ts` の `loadOfficialArtifact` / `buildOfficialIdentity` が検証するのは tarball の digest)。manifest の sha は「どの Pi pin を使ったか」の記録として読める |
+| ランナー | commit `538e69997`、`clean=false` | `clean` は `git diff HEAD` が空 **かつ** `git ls-files --others --exclude-standard` が空のときだけ true(`run.ts` の `provenance()`)。この実行では前者が bun.lock のドリフト(`diffSha256 8e1eea85…`)、後者が `scratch-ag/*` と `sprt-opsx-*.SKILL.md` で、どちらも非空だった |
+
+`scratch-ag/` とリポジトリ直下の `sprt-opsx-*.SKILL.md` は bundle の入力ではない(bundled skill は
+`packages/spirits/src/harness/bundled-skills/` を inline する)。走らせた両ホストのコードにも影響し
+ないので、これらの存在は `clean` フラグの判定にだけ効く。
+
 ## 実行の組み立て
 
 双方向それぞれについて「作成 → 相手が生データを読む → 相手が同じツリーに書き込む → 作成側が読み
@@ -83,6 +102,22 @@ provider 認証状態・モデル一覧・ツール一覧を書く。プロバ�
 - **`auth.json` / `models.json` は読める。** 双方が相手の `auth.json` を設定済みとして報告し、
   `models.json` 定義のプロバイダを解決してそのモデルでリクエストした。制御用(プロバイダの無い
   認証)は未設定と出た。
+
+## `pi.virtual-model-state` の書式(one-way の意味)
+
+実測の one-way は **entry 書式の非互換ではない**。
+
+- 公式 Pi 1.5.0 のコアもこの entry を読み書きする。書き込みは `packages/coding-agent/src/core/agent-session.ts:846`
+  (v1.5.0)で `data = { provider, modelId, state }`、読み取りは `core/virtual-models.ts` の
+  `getVirtualModelState`(`provider` / `modelId` 一致の最新 1 件から `data.state` を返す)。
+- fork は同じ箇所(`agent-session.ts:837`)に `role` を 1 字段足して書く(`VirtualModelStateData` の
+  `role?: string`)。読み取り側は `provider` / `modelId` だけ見て `state` を取り、`role` が無ければ
+  undefined のまま返す。
+- spirits 拡張が `pi.appendEntry` で追記するのは `{ provider, modelId, role, state? }`
+  (`packages/spirits/src/routing/register.ts`)で、`registerModelRoles` が存在するときだけ。
+- したがって両者の読み取りはどちらの形でも成立する(余剰の `role` は無視、欠けた `role` は undefined)。
+  実測で managed が 0 件だったのは、公式 1.5.0 に `registerModelRoles` が無く、このスロットで bundle 自身
+  の追記が走らなかったためで、entry が読めなかったからではない。
 
 ## settings.json のカスタムキーは生き残るか
 
@@ -136,9 +171,27 @@ provider 認証状態・モデル一覧・ツール一覧を書く。プロバ�
 
 ## 実施しなかったこと(理由)
 
+この 4 項目の実測の判定(`not-run`)は次の「not-run 4 項目の静的確認」でも書き換えない。静的確認は
+書き込み経路とファイル形式の一致を見たもので、実測の代替ではない。
+
 - `auth.json write`: 書き込み経路が対話 `/login` のみ。RPC プロトコルにも拡張 API にも credential
   write が無く、headless な product 書き込みが存在しない(`not-run` にした。推測で埋めていない)。
 - `models.json write`: どちらのホストもどのフェーズでも `models.json` を書かなかった。ユーザー編集
   ファイルで、headless な product 書き込み経路は観測されていない。
 - `models-store.json`: 生成は観測されたが、跨ぎテストを行わせていない。
 - `trust.json`: プロジェクト trust は対話で付与するため、どのフェーズも作っていない。
+
+## not-run 4 項目の静的確認
+
+製品ソースの diff だけを見て、書き込み経路とファイル形式が fork と公式 Pi 1.5.0 で同じかを確認した。
+比較は fork 側 HEAD `8ddaee8e111974fef6b46222124be7497bee01d6` と公式タグ `v1.5.0`
+(`f9a26365568127461c47a07a37dcb42c140a3ac5`)。`v1.5.0` は HEAD の祖先ではない(merge base は
+`v1.1.0`)ので、diff は「フォークが取り込めていない上流差分」と同じ意味になる。下に書く `-` / `+`
+の向きはすべて v1.5.0 → HEAD。
+
+| 項目 | diff を取ったファイル(blob) | 結果 |
+|---|---|---|
+| `auth.json` write | `packages/coding-agent/src/core/auth-storage.ts`(v1.5.0 `5a8fa417a` / HEAD `9d6495919`)、4 hunk | 差分はロック再試りのエラー処理のみ。公式 v1.5.0 には Windows で delete pending のロックに対する `EPERM` 再試り(`getRetryableLockErrorCode` と `MAX_EPERM_RETRIES = 5`)があり、fork HEAD はそれを持たず `ELOCKED` だけ再試りして `EPERM` は即 throw する。書き込み本体は同一: `proper-lockfile` の `lockSync` / `lock`(realpath: false)でロック下に取り、`JSON.stringify(data, null, 2)` を `writeFileSync(path, next, AUTH_FILE_WRITE_OPTIONS)` で書く。OAuth トークン更新も同じ書き込み経路: `packages/ai/src/auth/resolve.ts` の `refreshStoredOAuthCredential` → `credentials.modify` → `packages/coding-agent/src/core/runtime-credentials.ts:44` → `AuthStorage.modify`(`withLockAsync`) |
+| `models-store.json` | `packages/coding-agent/src/core/models-store.ts`(v1.5.0 `bfac3c5e7` = HEAD `bfac3c5e7`) | ファイル完全一致。書き込み側の実装差は無い |
+| `trust.json` | `packages/coding-agent/src/core/trust-manager.ts`(v1.5.0 `f0721efef` / HEAD `3396c9a39`)、4 hunk | 差分は Windows のパス大文字・小文字比較のみ。公式 v1.5.0 は `pathsEqual` でキーを大小無視で照合し、`findTrustFileKeys` で大文字違いのキーをまとめて消す。fork HEAD は `data[currentDir]` の完全一致比較で、`set()` も完全一致のキーしか消さない(Windows で大文字違いの残キーが残る余地がある)。ファイル形式は同一: `TrustFile = Record<string, boolean \| null \| undefined>`、`writeTrustFile` はキーをソートして `JSON.stringify(sorted, null, 2)` + 改行、ロックも `proper-lockfile` の同一呼び出し(`writeTrustFile` / `readTrustFile` / `withTrustFileLock` は無変更) |
+| `models.json` write | `packages/coding-agent/src` 全体を `git grep "models.json"` / `getModelsPath\|modelsPath`(v1.5.0 と HEAD の両方)、加えて `packages/spirits/src` | どちらのツリーにも書き込み箇所が無い。ヒットするのは読み取り側(`core/model-config.ts` の load/parse、`core/model-runtime.ts`・`core/agent-session-services.ts`・`core/sdk.ts`・`package-manager-cli.ts` のパス受け渡し、`/logout` のメッセージ文)だけで、`modelsPath` を `write`/`save`/`persist` する呼び出しは 0 件。ユーザー編集ファイルという実測の結論どおり |
