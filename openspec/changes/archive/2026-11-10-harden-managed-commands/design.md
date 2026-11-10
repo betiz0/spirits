@@ -14,6 +14,19 @@
 
 **内容変更が必要なケース**: 5 件のうち、分割だけで 500 字以内に収まる範囲で処理できないものはなかった。収まらない場合は実装せず一覧化して報告する。
 
+**旧要件名と新要件名の対応表**: 分割で見出し名が変わった（増えた）ものは以下のとおり。いずれも本文の文とシナリオはそのまま移動しており、意味は変わらない。
+
+| spec | 旧要件名 | 分割後の要件名 |
+| --- | --- | --- |
+| binary-distribution | 配置と冪等性 | 配置と冪等性（残余: 初回配置・root 権限）/ 再実行の判定 / バージョンを明示した再配置 / 配置の原子的性質と一時ファイルの掃除 |
+| continual-harness | スキルの保存 | スキルの保存（残余）/ 同梱スキルへの保存の拒否 |
+| dual-model-routing | strong フェーズの開始 | strong フェーズの開始（残余）/ strong フェーズの維持と解除 |
+| managed-pi-compatibility | 隔離された互換性テスト | 隔離された互換性テスト（残余）/ 互換性テストの結果の記録 |
+| managed-pi-compatibility | rlm 子セッションの互換性 | rlm 子セッションの互換性（残余）/ rlm 子セッションの結果判定 |
+| self-update | 自己更新のリリース解決と検証 | 自己更新のリリース解決 / 自己更新の取得とチェックサム検証 |
+
+`role と clear と model の互換性マトリクス` の分割（5 文のうち 4 文を ADDED 要件へ移す）は上の表に含まれない。これは base spec の分割ではなくこの change の delta（MODIFIED + ADDED）として行うため、archive 時にマージされる。分割作業中に `行と目的の状態の一致` シナリオの THEN の下へ残った重複行（見出しも箇条書き記号もない孤立行）は、delta の MODIFIED 本文が同一要件を置換することで消えることを delta との差分で確認済み。
+
 ## Decision 2: 代替手段と差異は目的定義が持ち、行へ伝搬する
 
 現行の `MatrixPurpose` は `alternative` と `difference` を型に持つが、`PurposeObservation` にその字段がなく、`deriveRows()` は `difference` を `obs.detail` に固定していた。結果、`available` の行でも「本来の機能との差異」が読まない限り分からず、`/model` 相当を `set_model` で満たした行と、真の `/model` 行が区別できない。
