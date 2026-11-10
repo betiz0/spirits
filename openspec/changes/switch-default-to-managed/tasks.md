@@ -51,12 +51,12 @@
 
 ## 8. データの安全性と互換性ランナー
 
-- [ ] 8.1 fixture の agent dir で既定経路の managed の読み書きを行い、`SPIRITS_ROUTE=fork` で読めることを `docs/agent-data-compat` の手順で確認し、証拠を残す。検証: `bun scripts/agent-data-compat/run.ts` の出力
-- [ ] 8.2 clean なツリーで互換性ランナーの official を 1 回実行し、結果が変わらないことを確認して証拠を残す。検証: `bun scripts/managed-pi-compat/run.ts --mode official …`
+- [x] 8.1 fixture の agent dir で既定経路の managed の読み書きを行い、`SPIRITS_ROUTE=fork` で読めることを `docs/agent-data-compat` の手順で確認し、証拠を残す。検証: `bun scripts/agent-data-compat/run.ts` の出力
+- [x] 8.2 clean なツリーで互換性ランナーの official を 1 回実行し、結果が変わらないことを確認して証拠を残す。検証: `bun scripts/managed-pi-compat/run.ts --mode official …`
 
 ## 9. ゲート
 
-- [ ] 9.1 `openspec validate switch-default-to-managed --strict`
-- [ ] 9.2 `openspec validate --all --strict`
-- [ ] 9.3 `cd packages/spirits && bun test`
-- [ ] 9.4 `bun run check` と `npm run check`
+- [x] 9.1 `openspec validate switch-default-to-managed --strict`
+- [x] 9.2 `openspec validate --all --strict`
+- [x] 9.3 `cd packages/spirits && bun test`
+- [x] 9.4 `bun run check` と `npm run check`

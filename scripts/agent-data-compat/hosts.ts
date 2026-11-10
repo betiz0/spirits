@@ -109,11 +109,18 @@ export function managedLaunch(input: {
 	probe: ProbePaths;
 	markers: readonly string[];
 	fakeUrl: string;
+	/**
+	 * Session directory to pin. The isolated managed route pins `<agent dir>/sessions`; the default
+	 * route leaves it unset so Pi keeps its own layout under the agent directory. Pass `undefined`
+	 * for the default route and the measurement sees what the default launch actually computes.
+	 */
+	sessionDir?: string;
 }): HostLaunch {
 	const env = computeManagedEnv({
 		env: baseEnv(input.home, probeEnv(input.probe, input.markers, input.fakeUrl)),
 		agentDir: input.agentDir,
 		packageDir: input.artifact.packageDir,
+		...(input.sessionDir !== undefined ? { sessionDir: input.sessionDir } : {}),
 	});
 	return {
 		host: "managed",

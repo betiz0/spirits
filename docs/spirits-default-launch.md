@@ -121,4 +121,13 @@ diff <(jq -S . ~/.spirits/managed-pi/agent/settings.json) <(jq -S . ~/.spirits/a
 
 ## データの互換性
 
-fork と managed の間で agent dir の読み書きが通るかは、[docs/agent-data-compat/](agent-data-compat/README.md) の実測を残す。既定経路に切り替えたあとの「managed で書き込んでから `SPIRITS_ROUTE=fork` で読む」確認も同じ手順で行い、結果をそこに追記する。実データでの確認は、リリース前に自分でやるなら上記のバックアップを取ったうえで実施する。
+fork と managed の間で agent dir の読み書きが通るかは [docs/agent-data-compat/](agent-data-compat/README.md) に実測を残した。既定経路の形（agent dir を fork と共有し、session dir を pin しない）で測った結果が `docs/agent-data-compat/default-route/` である。
+
+- 23 項目のうち bidirectional 18 / one-way 1 / not-run 4。managed が書き込んだ session・settings・
+  memory・skills・auth を fork 側がそのまま読める（`SPIRITS_ROUTE=fork` に相当する読み取りを fork バイナリで実測）。
+- not-run の 4 項目（`auth.json write` / `models.json write` / `models-store.json` / `trust.json`）は
+  headless な書き込み経路が product に無く、実測機会が無いことの記録であり、失敗ではない。
+- one-way は `pi.virtual-model-state` だけ。公式 Pi 1.5.0 に役割 API が無いため managed 側が将来分を
+  追記しないだけで、fork が書いた entry は読める。
+
+実データで確かめるなら、上記のバックアップを自分で取ったうえで実施する。

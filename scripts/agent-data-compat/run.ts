@@ -17,7 +17,12 @@
  *     --fork ~/.spirits/bin/spirits \
  *     --artifact-root /tmp/pi-compat-staging/artifact \
  *     --bundle dist/spirits-managed-pi-extension.js \
- *     --out docs/agent-data-compat
+ *     --out docs/agent-data-compat \
+ *     [--managed-route isolated|default]
+ *
+ * `--managed-route default` measures the default launch instead of the isolated one: the managed
+ * host then uses the fork's agent directory rule, gets no session-directory pin, and the production
+ * one-time backup runs before its first launch. The route is recorded in `result.json`.
  *
  * Exit code is 0 unless an item failed to run at all; a compatibility finding is data, not a crash.
  */
@@ -27,6 +32,10 @@ import { cp, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { redactSecrets } from "../managed-pi-compat/evidence.ts";
+import { backupAgentDirOnce } from "../../packages/spirits/src/managed-pi/agent-backup.ts";
+import { agentBackupStatePath, backupsDir } from "../../packages/spirits/src/managed-pi/default-route.ts";
+import { managedSessionDir } from "../../packages/spirits/src/managed-pi/environment.ts";
+import { managedRoot } from "../../packages/spirits/src/managed-pi/layout.ts";
 import { startFakeProvider, type FakeProviderRequest, type FakeReply } from "../managed-pi-compat/fake-provider.ts";
 import {
 	runCommandProbe,
@@ -107,9 +116,19 @@ interface Slot {
 	agentDir: string;
 }
 
-/** The agent directory layout of a host: the fork default, or the managed root layout. */
-function slotAgentDir(home: string, host: SlotHost): string {
-	return host === "managed" ? join(home, ".spirits", "managed-pi", "agent") : join(home, ".spirits", "agent");
+/**
+ * The managed route the managed host stands in for.
+ *
+ * `isolated` is `spirits managed-pi`: its own agent directory under the managed root, with the
+ * session directory pinned. `default` is the default launch: the fork's agent directory rule, no
+ * session-directory pin, and the production one-time backup before the first launch.
+ */
+type ManagedRoute = "isolated" | "default";
+
+/** The agent directory layout of a host: the fork rule, or the managed root layout. */
+function slotAgentDir(home: string, host: SlotHost, route: ManagedRoute): string {
+	if (host === "fork" || route === "default") return join(home, ".spirits", "agent");
+	return join(home, ".spirits", "managed-pi", "agent");
 }
 
 /** CLI options. */
@@ -120,6 +139,7 @@ interface Options {
 	out: string;
 	work?: string;
 	keep: boolean;
+	managedRoute: ManagedRoute;
 }
 
 /** One recorded item. */
@@ -139,6 +159,7 @@ function parseArgs(argv: readonly string[]): Options {
 		bundle: "",
 		out: DEFAULT_OUT,
 		keep: false,
+		managedRoute: "isolated",
 	};
 	for (let index = 0; index < argv.length; index += 1) {
 		const argument = argv[index];
@@ -172,6 +193,12 @@ function parseArgs(argv: readonly string[]): Options {
 			case "--keep":
 				options.keep = true;
 				break;
+			case "--managed-route": {
+				if (value !== "isolated" && value !== "default") throw new Error("--managed-route is isolated or default");
+				options.managedRoute = value;
+				index += 1;
+				break;
+			}
 			default:
 				throw new Error(`unknown argument: ${argument}`);
 		}
@@ -443,7 +470,7 @@ async function main(): Promise<number> {
 		for (const definition of SLOTS) {
 			const home = join(workRoot, "homes", definition.name);
 			await mkdir(home, { recursive: true });
-			const agentDir = slotAgentDir(home, definition.host);
+			const agentDir = slotAgentDir(home, definition.host, options.managedRoute);
 			await mkdir(agentDir, { recursive: true });
 			slots.set(definition.name, { name: definition.name, host: definition.host, home, agentDir });
 		}
@@ -461,12 +488,45 @@ async function main(): Promise<number> {
 		};
 		const markers = seedMarkers(marker);
 
-		const launchFor = (slotName: SlotName, phaseName: string): HostLaunch => {
+		/** The production one-time backup, run before a slot's first default-route managed launch. */
+		const backups: Array<{ slot: string; reason: string; destination?: string; byteSize: number; lines: string[] }> = [];
+		const backedUp = new Set<SlotName>();
+		const backUpBeforeLaunch = async (target: Slot): Promise<void> => {
+			if (backedUp.has(target.name)) return;
+			backedUp.add(target.name);
+			const lines: string[] = [];
+			const result = await backupAgentDirOnce({
+				agentDir: target.agentDir,
+				backupsDir: backupsDir(target.home),
+				statePath: agentBackupStatePath(managedRoot(target.home)),
+				io: { out: (line) => lines.push(line), err: (line) => lines.push(line) },
+			});
+			backups.push({
+				slot: target.name,
+				reason: result.reason,
+				...(result.destination !== undefined ? { destination: result.destination } : {}),
+				byteSize: result.byteSize,
+				lines,
+			});
+			evidence.note(`backup ${target.name}: ${result.reason}${result.destination ? ` -> ${result.destination}` : ""}`);
+		};
+
+		const launchFor = async (slotName: SlotName, phaseName: string): Promise<HostLaunch> => {
 			const target = slot(slotName);
 			const isManaged = target.host === "managed";
 			const probe = probePaths(phaseName);
+			if (isManaged && options.managedRoute === "default") await backUpBeforeLaunch(target);
 			return isManaged
-				? managedLaunch({ artifact: inputs.artifact, bundle: inputs.bundle, home: target.home, agentDir: target.agentDir, probe, markers, fakeUrl })
+				? managedLaunch({
+						artifact: inputs.artifact,
+						bundle: inputs.bundle,
+						home: target.home,
+						agentDir: target.agentDir,
+						probe,
+						markers,
+						fakeUrl,
+						...(options.managedRoute === "isolated" ? { sessionDir: managedSessionDir(target.agentDir) } : {}),
+					})
 				: forkLaunch({ binary: inputs.forkBinary, home: target.home, agentDir: target.agentDir, probe, markers, fakeUrl });
 		};
 
@@ -476,7 +536,7 @@ async function main(): Promise<number> {
 			slotName: SlotName,
 			input: { sessionPath?: string; prompts: readonly string[]; routeModel?: boolean },
 		): Promise<PhaseResult> => {
-			const launch = launchFor(slotName, phaseName);
+			const launch = await launchFor(slotName, phaseName);
 			const requestsBefore = fakeProvider.requests.length;
 			const stages: RpcStep[] = [];
 			stages.push({
@@ -591,7 +651,7 @@ async function main(): Promise<number> {
 
 		/** One real settings write by the host itself: `<host> install <local package>`. */
 		const hostSettingsWrite = async (phaseName: string, slotName: SlotName): Promise<{ exitCode: number; stdout: string; stderr: string }> => {
-			const launch = launchFor(slotName, `${phaseName}-settingswrite`);
+			const launch = await launchFor(slotName, `${phaseName}-settingswrite`);
 			const localPkg = await createLocalPackage(join(workRoot, "localpkg"));
 			const command = settingsWriteCommand(launch, localPkg);
 			await launch.verify();
@@ -1269,6 +1329,8 @@ async function main(): Promise<number> {
 		const result = {
 			title: "agent-dir compatibility: fork (spirits 0.6.0) vs managed (official Pi 1.5.0 + spirits bundle)",
 			generatedAt: new Date().toISOString(),
+			managedRoute: options.managedRoute,
+			defaultRouteBackups: backups,
 			runner: {
 				commit: run.commit,
 				tag: run.tag,
@@ -1384,19 +1446,36 @@ function renderSummary(input: {
 	const runner = (input.result.runner ?? {}) as Record<string, unknown>;
 	const binaries = (input.result.binaries ?? {}) as Record<string, Record<string, string>>;
 	const fidelity = (input.result.settingsWriterFidelity ?? {}) as { identical?: boolean; regions?: Array<{ name: string; identical: boolean }> };
+	const managedRoute = String(input.result.managedRoute ?? "isolated");
+	const backups = (input.result.defaultRouteBackups ?? []) as Array<{
+		slot: string;
+		reason: string;
+		byteSize: number;
+		destination?: string;
+	}>;
+	const routeLine =
+		managedRoute === "default"
+			? "既定経路 — agent dir は fork と同じ規則 (`~/.spirits/agent`)、session dir は pin せず Pi の既定配置、初回起動前に製品コードの一度きりバックアップを実行する"
+			: "隔離経路 (`spirits managed-pi`) — agent dir は managed root 配下、session dir は pin";
 	const lines: string[] = [
 		"# agent-dir 読み書き互換 実測結果",
 		"",
 		"fork (spirits 0.6.0) と managed (公式 Pi 1.5.0 + spirits 拡張 bundle) のあいだの、既存",
-		"`~/.spirits/agent` 形式データの双方向互換の実測。製品コード・ガード・既定経路は変更していない。",
+		"`~/.spirits/agent` 形式データの双方向互換の実測。ランナーは製品コード・ガード・経路を変えずに観察する。",
 		"実データ・実認証・実 provider は不使用（ローカル fake provider と隔離 HOME）。",
 		"",
+		`- 測定した経路: ${routeLine}`,
 		`- runner commit: \`${String(runner.commit ?? "")}\` (tag ${String(runner.tag ?? "")}, diff sha256 \`${String(runner.diffSha256 ?? "")}\`, clean=${String(runner.clean ?? "")})`,
 		`- fork binary: \`${binaries.fork?.path ?? ""}\` sha256 \`${binaries.fork?.sha256 ?? ""}\` (${binaries.fork?.version ?? ""})`,
 		`- official pi ${binaries.managed?.piVersion ?? ""} tarball \`${binaries.managed?.artifactSha256 ?? ""}\` executable \`${binaries.managed?.executableSha256 ?? ""}\``,
 		`- extension bundle \`${binaries.managed?.bundleSha256 ?? ""}\` manifest \`${binaries.managed?.manifestSha256 ?? ""}\` overlay ${binaries.managed?.overlayVersion ?? ""}`,
 		`- role API (pi.registerModelRoles): fork=${String(roleApiOf(input, "a1-fork-create"))} managed=${String(roleApiOf(input, "b1-managed-create"))} (decides whether the bundle may append pi.virtual-model-state)`,
 		`- settings writer replay: ${fidelity.regions?.map((region) => `${region.name}=${region.identical ? "identical" : "DIFFERS"}`).join(", ") ?? "unknown"} (identical=${String(fidelity.identical ?? "")})`,
+		...(managedRoute === "default"
+			? [
+					`- first-launch backups: ${backups.length} (${backups.map((entry) => `${entry.slot}=${entry.reason}/${entry.byteSize}B`).join(", ") || "none"})`,
+				]
+				: []),
 		"",
 		"## 判定",
 		"",

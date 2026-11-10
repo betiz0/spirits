@@ -1,13 +1,17 @@
 # fork / managed 間の `~/.spirits/agent` 読み書き互換 実測
 
 既存の `~/.spirits/agent` 形式のデータを、fork(spirits 0.6.0 バイナリ)と managed(公式 Pi 1.5.0 +
-spirits 拡張 bundle)が相互に読み書きできるかを、製品コード・ガード・既定経路を変えずに実測した
+spirits 拡張 bundle)が相互に読み書きできるかを、製品コード・ガードを変えずに実測した
 調査。実データ・実認証・実 provider は使わず、隔離 HOME とローカル fake provider のみで動かす。
 
 - 実行結果の一覧: `summary.md`(判定表・フェーズ終了状態・ツリー差分・settings.json の中身)
 - 機械可読の全証拠: `result.json`(項目ごとに方向別判定・detail・データ)
 - フェーズ単位のツリー・スナップショット: `snapshots/*.json`
 - 実行スクリプト: `scripts/agent-data-compat/`
+
+上の `summary.md` / `result.json` / `snapshots/` は **隔離経路** (`spirits managed-pi`) を測ったものだ。
+既定の起動経路が managed に切り替わったあとは、同じランナーに `--managed-route default` を付けて
+既定経路そのものを測り、結果を `default-route/` に置く(下の「既定経路での実測」節)。
 
 ## 再実行手順
 
@@ -51,6 +55,51 @@ bun scripts/agent-data-compat/run.ts \
 `scratch-ag/` とリポジトリ直下の `sprt-opsx-*.SKILL.md` は bundle の入力ではない(bundled skill は
 `packages/spirits/src/harness/bundled-skills/` を inline する)。走らせた両ホストのコードにも影響し
 ないので、これらの存在は `clean` フラグの判定にだけ効く。
+
+## 既定経路での実測 (`--managed-route default`)
+
+既定の起動経路は managed になった。切り替え後の実測が `default-route/` で、ランナーは同じもので
+`--managed-route default` を付けるだけである。
+
+```sh
+bun scripts/build-managed-pi-inputs.ts --version 0.1.0 --out dist
+bun scripts/agent-data-compat/run.ts \
+  --fork "$HOME/.spirits/bin/spirits" \
+  --artifact-root <artifact root> \
+  --bundle dist/spirits-managed-pi-extension.js \
+  --out docs/agent-data-compat/default-route \
+  --work /tmp/adc-default-work --keep \
+  --managed-route default
+```
+
+`--managed-route` は `isolated`(既定)か `default`。`default` では managed ホストが既定経路と同じ形になる。
+
+- agent dir は fork と同じ規則 (`<home>/.spirits/agent`)。`slotAgentDir()` が route を見る。
+- `SPIRITS_CODING_AGENT_SESSION_DIR` を pin しない(既定経路が渡さないのと同じ)。実測でも session は
+  Pi の既定配置 `<agent dir>/sessions/--<エンコードした cwd>--/<ts>_<id>.jsonl` に作られた。
+- 初回起動の前に製品コードの `backupAgentDirOnce()` を通す(`run.ts` の `backUpBeforeLaunch`)。
+
+結果(`default-route/summary.md`・`default-route/result.json`):
+
+- 23 項目 = bidirectional 18 / one-way 1 / not-run 4。隔離経路の実測と同じ形。one-way は
+  `pi.virtual-model-state`、not-run 4 は `auth.json write` / `models.json write` / `models-store.json` /
+  `trust.json` で、理由も同じ。
+- 初回バックアップは managed の 4 スロットすべてで走り、`<home>/.spirits/backups/agent-<UTC>/` へ
+  コピーして記録を `<home>/.spirits/managed-pi/agent-backup.json` に残した。`result.json` の
+  `defaultRouteBackups` にスロット名・理由・サイズ(1,212 B 〜 210,366 B)が出る。
+- `bundled-skills/` の版ディレクトリは fork が `0.6.0`、bundle が `0.1.0`。`0.1.0` は
+  `scripts/build-managed-pi-inputs.ts --version` が bundle に埋め込んだ値で、版の埋め込みが実 bundle
+  で効いていることの観測にもなる(隔離経路の実測では `0.0.0-dev` だった)。
+- `operator agent dir untouched`: 実 `~/.spirits/agent` は内容・更新時刻とも無変更。
+- fake provider への予期しないリクエスト 0。
+
+来歴: runner commit `d8265a9b565b23a2d901912f5191a2af6988a405`(tag `spirits-v0.6.0-36-gd8265a9b5`)、
+`clean=false`。実行時点の `git diff HEAD` は `--managed-route` を足したランナー 2 ファイル
+(`scripts/agent-data-compat/run.ts` と `hosts.ts`)だけで、未追跡 30 件は出力先の
+`docs/agent-data-compat/default-route/` 自身にあたる。どちらも bundle の入力ではない(bundle は
+`packages/*/src` と拡張エントリからビルドする)。bundle sha256
+`5cfed65805ea7834713b2fa83064584ed8e8ba999fa5493f4a323f90742dfb07`、Pi tarball `df870ba0…` /
+executable `61a84400…`、manifest `0e3a9647…`(上記と同じ Pi pin)。
 
 ## 実行の組み立て
 
