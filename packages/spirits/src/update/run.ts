@@ -20,7 +20,13 @@ import {
 	isDirectoryWritable,
 	isOfflineEnv,
 } from "./guards.ts";
-import { releaseArtifactUrl, resolveLatestStableRelease, resolveReleaseBaseUrl, type SpiritsRelease } from "./release.ts";
+import {
+	releaseArtifactUrl,
+	releaseTagForVersion,
+	resolveLatestStableRelease,
+	resolveReleaseBaseUrl,
+	type SpiritsRelease,
+} from "./release.ts";
 import { hasThemeAssets, themeAssetPath, themeDirFor } from "./theme.ts";
 import { resolveIdleTimeoutMs } from "./timeout.ts";
 import type { EnvLike, FetchLike } from "./types.ts";
@@ -65,6 +71,15 @@ export interface RunUpdateOptions {
 export interface UpdateResult {
 	exitCode: number;
 	replaced: boolean;
+	/**
+	 * Release the launcher binary that will run after this call belongs to, e.g. `spirits-v0.7.0`.
+	 *
+	 * The caller uses it as the source of the managed set, so the set always matches the binary rather
+	 * than the newest release: after a replacement that is the release just installed, on the no-op
+	 * paths it is the installed version's own release. `undefined` when no release was resolved (a
+	 * refusal or a resolution failure), because then nothing was decided.
+	 */
+	releaseTag?: string;
 }
 
 /** Default output sinks: stderr for refusals and failures, stdout for results. */
@@ -170,7 +185,11 @@ async function repairThemeAssets(options: {
 		await rm(tempDir, { recursive: true, force: true }).catch(() => {});
 	}
 	options.io.out(`spirits ${options.run.installedVersion} is already up to date; repaired the missing theme assets`);
-	return { exitCode: await runExtensionUpdate(options.run, options.io), replaced: false };
+	return {
+		exitCode: await runExtensionUpdate(options.run, options.io),
+		replaced: false,
+		releaseTag: options.release.tag,
+	};
 }
 
 /**
@@ -224,7 +243,7 @@ export async function runSelfUpdate(options: RunUpdateOptions): Promise<UpdateRe
 	if (decision === "up-to-date") {
 		if (await hasThemeAssets(themeDir)) {
 			io.out(`spirits ${options.installedVersion} is already up to date`);
-			return { exitCode: await runExtensionUpdate(options, io), replaced: false };
+			return { exitCode: await runExtensionUpdate(options, io), replaced: false, releaseTag: release.tag };
 		}
 		return repairThemeAssets({ run: options, io, release, themeDir, timeoutMs });
 	}
@@ -232,7 +251,13 @@ export async function runSelfUpdate(options: RunUpdateOptions): Promise<UpdateRe
 		io.out(
 			`spirits ${options.installedVersion} is newer than the latest stable release (${release.version})`,
 		);
-		return { exitCode: await runExtensionUpdate(options, io), replaced: false };
+		return {
+			exitCode: await runExtensionUpdate(options, io),
+			replaced: false,
+			// The running binary stays on its own (newer, usually prerelease) release, so the managed
+			// set is taken from that tag rather than from the older stable release.
+			releaseTag: releaseTagForVersion(options.installedVersion),
+		};
 	}
 
 	const tempDir = await createTempDir(installDir, io);
@@ -271,5 +296,5 @@ export async function runSelfUpdate(options: RunUpdateOptions): Promise<UpdateRe
 	}
 
 	io.out(`Updated spirits from ${options.installedVersion} to ${release.version}`);
-	return { exitCode: await runExtensionUpdate(options, io), replaced: true };
+	return { exitCode: await runExtensionUpdate(options, io), replaced: true, releaseTag: release.tag };
 }

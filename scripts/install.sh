@@ -32,8 +32,20 @@ INSTALLED_BINARY="$INSTALL_DIR/spirits"
 THEME_DIR="$INSTALL_DIR/theme"
 THEME_ASSETS="dark.json light.json"
 
-# Data directory applied through PI_CODING_AGENT_DIR by the compiled binary (bin/env-defaults.ts).
+# Data directory the default route stores in (packages/spirits/src/env-defaults.ts).
 AGENT_DIR="$HOME/.spirits/agent"
+
+# Managed Pi root: the official Pi and the spirits extension bundle the default route launches.
+MANAGED_ROOT="$HOME/.spirits/managed-pi"
+
+# Release asset holding the managed set's manifest, and the environment variable the binary reads to
+# pin it. The installer pins the manifest of the tag it resolved, so the set always matches the
+# binary it is installed next to (packages/spirits/src/constants.ts).
+MANAGED_MANIFEST="spirits-managed-pi-manifest.json"
+MANAGED_MANIFEST_URL_ENV="SPIRITS_MANAGED_PI_MANIFEST_URL"
+
+# Backups root holding the one-time agent directory backup taken before the first managed launch.
+BACKUP_DIR="$HOME/.spirits/backups"
 
 # Temporary directory prefix inside INSTALL_DIR. Shared contract with the self-update code
 # (packages/spirits/src/constants.ts): `.spirits-tmp-<pid>`.
@@ -166,6 +178,30 @@ installed_version() {
 	printf '%s\n' "$version"
 }
 
+# True when a managed set is already selected. The `current` link is the only thing that makes a set
+# startable, so it is what the same-version paths check.
+managed_set_present() {
+	[ -e "$MANAGED_ROOT/current" ]
+}
+
+# Install the managed Pi set of the tag this run resolved. Placement is delegated to the binary this
+# run just installed: it verifies the manifest's checksums, extracts the official Pi, writes the
+# overlay and the installed state, and switches `current`. The installer keeps the release pinned by
+# handing over the manifest URL of this tag, so the set can never come from a different release than
+# the binary next to it.
+install_managed_set() {
+	log "Installing the managed Pi set for $tag..."
+	if env "$MANAGED_MANIFEST_URL_ENV=$RELEASE_BASE_URL/$OWNER/$REPO/releases/download/$tag/$MANAGED_MANIFEST" \
+		"$INSTALLED_BINARY" managed-pi install >&2; then
+		return 0
+	fi
+	printf 'Error: spirits %s is installed, but the managed Pi set is not.\n' "$new_version" >&2
+	printf 'Repair it with:\n  spirits managed-pi repair\n' >&2
+	printf 'Start the previous fork route with:\n  SPIRITS_ROUTE=fork spirits\n' >&2
+	printf 'The installed binary and theme assets were left in place.\n' >&2
+	return 1
+}
+
 # Both built-in theme files must be present as regular files. A missing directory or a
 # directory named like an asset counts as missing.
 theme_assets_present() {
@@ -183,6 +219,8 @@ check_platform
 if [ "${1:-}" = "--uninstall" ]; then
 	printf 'To remove the spirits binary:\n  rm -f %s\n' "$INSTALLED_BINARY"
 	printf 'To remove the installed theme assets:\n  rm -rf %s\n' "$THEME_DIR"
+	printf 'To remove the managed Pi set the default route launches:\n  rm -rf %s\n' "$MANAGED_ROOT"
+	printf 'To remove the agent directory backups:\n  rm -rf %s\n' "$BACKUP_DIR"
 	printf 'To remove the data directory (settings, sessions, extensions):\n  rm -rf %s\n' "$AGENT_DIR"
 	printf 'If you added %s to your PATH, remove that line from your shell rc.\n' "$INSTALL_DIR"
 	exit 0
@@ -205,6 +243,9 @@ repair_only=0
 old_version=$(installed_version) || old_version=""
 if [ "$version_specified" = 0 ] && [ -n "$old_version" ] && [ "$old_version" = "$new_version" ]; then
 	if theme_assets_present; then
+		# The default route needs the managed set. Fetch it here when it is missing so an install that
+		# predates the default switch does not turn the next launch into an unannounced download.
+		managed_set_present || install_managed_set || exit 1
 		printf 'spirits %s is already up to date\n' "$new_version"
 		exit 0
 	fi
@@ -261,6 +302,7 @@ done
 if [ "$repair_only" = 1 ]; then
 	rm -rf "$tmpdir"
 	trap - EXIT INT TERM
+	managed_set_present || install_managed_set || exit 1
 	printf 'spirits %s is already up to date; restored the missing theme assets\n' "$new_version"
 	printf 'Theme assets installed to %s\n' "$THEME_DIR"
 	exit 0
@@ -271,6 +313,10 @@ mv -f "$tmpdir/$ARTIFACT" "$INSTALLED_BINARY" || fail "Failed to install $INSTAL
 rm -rf "$tmpdir"
 trap - EXIT INT TERM
 
+# The managed set follows the binary and is placed after it: a failure here costs the managed route,
+# not the binary and theme assets this run already verified and placed.
+install_managed_set || exit 1
+
 if [ -n "$old_version" ]; then
 	printf '%s -> %s\n' "$old_version" "$new_version"
 else
@@ -278,6 +324,7 @@ else
 fi
 printf 'Installed to %s\n' "$INSTALLED_BINARY"
 printf 'Installed theme assets to %s\n' "$THEME_DIR"
+printf 'Installed the managed Pi set to %s\n' "$MANAGED_ROOT"
 printf 'Start it with:\n  %s\n' "$INSTALLED_BINARY"
 
 case ":$PATH:" in

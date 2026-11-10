@@ -105,21 +105,14 @@ export async function launchManagedPi(options: LaunchManagedPiOptions): Promise<
 		const paths = await resolveManagedAgentPaths({ home, root, env });
 		assertManagedLaunchArgs(options.args, paths);
 		await ensureManagedAgentDir(paths);
-		// Spawn through the `current` link so the launched path is exactly the selected set, and a
-		// concurrent update cannot leave the wrapper using a path that is no longer current.
-		const currentDir = join(root, "current");
-		const packageDir = join(currentDir, "pi");
-		const childEnv: Record<string, string | undefined> = {};
-		applyChildEnv(childEnv, computeManagedEnv({ env, packageDir, agentDir: paths.agentDir }));
-		const command = [join(packageDir, "pi"), "-e", join(currentDir, "spirits-extension.js"), ...options.args];
-		const spawn = options.spawn ?? spawnManagedProcess;
-		const exitCode = await spawn({
-			command,
-			cwd: options.cwd ?? process.cwd(),
-			env: childEnv,
-			stdin: "inherit",
-			stdout: "inherit",
-			stderr: "inherit",
+		const exitCode = await spawnManagedSet({
+			root,
+			args: options.args,
+			env,
+			agentDir: paths.agentDir,
+			sessionDir: paths.sessionDir,
+			cwd: options.cwd,
+			spawn: options.spawn,
 		});
 		return { exitCode, launched: true };
 	} catch (error) {
@@ -131,6 +124,43 @@ export async function launchManagedPi(options: LaunchManagedPiOptions): Promise<
 		io.err(managedSetFailureMessage(reason));
 		return { exitCode: 1, launched: false };
 	}
+}
+
+/** Inputs for the shared spawn of a verified managed set. */
+export interface SpawnManagedSetOptions {
+	root: string;
+	args: readonly string[];
+	env: ManagedEnv;
+	/** Agent directory the child stores under. */
+	agentDir: string;
+	/** Session directory to pin. Omitted, the inherited value and pi's own default are kept. */
+	sessionDir?: string;
+	cwd?: string;
+	spawn?: ManagedSpawn;
+}
+
+/**
+ * Spawn the verified managed set through the `current` link.
+ *
+ * `current` is used so the launched path is exactly the selected set and a concurrent update cannot
+ * leave the wrapper using a path that is no longer current. Both routes reach Pi through here, so
+ * the command form, the environment sanitize, and the inherited stdio cannot drift apart.
+ */
+export async function spawnManagedSet(options: SpawnManagedSetOptions): Promise<number> {
+	const currentDir = join(options.root, "current");
+	const packageDir = join(currentDir, "pi");
+	const childEnv: Record<string, string | undefined> = {};
+	applyChildEnv(childEnv, computeManagedEnv({ env: options.env, packageDir, agentDir: options.agentDir, sessionDir: options.sessionDir }));
+	const command = [join(packageDir, "pi"), "-e", join(currentDir, "spirits-extension.js"), ...options.args];
+	const spawn = options.spawn ?? spawnManagedProcess;
+	return await spawn({
+		command,
+		cwd: options.cwd ?? process.cwd(),
+		env: childEnv,
+		stdin: "inherit",
+		stdout: "inherit",
+		stderr: "inherit",
+	});
 }
 
 /** User-facing help for the explicit experimental route. */

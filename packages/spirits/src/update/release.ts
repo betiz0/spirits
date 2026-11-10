@@ -76,6 +76,11 @@ export function selectLatestStableTag(tags: readonly string[]): string | undefin
 	return tags.find((tag) => tag.startsWith(RELEASE_TAG_PREFIX));
 }
 
+/** Release tag a spirits version is published under (`0.7.0` -> `spirits-v0.7.0`). */
+export function releaseTagForVersion(version: string): string {
+	return `${RELEASE_TAG_PREFIX}${version}`;
+}
+
 /** Convert a tag to its version, or `undefined` when the tag is not a spirits release. */
 export function tagToVersion(tag: string): string | undefined {
 	if (!tag.startsWith(RELEASE_TAG_PREFIX)) return undefined;

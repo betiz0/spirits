@@ -57,6 +57,7 @@
   "spirits:shared": [
     "packages/spirits/src/config.ts",
     "packages/spirits/src/constants.ts",
+    "packages/spirits/src/env-defaults.ts",
     "packages/spirits/src/version.ts",
     "packages/spirits/src/tools.ts",
     "packages/spirits/src/types/",

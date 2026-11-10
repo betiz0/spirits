@@ -1,6 +1,8 @@
-# managed-pi 実験経路
+# managed-pi 隔離経路
 
-`spirits managed-pi` は、公式 Pi の固定成果物と事前 bundle した spirits 拡張を 1 組として導入し、通常の `spirits` とは別に起動する実験経路である。既定経路ではない。実験期間中の保存先は `<managed root>/agent`(既定は `~/.spirits/managed-pi/agent`)に固定し、既存の `~/.spirits/agent` は読み書きしない。通常の `spirits`、`spirits update`、install.sh、`~/.spirits/bin`、`~/.spirits/agent` の契約は変更しない。
+公式 Pi の固定成果物と事前 bundle した spirits 拡張を 1 組として導入し、起動する仕組みが managed である。**既定の起動経路は managed** で、`spirits` を打つと agent dir を従来と同じ規則で選んでから専用 Pi が起動する。既定経路・バックアップ・fork への戻し方・修復は [spirits-default-launch.md](spirits-default-launch.md) を参照。
+
+`spirits managed-pi` はその中でも**隔離経路**である。保存先を `<managed root>/agent`(既定は `~/.spirits/managed-pi/agent`)に固定し、既存の `~/.spirits/agent` を読み書きしない。既存 agent dir との一致・包含、symlink、managed root 外への解決、`--session` / `--fork` / `--session-dir` / `--export` を起動前に拒否するガードもここだけに効く。既定経路はこれらの拒否を受けけない(既定経路の目的は `~/.spirits/agent` を使うことだから)。隔離経路を残す理由は、互換性ランナーとテストが実データに触れずに専用 Pi を駆動できる足場が必要だからである。`~/.spirits/bin` の契約は変更しない。
 
 ## コマンド
 
@@ -118,9 +120,11 @@ Pi 本体が読むのは `~/.spirits/agent/settings.json` (managed では隔離 
 - **公式 Pi の帰属ヘッダー**: managed 経路の起動ヘッダーは公式 Pi のものになる。spirits 独自の branding ヘッダーに置き換える patch は入れない。
 - **`/spirits-model` の補完**: 公式 `/model` の補完メニュー・曖昧検索 (name/description を跨ぐ検索) は無い。参照は `provider/id` と its substring に限られる。
 
-## 既存データの書き込み互換は未確認
+## 既存データの書き込み互換
 
 `~/.spirits/agent` の読み書き両方向の互換は [docs/agent-data-compat/](agent-data-compat/README.md) に実測を残す。settings の永続書き込みは上の「設定の永続書き込み」の手順で Pi と同じファイル・同じ lock を使うようになったが、sessions・auth・custom entry の書き戻しまで含めた双向の確認は、経路を変えた後も引き続き実測する必要がある。
+
+既定経路は `~/.spirits/agent` をそのまま使うため、この実測が既定経路のデータの安全性そのものになる。実測が覆っていない範囲を「確認済み」として扱わないために、既定経路の初回起動前には agent dir のバックアップを 1 回だけ取る。
 
 過去記録の訂正は [openspec/changes/archive/2026-11-03-add-managed-pi-route/completion-correction.md](../openspec/changes/archive/2026-11-03-add-managed-pi-route/completion-correction.md) に残す。元のチェックボックスは書き換えていない。
 

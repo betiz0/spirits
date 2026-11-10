@@ -143,7 +143,7 @@ test("removes stale temp directories on the up-to-date path", async () => {
 	const captured = makeIo();
 	try {
 		const result = await runSelfUpdate(makeNoOpOptions(fixture.baseUrl, execPath, captured.io));
-		expect(result).toEqual({ exitCode: 0, replaced: false });
+		expect(result).toEqual({ exitCode: 0, replaced: false, releaseTag: "spirits-v0.3.0" });
 		expect(captured.out.join("\n")).toContain("already up to date");
 		expect(existsSync(leftover)).toBe(false);
 		expect(await readFile(execPath, "utf8")).toBe("installed binary");
@@ -167,7 +167,7 @@ test("keeps running processes' temp directories on the up-to-date path", async (
 		await mkdir(guarded);
 		const captured = makeIo();
 		const result = await runSelfUpdate(makeNoOpOptions(fixture.baseUrl, execPath, captured.io));
-		expect(result).toEqual({ exitCode: 0, replaced: false });
+		expect(result).toEqual({ exitCode: 0, replaced: false, releaseTag: "spirits-v0.3.0" });
 		expect(captured.out.join("\n")).toContain("already up to date");
 		expect(existsSync(guarded)).toBe(true);
 	} finally {

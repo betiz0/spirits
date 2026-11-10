@@ -144,6 +144,34 @@ test("keeps recently used version directories", async () => {
 	expect(await exists(path.join(recent, "old-skill", "SKILL.md"))).toBe(true);
 });
 
+test("two routes with different versions keep both trees in one agent dir", async () => {
+	// The default route (managed) and `SPIRITS_ROUTE=fork` share `~/.spirits/agent`, so two version
+	// directories sit next to each other whenever the routes come from different releases. The stale
+	// cleanup must not eat the other route's tree, because a running session of that version reads it.
+	const managedSkill: BundledSkill = {
+		name: "fixture-skill",
+		files: [
+			{
+				path: "SKILL.md",
+				content: "---\nname: fixture-skill\ndescription: fixture description\n---\n\nmanaged body\n",
+			},
+		],
+	};
+	const agentDir = await makeAgentDir();
+	const forkDir = await writeBundledSkills({ agentDir, version: "0.6.0", skills: [FIXTURE_SKILL] });
+	const managedDir = await writeBundledSkills({ agentDir, version: "0.7.0", skills: [managedSkill] });
+	expect(forkDir).not.toBe(managedDir);
+	expect(await readFile(path.join(forkDir, "fixture-skill", "SKILL.md"), "utf8")).toContain("fixture body");
+	expect(await readFile(path.join(managedDir, "fixture-skill", "SKILL.md"), "utf8")).toContain("managed body");
+	expect((await readdir(bundledSkillsDir(agentDir))).sort()).toEqual(["0.6.0", "0.7.0"]);
+
+	// Either route restarting keeps the other tree, and each still gets its own directory back.
+	expect(await writeBundledSkills({ agentDir, version: "0.7.0", skills: [managedSkill] })).toBe(managedDir);
+	expect(await exists(path.join(forkDir, "fixture-skill", "SKILL.md"))).toBe(true);
+	expect(await writeBundledSkills({ agentDir, version: "0.6.0", skills: [FIXTURE_SKILL] })).toBe(forkDir);
+	expect(await exists(path.join(managedDir, "fixture-skill", "SKILL.md"))).toBe(true);
+});
+
 test("touches the current version directory on every write", async () => {
 	const agentDir = await makeAgentDir();
 	const versionDir = await writeBundledSkills({ agentDir, version: "1.2.3", skills: [FIXTURE_SKILL] });

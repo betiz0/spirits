@@ -8,8 +8,10 @@ import {
 	RELEASE_ARTIFACT_NAME,
 	THEME_ASSET_NAMES,
 } from "../src/constants.ts";
+import { firstSupportedManifest } from "../src/managed-pi/manifest.ts";
 import { sha256Hex } from "../src/managed-pi/overlay.ts";
 import { buildManagedInputs } from "../../../scripts/build-managed-pi-inputs.ts";
+import { checkManagedBundleVersion } from "../../../scripts/check-managed-pi-bundle-version.ts";
 
 test("build inputs include manifest and bundle checksums", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "spirits-managed-build-"));
@@ -30,6 +32,46 @@ test("build inputs include manifest and bundle checksums", async () => {
 		await rm(dir, { recursive: true, force: true });
 	}
 }, 30_000);
+
+test("the bundle embeds the version the manifest records", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "spirits-managed-build-version-"));
+	try {
+		const result = await buildManagedInputs({ version: "9.9.9-test", outDir: dir });
+		const bundle = await readFile(result.bundlePath, "utf8");
+		expect(result.manifest.extension.version).toBe("9.9.9-test");
+		// A define that did not apply leaves the bare identifier behind and the bundle falls back to
+		// `0.0.0-dev`, which would name the bundled-skills directory after a development build.
+		expect(bundle).not.toContain("SPIRITS_VERSION");
+		expect(bundle).not.toContain("0.0.0-dev");
+		expect(bundle).toContain('"9.9.9-test"');
+		expect(checkManagedBundleVersion(bundle, JSON.parse(await readFile(result.manifestPath, "utf8")), "9.9.9-test").ok).toBe(
+			true,
+		);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+}, 30_000);
+
+test("the version check rejects a bundle built for another version", () => {
+	const bundle = `const version = "0.7.0"; export const line = () => version;`;
+	const manifest = firstSupportedManifest({
+		version: "0.7.0",
+		url: "spirits-managed-pi-extension.js",
+		sha256: "0".repeat(64),
+	});
+	expect(checkManagedBundleVersion(bundle, manifest, "0.7.0").ok).toBe(true);
+	const mismatch = checkManagedBundleVersion(bundle, manifest, "0.8.0");
+	expect(mismatch.ok).toBe(false);
+	expect(mismatch.reasons.join("\n")).toContain("0.8.0");
+	// The identifier surviving means the define was never applied.
+	const undefine = checkManagedBundleVersion(
+		'const v = SPIRITS_VERSION ?? "0.0.0-dev";',
+		{ ...manifest, extension: { ...manifest.extension, version: "0.8.0" } },
+		"0.7.0",
+	);
+	expect(undefine.ok).toBe(false);
+	expect(undefine.reasons.join("\n")).toContain("SPIRITS_VERSION");
+});
 
 test("existing binary outputs are unchanged", () => {
 	expect(RELEASE_ARTIFACT_NAME).toBe("spirits-linux-x64");
@@ -62,4 +104,6 @@ test("release workflow attaches the managed inputs without dropping defaults", a
 	expect(workflow).toContain("dist/theme/dark.json");
 	expect(workflow).toContain("dist/theme/light.json");
 	expect(workflow).toContain("bun scripts/build-managed-pi-inputs.ts");
+	expect(workflow).toContain("bun scripts/check-managed-pi-bundle-version.ts");
+	expect(workflow).toContain('--version "${GITHUB_REF_NAME#spirits-v}"');
 });

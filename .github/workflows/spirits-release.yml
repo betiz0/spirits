@@ -58,6 +58,14 @@ jobs:
           set -euo pipefail
           bun scripts/build-managed-pi-inputs.ts --version "${GITHUB_REF_NAME#spirits-v}" --out dist
 
+      - name: Check the managed bundle version
+        run: |
+          set -euo pipefail
+          bun scripts/check-managed-pi-bundle-version.ts \
+            --bundle dist/spirits-managed-pi-extension.js \
+            --manifest dist/spirits-managed-pi-manifest.json \
+            --version "${GITHUB_REF_NAME#spirits-v}"
+
       - name: Verify artifacts
         run: |
           set -euo pipefail

@@ -96,6 +96,8 @@ spirits update --force   # インストール済みが最新でも再取得し�
 curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/main/scripts/install.sh | VERSION=0.4.0-rc.1 sh
 ```
 
+実行ファイルの更新後、`spirits update` は**同じリリース**の manifest から managed の一式を取得して `~/.spirits/managed-pi` に導入する(最新リリースの manifest ではない)。置換を行わなかった同版・新版インストール済みの場合も同じ規則で取得する。一式の取得・導入が失敗したときは理由と `spirits managed-pi repair` と `SPIRITS_ROUTE=fork spirits` を表示して非ゼロで終わるが、配置済みの実行ファイルはそのまま残る。
+
 ## アンインストール
 
 削除に使うコマンドを案内する(ファイルは自動削除しない):
@@ -104,11 +106,17 @@ curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/main/scripts/install
 curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/main/scripts/install.sh | sh -s -- --uninstall
 ```
 
-出力される `rm` コマンドでバイナリ、組み込みテーマ `~/.spirits/bin/theme/`、データディレクトリ `~/.spirits/agent/` を削除する。データディレクトリには設定・セッション・外部拡張が含まれるため、必要ならバックアップしてから削除する。`~/.spirits/bin` を `PATH` に追加した行は shell rc から手動で消す。
+出力される `rm` コマンドでバイナリ、組み込みテーマ `~/.spirits/bin/theme/`、managed の一式 `~/.spirits/managed-pi/`、agent dir のバックアップ `~/.spirits/backups/`、データディレクトリ `~/.spirits/agent/` を削除する。データディレクトリには設定・セッション・外部拡張が含まれるため、必要ならバックアップしてから削除する。`~/.spirits/bin` を `PATH` に追加した行は shell rc から手動で消す。
+
+## 既定の起動経路 (managed)
+
+`spirits` は既定で managed を起動する。公式 Pi の固定成果物に spirits 拡張 bundle を読み込ませた経路で、保存先は従来と同じ規則で決まるため、設定・セッション・認証・外部拡張はそのまま引き継がれる。CLI 引数は `--` なしでそのまま Pi に渡る(`--continue`、`--resume`、`--session`、`--fork` など)。
+
+初回の managed 起動の前に、agent dir のバックアップを 1 回だけ `~/.spirits/backups/agent-<UTC 時刻>/` へ取る(シンボリックリンクはたどらずリンクのまま保存し、リンクと参照先を表示する)。バックアップに失敗した場合は起動しない。fork へ戻るには `SPIRITS_ROUTE=fork spirits`。手順と復元は [docs/spirits-default-launch.md](../docs/spirits-default-launch.md)。
 
 ## 設定ディレクトリ
 
-`~/.spirits/agent/` を使う(環境変数 `SPIRITS_CODING_AGENT_DIR` を設定している場合はそちらを優先)。セッション・認証・設定のほか、外部拡張は `~/.spirits/agent/extensions/` に置く。インストール先 `~/.spirits/bin/` とは別のディレクトリ。
+`~/.spirits/agent/` を使う(環境変数 `SPIRITS_CODING_AGENT_DIR` を設定している場合はそちらを優先)。セッション・認証・設定のほか、外部拡張は `~/.spirits/agent/extensions/` に置く。インストール先 `~/.spirits/bin/` とは別のディレクトリ。既定経路の managed も同じ規則を使う。
 
 **BREAKING**: 旧名 `PI_CODING_AGENT_DIR` は保存先の指定として読まない。既定パス `~/.spirits/agent/` は変わらないため、既存データはそのまま使われる。
 
@@ -332,28 +340,37 @@ SPIRITS_DEV=1 bun packages/coding-agent/src/cli.ts -e packages/spirits/src/index
 - 実行時エラーの行番号と抜粋は、TypeScript を JavaScript へ変換した後のコード基準。元の TS の行番号とは一致しない場合がある。
 - `use()` が許可するのは `node:` / `bun:` の組込と、セッション cwd 配下に収まる `./` / `../` の相対パスだけ。リモート URL と同梱依存(ベア指定子)は M1 では未対応。
 
-## managed-pi experimental route
+## The managed route (default) and the isolated route
 
-`spirits managed-pi` installs a pinned official Pi release plus a prebundled spirits extension in a
-separate `~/.spirits/managed-pi` root and launches it by absolute path. It is an experiment, not the
-default route. The default `spirits` binary, `spirits update`, install.sh, and `~/.spirits/agent`
-keep their existing behavior.
+The default `spirits` launch is the managed route: it starts the verified official Pi of
+`~/.spirits/managed-pi/current` with the bundled spirits extension, storing in the agent directory
+chosen by the same rule the fork route used. `SPIRITS_ROUTE=fork` starts the fork instead, and that
+escape hatch stays until a change removes the fork.
 
-The experimental route writes only to its own agent directory, `~/.spirits/managed-pi/agent` (mode
+`spirits managed-pi` is the **isolated** route. It exists so the compatibility runner and the tests
+can drive a dedicated Pi without touching real data.
+
+The isolated route writes only to its own agent directory, `~/.spirits/managed-pi/agent` (mode
 `0700`), and never reads or writes the existing `~/.spirits/agent`. No copy, migration, sync, or
-backup of existing data is performed, and there is no force switch: an explicit
+backup of existing data is performed by it, and there is no force switch: an explicit
 `SPIRITS_CODING_AGENT_DIR` is accepted only when it resolves to that fixed directory, and paths that
 are relative, tilde-based, symlinked, outside the managed root, equal to or containing the existing
 agent directory, or not a directory are refused before Pi is spawned. Session storage is pinned to
 `~/.spirits/managed-pi/agent/sessions`, and `--session`, `--fork`, `--session-dir`, and `--export`
 are refused for the same reason. `install`, `update`, `repair`, and wrapper `help` create neither
-agent directory.
+agent directory. **These guards apply to the isolated route only**: the default route is required to
+use `~/.spirits/agent` and to forward every Pi argument unchanged.
 
-Write compatibility with existing data has **not** been verified. Read success in the compatibility
-runner is not write compatibility; switching the default route or continuing existing data without
-manual steps requires a separate change that proves both directions. See
-`openspec/changes/archive/2026-11-03-add-managed-pi-route/completion-correction.md` for the
-correction of the archived completion record.
+Managed assets are fetched from the release of the running launcher binary, never from the newest
+release. `spirits update` and `install.sh` place the set next to the binary they install; a missing
+set is fetched on the first default launch. A fetch failure or a corrupt set never falls back to the
+fork silently: the reason, `spirits managed-pi repair`, and `SPIRITS_ROUTE=fork spirits` are printed
+and the exit code is non-zero.
+
+Read and write compatibility between the two routes over the same agent directory is measured in
+`docs/agent-data-compat/`. Read success in the compatibility runner is not write compatibility, and
+ranges the measurements do not cover are not treated as proven; that is why the first default launch
+backs the agent directory up first.
 
 ```sh
 spirits managed-pi install

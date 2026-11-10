@@ -5,7 +5,15 @@ import { computeManagedEnv, managedSessionDir } from "../src/managed-pi/environm
 const PACKAGE_DIR = "/managed/current/pi";
 const AGENT_DIR = "/home/tester/.spirits/managed-pi/agent";
 
+const SESSION_DIR = join(AGENT_DIR, "sessions");
+
 function compute(env: Record<string, string | undefined>) {
+	// The isolated route hands in its fixed session directory.
+	return computeManagedEnv({ env, packageDir: PACKAGE_DIR, agentDir: AGENT_DIR, sessionDir: SESSION_DIR });
+}
+
+/** The default route passes no session directory. */
+function computeDefault(env: Record<string, string | undefined>) {
 	return computeManagedEnv({ env, packageDir: PACKAGE_DIR, agentDir: AGENT_DIR });
 }
 
@@ -23,6 +31,20 @@ test("pins session storage and the package directory", () => {
 	expect(env.SPIRITS_CODING_AGENT_SESSION_DIR).toBe(join(AGENT_DIR, "sessions"));
 	expect(managedSessionDir(AGENT_DIR)).toBe(join(AGENT_DIR, "sessions"));
 	expect(env.PI_PACKAGE_DIR).toBe(PACKAGE_DIR);
+});
+
+test("leaves the session directory alone when the caller pins none", () => {
+	// Pi reads the session directory as the directory itself, not as a parent of the per-project
+	// directory it derives from the working directory. Pinning the default route's agent directory
+	// here would move new sessions out of the `<agent dir>/sessions/<encoded cwd>/` layout the fork
+	// route already wrote, so the default route passes nothing and the inherited value stays.
+	expect(computeDefault({}).SPIRITS_CODING_AGENT_SESSION_DIR).toBeUndefined();
+	expect(computeDefault({ SPIRITS_CODING_AGENT_SESSION_DIR: "/data/sessions" }).SPIRITS_CODING_AGENT_SESSION_DIR).toBe(
+		"/data/sessions",
+	);
+	// The agent directory is still the resolved one, and the old name is still removed.
+	expect(computeDefault({}).SPIRITS_CODING_AGENT_DIR).toBe(AGENT_DIR);
+	expect(computeDefault({}).PI_CODING_AGENT_SESSION_DIR).toBeUndefined();
 });
 
 test("sets no identity variable, because the official binary reads none", () => {

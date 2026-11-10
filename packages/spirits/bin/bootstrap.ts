@@ -18,7 +18,13 @@ import { formatUncompiledMessage } from "../src/update/guards.ts";
 import { runSelfUpdate } from "../src/update/run.ts";
 import { checkBunVersion } from "./bun-gate.ts";
 import { computeEnvDefaults } from "./env-defaults.ts";
-import { copyCallerEnv, runManagedStartup } from "./startup.ts";
+import {
+	chooseStartupRoute,
+	copyCallerEnv,
+	installManagedSetAfterUpdate,
+	runDefaultManaged,
+	runManagedStartup,
+} from "./startup.ts";
 import { VERSION_FLAGS, formatVersionLine, isCompiledRun, resolveSpiritsVersion } from "./version.ts";
 
 function applyEnvDefaults(): void {
@@ -81,7 +87,7 @@ if (managed.kind !== "none") {
 	process.exit(exitCode);
 }
 
-// Everything else (help, extensions-only update, invalid combinations) falls through to pi.
+// Everything except `update` of the program itself falls through to the route selection below.
 const target = classification.target;
 if (isCompiledRun() && target !== "pass-through") {
 	const result = await runSelfUpdate({
@@ -96,5 +102,32 @@ if (isCompiledRun() && target !== "pass-through") {
 		platform: process.platform,
 		arch: process.arch,
 	});
-	process.exit(result.exitCode);
+	if (result.exitCode !== 0) {
+		process.exit(result.exitCode);
+	}
+	// The managed set follows the binary it belongs to. A failed managed install reports the repair
+	// command and the fork escape hatch and turns the exit code non-zero, while the binary the update
+	// already placed stays in place.
+	const managedExitCode = await installManagedSetAfterUpdate({
+		snapshot: snapshotEnv,
+		root: managedRoot(homedir()),
+		fetch,
+		installedVersion: resolveSpiritsVersion(),
+		...(result.releaseTag !== undefined ? { releaseTag: result.releaseTag } : {}),
+	});
+	process.exit(managedExitCode);
+}
+
+// The default route starts managed and never imports the fork's pi. `SPIRITS_ROUTE=fork`, and any
+// source run, keep the path below.
+if (chooseStartupRoute(snapshotEnv, isCompiledRun()) === "managed") {
+	const exitCode = await runDefaultManaged({
+		snapshot: snapshotEnv,
+		args: process.argv.slice(2),
+		root: managedRoot(homedir()),
+		home: homedir(),
+		version: resolveSpiritsVersion(),
+		fetch,
+	});
+	process.exit(exitCode);
 }

@@ -144,7 +144,7 @@ test("replaces an older binary and reports the version transition", async () => 
 	const { installDir, execPath } = await setupInstalled("0.2.0");
 	const captured = makeIo();
 	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.2.0", { io: captured.io }));
-	expect(result).toEqual({ exitCode: 0, replaced: true });
+	expect(result).toEqual({ exitCode: 0, replaced: true, releaseTag: "spirits-v0.3.0" });
 	expect(await Bun.file(execPath).text()).toBe(BINARY_CONTENT);
 	expect(captured.out.join("\n")).toContain("Updated spirits from 0.2.0 to 0.3.0");
 	expect((await readdir(installDir)).filter((entry) => entry.startsWith(".spirits-tmp-"))).toEqual([]);
@@ -154,7 +154,7 @@ test("places the theme assets on a replacement", async () => {
 	const fixture = startFixture("0.3.0");
 	const { execPath, themeDir } = await setupInstalled("0.2.0");
 	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.2.0", { io: makeIo().io }));
-	expect(result).toEqual({ exitCode: 0, replaced: true });
+	expect(result).toEqual({ exitCode: 0, replaced: true, releaseTag: "spirits-v0.3.0" });
 	expect(await readFile(join(themeDir, "dark.json"), "utf8")).toBe(THEME_CONTENTS["dark.json"]);
 	expect(await readFile(join(themeDir, "light.json"), "utf8")).toBe(THEME_CONTENTS["light.json"]);
 });
@@ -164,7 +164,7 @@ test("does not fetch artifacts when up to date and themes are present", async ()
 	const { execPath } = await setupInstalled("0.3.0");
 	const captured = makeIo();
 	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.3.0", { io: captured.io }));
-	expect(result).toEqual({ exitCode: 0, replaced: false });
+	expect(result).toEqual({ exitCode: 0, replaced: false, releaseTag: "spirits-v0.3.0" });
 	expect(await Bun.file(execPath).text()).toBe("installed 0.3.0");
 	expect(captured.out.join("\n")).toContain("spirits 0.3.0 is already up to date");
 	expect(fixture.requests.every((path) => path.endsWith("/releases"))).toBe(true);
@@ -175,7 +175,7 @@ test("repairs missing theme assets when up to date", async () => {
 	const { execPath, themeDir } = await setupInstalled("0.3.0", null);
 	const captured = makeIo();
 	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.3.0", { io: captured.io }));
-	expect(result).toEqual({ exitCode: 0, replaced: false });
+	expect(result).toEqual({ exitCode: 0, replaced: false, releaseTag: "spirits-v0.3.0" });
 	expect(await Bun.file(execPath).text()).toBe("installed 0.3.0");
 	expect(await readFile(join(themeDir, "dark.json"), "utf8")).toBe(THEME_CONTENTS["dark.json"]);
 	expect(await readFile(join(themeDir, "light.json"), "utf8")).toBe(THEME_CONTENTS["light.json"]);
@@ -187,7 +187,7 @@ test("replaces an equal version when --force is given", async () => {
 	const { execPath } = await setupInstalled("0.3.0");
 	const captured = makeIo();
 	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.3.0", { force: true, io: captured.io }));
-	expect(result).toEqual({ exitCode: 0, replaced: true });
+	expect(result).toEqual({ exitCode: 0, replaced: true, releaseTag: "spirits-v0.3.0" });
 	expect(await Bun.file(execPath).text()).toBe(BINARY_CONTENT);
 	expect(fixture.requests.some((path) => path.endsWith("spirits-linux-x64"))).toBe(true);
 });
@@ -197,7 +197,9 @@ test("does not replace a prerelease newer than the latest stable", async () => {
 	const { execPath } = await setupInstalled("0.4.0-rc.1");
 	const captured = makeIo();
 	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.4.0-rc.1", { io: captured.io }));
-	expect(result).toEqual({ exitCode: 0, replaced: false });
+	// The managed set follows the binary that will run, so the returned tag is the installed
+	// prerelease's own release and not the older stable release that was resolved.
+	expect(result).toEqual({ exitCode: 0, replaced: false, releaseTag: "spirits-v0.4.0-rc.1" });
 	expect(await Bun.file(execPath).text()).toBe("installed 0.4.0-rc.1");
 	expect(captured.out.join("\n")).toContain("newer than the latest stable release");
 });
@@ -206,7 +208,7 @@ test("does not touch theme assets when installed is newer", async () => {
 	const fixture = startFixture("0.3.0");
 	const { execPath, themeDir } = await setupInstalled("0.4.0-rc.1", "installed theme");
 	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.4.0-rc.1", { io: makeIo().io }));
-	expect(result).toEqual({ exitCode: 0, replaced: false });
+	expect(result).toEqual({ exitCode: 0, replaced: false, releaseTag: "spirits-v0.4.0-rc.1" });
 	expect(await readFile(join(themeDir, "dark.json"), "utf8")).toBe("installed theme");
 	expect(await readFile(join(themeDir, "light.json"), "utf8")).toBe("installed theme");
 	expect(fixture.requests.every((path) => path.endsWith("/releases"))).toBe(true);
@@ -295,7 +297,7 @@ test("replaces a newer prerelease with --force", async () => {
 	const result = await runSelfUpdate(
 		makeOptions(fixture, execPath, "0.4.0-rc.1", { force: true, io: captured.io }),
 	);
-	expect(result).toEqual({ exitCode: 0, replaced: true });
+	expect(result).toEqual({ exitCode: 0, replaced: true, releaseTag: "spirits-v0.3.0" });
 	expect(await Bun.file(execPath).text()).toBe(BINARY_CONTENT);
 	expect(captured.out.join("\n")).toContain("Updated spirits from 0.4.0-rc.1 to 0.3.0");
 });

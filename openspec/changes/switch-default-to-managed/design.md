@@ -2,7 +2,7 @@
 
 ## Context
 
-起動役は `packages/spirits/bin/spirits.ts` → `bin/bootstrap.ts` で、pi を import する前に (1) Bun ゲート、(2) 環境既定値の注入、(3) `--version`、(4) `update` の分類、(5) `managed-pi` の分類を行い、隔离経路なら spawn して終わる。それ以外は fork の pi を in-process で起動する。隔离経路は `src/managed-pi/` に検証・導入・起動・ガードが揃っており、既定経路はこれに何も触れていない。
+起動役は `packages/spirits/bin/spirits.ts` → `bin/bootstrap.ts` で、pi を import する前に (1) Bun ゲート、(2) 環境既定値の注入、(3) `--version`、(4) `update` の分類、(5) `managed-pi` の分類を行い、隔離経路なら spawn して終わる。それ以外は fork の pi を in-process で起動する。隔離経路は `src/managed-pi/` に検証・導入・起動・ガードが揃っており、既定経路はこれに何も触れていない。
 
 制約:
 
@@ -24,7 +24,7 @@
 
 - fork の削除、薄い起動役への置き換え、Pi のパッチ、新しい機能、リリース操作。
 - 試用環境（`~/.spirits/managed-pi/agent`）のセッションの自動移行。
-- 隔离経路のガードの緩和（そのまま残す）。
+- 隔離経路のガードの緩和（そのまま残す）。
 
 ## Decisions
 
@@ -67,7 +67,7 @@
 
 `ENV_MANAGED_PI_MANIFEST_URL` を install.sh から使うのは、既存の fixture 用の上書きを契約として流用するためで、新しい CLI を増やさない。
 
-### 5. 既定経路の環境は隔离経路の computeManagedEnv の派生
+### 5. 既定経路の環境は隔離経路の computeManagedEnv の派生
 
 `computeManagedEnv` に `sessionDir` を省略可能にし、指定したときだけ pin する。既定経路は `agentDir`（規則で決めた値）を渡し、`sessionDir` は渡さない（親の値を透過し、Pi の既定は agent dir 配下）。`PI_PACKAGE_DIR` の pin、`PI_CODING_AGENT_*` / `PI_APP_NAME` / `PI_CONFIG_DIR` の除去、`PI_SKIP_VERSION_CHECK=1`、`PI_TELEMETRY` の既定は両経路で同じ。
 
@@ -90,7 +90,7 @@
 - [Risk] 同一 agent dir に fork と managed が同時に書き込む（同時起動、bundled-skills の書き合い） → Mitigation: 版ディレクトリを分けて消し合わないことをテストで確認。文書で「どちらか片方を使う」ことを明示する。
 - [Risk] バックアップが大きい agent dir で重い → Mitigation: 1 回だけ・保存先とサイズを表示・失敗時は起動しない。圧縮はしない（リストアが単純になる）。
 - [Risk] install.sh が導入直後のバイナリを実行する（信頼できない実行ファイルを実行するように見える） → Mitigation: 検証済みチェックサムを通った直後の配置であり、install.sh は既に `--version` で同じバイナリを実行している。取得先は install.sh が決めたタグの URL に固定する。
-- [Trade-off] 隔离経路のガードは既定経路には効かない → 隔离経路は互換性ランナーとテストのための経路として残し、spec で対象を明示する。
+- [Trade-off] 隔離経路のガードは既定経路には効かない → 隔離経路は互換性ランナーとテストのための経路として残し、spec で対象を明示する。
 
 ## Migration Plan
 

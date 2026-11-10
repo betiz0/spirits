@@ -42,8 +42,19 @@ export interface ManagedEnvOptions {
 	env: ManagedEnv;
 	/** Directory containing the managed overlay package.json. */
 	packageDir: string;
-	/** Resolved isolated agent dir; the caller has already run the path guards. */
+	/** Agent directory the child stores under: the isolated dir, or the default route's agent dir. */
 	agentDir: string;
+	/**
+	 * Session directory to pin. The isolated route passes its fixed dir so an inherited value or a
+	 * project `settings.sessionDir` cannot move storage outside the experiment.
+	 *
+	 * The default route omits it. Pi reads `SPIRITS_CODING_AGENT_SESSION_DIR` as the session
+	 * directory itself, not as a parent of the per-project directory it derives from the working
+	 * directory, so pinning the default route would put new sessions in `<agent dir>/sessions/`
+	 * instead of the `<agent dir>/sessions/<encoded cwd>/` layout the fork route already wrote.
+	 * Omitting it passes an inherited value through, which is what the fork route does.
+	 */
+	sessionDir?: string;
 }
 
 /** Session directory pinned inside an isolated agent dir. */
@@ -54,8 +65,8 @@ export function managedSessionDir(agentDir: string): string {
 /**
  * Compute the child environment without mutating the caller's object.
  *
- * `SPIRITS_CODING_AGENT_DIR` and `SPIRITS_CODING_AGENT_SESSION_DIR` are set to the resolved
- * isolated paths, so an inherited value or a project `settings.sessionDir` cannot redirect storage.
+ * `SPIRITS_CODING_AGENT_DIR` is set to the caller's resolved agent dir, and
+ * `SPIRITS_CODING_AGENT_SESSION_DIR` is pinned only when the caller passed a session dir.
  * `PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`, `PI_APP_NAME` and `PI_CONFIG_DIR` are
  * removed by setting them to `undefined` (the caller deletes them). `PI_SKIP_VERSION_CHECK` is
  * always pinned; `PI_TELEMETRY` is defaulted only when the caller did not set it, matching the
@@ -64,7 +75,9 @@ export function managedSessionDir(agentDir: string): string {
 export function computeManagedEnv(options: ManagedEnvOptions): Record<string, string | undefined> {
 	const result: Record<string, string | undefined> = { ...options.env };
 	result[ENV_MANAGED_AGENT_DIR] = options.agentDir;
-	result[ENV_MANAGED_SESSION_DIR] = managedSessionDir(options.agentDir);
+	if (options.sessionDir !== undefined) {
+		result[ENV_MANAGED_SESSION_DIR] = options.sessionDir;
+	}
 	result[ENV_PACKAGE_DIR] = options.packageDir;
 	result[ENV_OLD_AGENT_DIR] = undefined;
 	result[ENV_OLD_SESSION_DIR] = undefined;

@@ -315,6 +315,38 @@ export const ENV_PACKAGE_DIR = "PI_PACKAGE_DIR";
 /** Base URLs for the managed manifest; fixtures override them through the existing release URL vars. */
 export const ENV_MANAGED_PI_MANIFEST_URL = "SPIRITS_MANAGED_PI_MANIFEST_URL";
 
+// ---------------------------------------------------------------------------
+// Default route (`spirits` starting managed) and the first-launch agent backup
+// ---------------------------------------------------------------------------
+
+/**
+ * Environment variable that selects the launch route. `fork` starts the compiled fork; unset and
+ * any other value start managed. Pi owns a `--fork` CLI flag, so the escape hatch is an environment
+ * variable and never a flag.
+ */
+export const ENV_ROUTE = "SPIRITS_ROUTE";
+
+/** Value of {@link ENV_ROUTE} that keeps the fork route. */
+export const ROUTE_FORK_VALUE = "fork";
+
+/** Backups root under `$HOME` (`~/.spirits/backups`), beside `bin`, `agent`, and `managed-pi`. */
+export const SPIRITS_BACKUPS_DIR_NAME = "backups";
+
+/** Prefix of one agent backup directory inside the backups root (`agent-<UTC time>`). */
+export const AGENT_BACKUP_DIR_PREFIX = "agent-";
+
+/** Suffix of the directory a backup is copied into before it is renamed to its final name. */
+export const AGENT_BACKUP_TEMP_SUFFIX = ".partial";
+
+/** Record in the managed root that the first-launch agent backup was taken. */
+export const AGENT_BACKUP_STATE_FILE_NAME = "agent-backup.json";
+
+/** Repair command shown whenever managed assets are missing, corrupt, or failed to download. */
+export const MANAGED_PI_REPAIR_COMMAND = "spirits managed-pi repair";
+
+/** Escape hatch shown together with a managed launch failure. */
+export const MANAGED_PI_FORK_ROUTE_HINT = `SPIRITS_ROUTE=${ROUTE_FORK_VALUE} spirits`;
+
 /**
  * Summary a cleared conversation writes when the extension takes a compaction over. It names what
  * happened and carries none of the cleared conversation, which is the point of the interception.

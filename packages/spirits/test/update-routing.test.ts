@@ -126,7 +126,9 @@ test("runs the extension update after the replacement", async () => {
 	const result = await runSelfUpdate(
 		makeOptions(fixture, execPath, "0.2.0", { kind: "all", spawnExtensionUpdate: spawn }),
 	);
-	expect(result).toEqual({ exitCode: 0, replaced: true });
+	// The replacement reports the release it installed, which is also the release the managed set
+	// has to come from.
+	expect(result).toEqual({ exitCode: 0, replaced: true, releaseTag: "spirits-v0.3.0" });
 	expect(calls).toHaveLength(1);
 	expect(calls[0]?.command).toEqual([execPath, "update", "--extensions"]);
 	expect(calls[0]?.cwd).toBe(process.cwd());
@@ -167,7 +169,7 @@ test("runs the extension update when the binary is already latest", async () => 
 	const result = await runSelfUpdate(
 		makeOptions(fixture, execPath, "0.3.0", { kind: "all", spawnExtensionUpdate: spawn }),
 	);
-	expect(result).toEqual({ exitCode: 4, replaced: false });
+	expect(result).toEqual({ exitCode: 4, replaced: false, releaseTag: "spirits-v0.3.0" });
 	expect(await Bun.file(execPath).text()).toBe("installed 0.3.0");
 	expect(calls).toHaveLength(1);
 	expect(calls[0]?.targetContent).toBe("installed 0.3.0");

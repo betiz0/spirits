@@ -1,0 +1,124 @@
+# 既定の起動経路 (managed)
+
+`spirits` を打つと、既定では **managed** が起動する。managed は公式 Pi の固定成果物に spirits 拡張 bundle を `-e` で読み込ませた経路で、保存先は従来と同じ `~/.spirits/agent` である。設定・セッション・認証・外部拡張はそのまま引き継がれる。コピーも移行もしていない。
+
+起動役のバイナリはそのまま残っており、`~/.spirits/bin/spirits` が経路を選んでから子プロセスを起動する。
+
+## 何が変わるか
+
+| 項目 | 従来 (fork) | 既定 (managed) |
+|---|---|---|
+| 起動するもの | バイナリ内の fork 版 pi | `~/.spirits/managed-pi/current/pi/pi` + 拡張 bundle |
+| agent dir | `~/.spirits/agent` | 同じ規則 (`SPIRITS_CODING_AGENT_DIR` が無ければ `~/.spirits/agent`) |
+| CLI 引数 | そのまま pi へ | `--` なしでそのまま Pi へ (`--continue`、`--resume`、`--session`、`--fork`、`--session-dir`、`--export` など) |
+| サブコマンド | `spirits update` など | 同じ。`update`、`managed-pi`、`--version` / `-v` の扱いは従来どおり |
+| 初回起動 | なし | agent dir のバックアップを 1 回だけ取ってから起動 |
+| 起動ヘッダー | spirits の独自ヘッダー | 公式 Pi のヘッダーに spirits の版を表示 |
+| role 表示 | フッターのモデル名隣の badge | 拡張の status line（[spirits-managed-pi.md](spirits-managed-pi.md) の「已知の制約」） |
+
+`SPIRITS_CODING_AGENT_SESSION_DIR` は既定経路では固定しない。Pi はこの変数を「session ディレクトリそのもの」として扱い、既定値の `<agent dir>/sessions/<エンコードした cwd>/` を使わなくなるため、既定経路で固定すると既存のセッション配置が変わってしまう。継承値があればそのまま子に渡る（fork と同じ）。
+
+## 一式の導入
+
+managed の一式（公式 Pi と拡張 bundle）は、**起動役のバイナリと同じリリース**から入る。最新リリースではない。
+
+- `spirits update` … 実行ファイルを更新した後、同じリリースの manifest から一式を取得して `~/.spirits/managed-pi` に入れる
+- `scripts/install.sh` … 実行ファイルを配置した後、同じタグの manifest URL を指定して導入する
+- 初回の `spirits` 起動 … 一式が無ければ、そのバイナリのリリースから取得して導入する
+
+一式が無く、取得もできなかった場合は、黙って fork に切り替えない。理由、`spirits managed-pi repair`、`SPIRITS_ROUTE=fork spirits` を表示して非ゼロで終わる。fork はその場で起動する。
+
+## バックアップ
+
+既定経路で managed を**初めて起動する前**に、agent dir を `~/.spirits/backups/agent-<UTC 時刻>/` へコピーする。実行した事実は `~/.spirits/managed-pi/agent-backup.json` に記録され、2 回目以降は取らない。
+
+- ファイルとディレクトリのパーミッションは保存される。
+- シンボリックリンクは**たどらずリンクのまま**保存し、見つけたリンクと参照先を一覧で表示する（例: `skills -> /home/me/.pi/agent/skills`）。参照先のファイルはコピーされない。
+- 保存先とコピーしたサイズが表示される。
+- agent dir がまだ存在しなければ何もコピーせず、記録だけ残す。
+- **バックアップに失敗した場合は起動しない。** 理由を表示して非ゼロで終わる。記録も残らないので、次回の起動で再試行する。
+
+圧縮はしない。リストアが `cp -a` 1 回で済むほうが、戻せなくなる状況よりマシだからである。
+
+### 戻し方
+
+```sh
+# 1. spirits を終了する
+# 2. 現在の agent dir を退避する
+mv ~/.spirits/agent ~/.spirits/agent.after-managed
+# 3. バックアップを戻す
+cp -a ~/.spirits/backups/agent-2026-11-10T09-12-33Z ~/.spirits/agent
+```
+
+リンクの参照先（`skills` など）はコピーされていないので、バックアップを戻した後も元の場所を指したままである。個別に確かめるなら:
+
+```sh
+find ~/.spirits/backups/agent-2026-11-10T09-12-33Z -type l -exec ls -l {} +
+```
+
+## fork へ戻る
+
+一時的になら環境変数だけで戻せる。
+
+```sh
+SPIRITS_ROUTE=fork spirits --continue
+```
+
+`SPIRITS_ROUTE` は `fork` のときだけ fork を起動し、未設定とそれ以外の値は既定（managed）になる。Pi 自身に `--fork` フラグがあるため、フラグ名としては提供しない。
+
+恒久的に戻す場合は、今のバイナリを自分で退避してから旧バイナリを置き戻す。
+
+```sh
+# 今のバイナリを退避する（更新で上書きされない場所へ）
+cp -a ~/.spirits/bin ~/.spirits/bin.fork-<UTC 時刻>
+# 旧リリースの実行ファイルとテーマ資産を戻す
+VERSION=0.6.0 sh scripts/install.sh
+```
+
+`VERSION` を指定したインストーラはそのタグの成果物を再配置する。旧バイナリは退避先に残るので、比較や取り直しはそこからできる。fork を起動する手段は、fork を削除する変更までは消えない。
+
+## 一式が壊れたとき
+
+検証を通らない（チェックサムが合わない、`installed.json` が読めない、bundle が書き換わった）ときは、自動で取り直さない。`spirits managed-pi repair` を実行すると、導入済み set の manifest と同じ組を再取得して検証し、`current` を置き換える。
+
+```sh
+spirits managed-pi repair        # 同じ組を取り直して検証
+spirits managed-pi update        # 新しいリリースの組へ更新
+```
+
+どちらも失敗したときは、上記と同じく理由・`spirits managed-pi repair`・`SPIRITS_ROUTE=fork spirits` が出る。agent dir と `~/.spirits/bin` は書き換えられない。
+
+## 隔離経路 `spirits managed-pi`
+
+`spirits managed-pi` は残っている。保存先を `~/.spirits/managed-pi/agent` に固定し、既存 agent dir との一致・symlink・`--session` / `--fork` / `--session-dir` / `--export` を起動前に拒否するガードもそのままだ。
+
+ただしガードが効くのは**この隔離経路だけ**である。既定経路は `~/.spirits/agent` を使うことが目的なので、これらの拒否を適用しない。隔離経路は互換性ランナーとテストの土台として置いてあり、通常の利用は既定経路を使う。詳細は [spirits-managed-pi.md](spirits-managed-pi.md)。
+
+## 試用環境で作ったセッションを `~/.spirits/agent` に戻す
+
+`~/.spirits/managed-pi/agent` で試用中に作ったセッションを、本番の agent dir に移す手順はこれ。**自動では行わない。**
+
+```sh
+# 1. 現在の ~/.spirits/agent のバックアップ（上記と同じ形式で手で取る）
+cp -a ~/.spirits/agent ~/.spirits/backups/agent-$(date -u +%Y-%m-%dT%H-%M-%SZ).before-trial-merge
+
+# 2. session ファイルだけ選ぶ。全ディレクトリをまとめて上書きしない
+ls -lt ~/.spirits/managed-pi/agent/sessions/*/ | head
+
+# 3. 1 プロジェクト分の session を、対応する cwd のディレクトリ名でコピーする
+mkdir -p ~/.spirits/agent/sessions
+cp -a ~/.spirits/managed-pi/agent/sessions/--home-me-project-- ~/.spirits/agent/sessions/
+
+# 4. settings.json / auth.json はまとめて上書きしない。必要なキーだけ写す
+diff <(jq -S . ~/.spirits/managed-pi/agent/settings.json) <(jq -S . ~/.spirits/agent/settings.json)
+```
+
+- `sessions/` の下のディレクトリ名は cwd をエンコードしたものであり、同名ディレクトリがある場合は既存ファイルを消さないよう `cp -n` を使う。
+- `settings.json` は fork 側が持っているキー（`enabledModels` など）を上書きしない。`models.strong` / `models.role` / `defaultProvider` / `defaultModel` / `defaultThinkingLevel` だけを `jq` で写す。
+- `auth.json` は認証情報なので、コピーより `spirits` 側でログインし直すほうが安全な場合がある。
+- `bundled-skills/` と `extensions/` は移行しない。起動時に作り直される／元の場所にあるべきものだから。
+- 移した session は既定経路で `spirits --session <file>` または `--continue` で開けることを確認してから、`~/.spirits/managed-pi/agent` を削除する。
+
+## データの互換性
+
+fork と managed の間で agent dir の読み書きが通るかは、[docs/agent-data-compat/](agent-data-compat/README.md) の実測を残す。既定経路に切り替えたあとの「managed で書き込んでから `SPIRITS_ROUTE=fork` で読む」確認も同じ手順で行い、結果をそこに追記する。実データでの確認は、リリース前に自分でやるなら上記のバックアップを取ったうえで実施する。

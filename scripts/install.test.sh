@@ -129,9 +129,35 @@ write_releases() {
 	} >"$output"
 }
 
+# The installed binary has to be runnable, because install.sh runs it for the managed step:
+# `--version` for the re-run check and `managed-pi install` for the managed set. The manifest URL it
+# was handed goes to FAKE_MANAGED_INSTALL_LOG so a case can assert the installer pinned this release,
+# and FAKE_MANAGED_INSTALL_RC makes that step fail. The `content` argument is kept as a comment line
+# so a case can still tell which release's artifact landed in the install directory.
+fake_binary_script() { # version content
+	cat <<EOF
+#!/bin/sh
+# $2
+case "\${1:-}" in
+  --version|-v) echo "spirits $1 (fake)"; exit 0 ;;
+  managed-pi)
+    printf '%s\n' "\${SPIRITS_MANAGED_PI_MANIFEST_URL:-}" >"\${FAKE_MANAGED_INSTALL_LOG:-/dev/null}"
+    mkdir -p "\$HOME/.spirits/managed-pi/releases/fake"
+    rm -f "\$HOME/.spirits/managed-pi/current"
+    ln -s releases/fake "\$HOME/.spirits/managed-pi/current"
+    exit "\${FAKE_MANAGED_INSTALL_RC:-0}" ;;
+esac
+echo "spirits $1 (fake)"
+EOF
+}
+
 make_release() { # version content
-	make_theme_less_release "$1" "$2"
-	make_theme_assets "$SERVER_ROOT/betiz0/spirits/releases/download/spirits-v$1" "$1"
+	dir="$SERVER_ROOT/betiz0/spirits/releases/download/spirits-v$1"
+	mkdir -p "$dir"
+	fake_binary_script "$1" "$2" >"$dir/spirits-linux-x64"
+	chmod 755 "$dir/spirits-linux-x64"
+	(cd "$dir" && sha256sum spirits-linux-x64 >spirits-linux-x64.sha256)
+	make_theme_assets "$dir" "$1"
 }
 
 # A release that only ships the executable, like 0.6.0 and earlier.
@@ -230,7 +256,10 @@ run_install() { # home version path
 	: >"$RUN_OUT"
 	: >"$RUN_ERR"
 	RUN_RC=0
+	# FAKE_MANAGED_INSTALL_LOG / FAKE_MANAGED_INSTALL_RC are read by the fake installed binary, which
+	# install.sh runs for the managed step.
 	HOME="$1" VERSION="$2" SPIRITS_API_BASE_URL="$BASE_URL" SPIRITS_RELEASE_BASE_URL="$BASE_URL" PATH="$3" \
+		FAKE_MANAGED_INSTALL_LOG="${FAKE_MANAGED_INSTALL_LOG:-}" FAKE_MANAGED_INSTALL_RC="${FAKE_MANAGED_INSTALL_RC:-0}" \
 		sh "$INSTALL_SH" >"$RUN_OUT" 2>"$RUN_ERR" || RUN_RC=$?
 }
 
@@ -273,7 +302,7 @@ run_install "$home" "0.1.0" "$STUB_DIR:$PATH"
 assert_eq "VERSION install exits 0" "0" "$RUN_RC"
 assert_file_exists "VERSION install places the binary" "$home/.spirits/bin/spirits"
 assert_executable "VERSION install sets the exec bit" "$home/.spirits/bin/spirits"
-assert_content_eq "VERSION install downloads spirits-v0.1.0" "$home/.spirits/bin/spirits" "fake spirits 0.1.0"
+assert_contains "VERSION install downloads spirits-v0.1.0" "$(cat "$home/.spirits/bin/spirits")" "fake spirits 0.1.0"
 assert_file_exists "fresh install places theme assets" "$home/.spirits/bin/theme/dark.json"
 assert_file_exists "fresh install places light theme assets" "$home/.spirits/bin/theme/light.json"
 assert_content_eq "fresh install theme content matches the release" "$home/.spirits/bin/theme/dark.json" '{"name":"dark","version":"0.1.0"}'
@@ -309,7 +338,7 @@ home="$WORK/home-latest"
 mkdir -p "$home"
 run_install "$home" "" "$STUB_DIR:$PATH"
 assert_eq "latest install exits 0" "0" "$RUN_RC"
-assert_content_eq "latest picks the first stable spirits-v* release" "$home/.spirits/bin/spirits" "fake spirits 0.2.0"
+assert_contains "latest picks the first stable spirits-v* release" "$(cat "$home/.spirits/bin/spirits")" "fake spirits 0.2.0"
 
 # 5. No stable spirits release: exit 1, nothing installed.
 write_releases <<'EOF'
@@ -333,7 +362,7 @@ assert_eq "re-running the same version exits 0" "0" "$RUN_RC"
 assert_executable "re-running the same version keeps the exec bit" "$home/.spirits/bin/spirits"
 run_install "$home" "0.2.0" "$STUB_DIR:$PATH"
 assert_eq "re-running a different version exits 0" "0" "$RUN_RC"
-assert_content_eq "re-running a different version replaces the binary" "$home/.spirits/bin/spirits" "fake spirits 0.2.0"
+assert_contains "re-running a different version replaces the binary" "$(cat "$home/.spirits/bin/spirits")" "fake spirits 0.2.0"
 assert_executable "re-running a different version keeps the exec bit" "$home/.spirits/bin/spirits"
 assert_content_eq "re-running a different version replaces theme assets" "$home/.spirits/bin/theme/dark.json" '{"name":"dark","version":"0.2.0"}'
 
@@ -680,6 +709,59 @@ assert_contains "a regular file at the theme path reports the failure" "$(cat "$
 assert_content_eq "a regular file at the theme path keeps the binary" "$home/.spirits/bin/spirits" "existing install"
 assert_content_eq "a regular file at the theme path is left alone" "$home/.spirits/bin/theme" "not a directory"
 assert_no_temp_dirs "a regular file at the theme path leaves no temp directory" "$home/.spirits/bin"
+
+# 24. The managed step runs the installed binary with this release's manifest pinned.
+make_release 0.8.0 "fake spirits 0.8.0"
+write_releases <<'EOF'
+spirits-v0.8.0 false false
+spirits-v0.1.0 false false
+EOF
+home="$WORK/home-managed"
+mkdir -p "$home"
+FAKE_MANAGED_INSTALL_LOG="$WORK/managed-080.log"
+run_install "$home" "0.8.0" "$STUB_DIR:$PATH"
+FAKE_MANAGED_INSTALL_LOG=""
+assert_eq "managed install exits 0" "0" "$RUN_RC"
+assert_contains "managed install pins this release's manifest" "$(cat "$WORK/managed-080.log")" \
+	"/betiz0/spirits/releases/download/spirits-v0.8.0/spirits-managed-pi-manifest.json"
+assert_eq "managed install selects a set" "present" "$([ -e "$home/.spirits/managed-pi/current" ] && echo present || echo missing)"
+assert_contains "managed install reports the managed root" "$(cat "$RUN_OUT")" "$home/.spirits/managed-pi"
+
+# 25. A failing managed install exits non-zero and keeps the placed binary and theme assets.
+make_release 0.8.1 "fake spirits 0.8.1"
+write_releases <<'EOF'
+spirits-v0.8.1 false false
+EOF
+home="$WORK/home-managed-fail"
+mkdir -p "$home"
+FAKE_MANAGED_INSTALL_RC=1
+run_install "$home" "0.8.1" "$STUB_DIR:$PATH"
+FAKE_MANAGED_INSTALL_RC=0
+assert_eq "failed managed install exits 1" "1" "$RUN_RC"
+assert_contains "failed managed install shows the repair command" "$(cat "$RUN_ERR")" "spirits managed-pi repair"
+assert_contains "failed managed install shows the fork route" "$(cat "$RUN_ERR")" "SPIRITS_ROUTE=fork spirits"
+assert_executable "failed managed install keeps the binary" "$home/.spirits/bin/spirits"
+assert_file_exists "failed managed install keeps the dark theme" "$home/.spirits/bin/theme/dark.json"
+assert_no_temp_dirs "failed managed install leaves no temp directory" "$home/.spirits/bin"
+
+# 26. A same-version run installs the managed set when it is missing.
+write_releases <<'EOF'
+spirits-v0.8.0 false false
+EOF
+home="$WORK/home-managed-missing"
+mkdir -p "$home"
+run_install "$home" "0.8.0" "$STUB_DIR:$PATH"
+assert_eq "managed setup install exits 0" "0" "$RUN_RC"
+rm -rf "$home/.spirits/managed-pi"
+FAKE_MANAGED_INSTALL_LOG="$WORK/managed-missing.log"
+run_install "$home" "" "$STUB_DIR:$PATH"
+FAKE_MANAGED_INSTALL_LOG=""
+assert_eq "same-version run with a missing managed set exits 0" "0" "$RUN_RC"
+assert_contains "same-version run still reports up to date" "$(cat "$RUN_OUT")" "already up to date"
+assert_eq "same-version run installs the missing managed set" "present" \
+	"$([ -e "$home/.spirits/managed-pi/current" ] && echo present || echo missing)"
+assert_contains "same-version managed install pins the same release" "$(cat "$WORK/managed-missing.log")" \
+	"/betiz0/spirits/releases/download/spirits-v0.8.0/spirits-managed-pi-manifest.json"
 
 # --- Summary --------------------------------------------------------------------------------
 
