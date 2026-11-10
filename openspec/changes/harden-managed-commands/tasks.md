@@ -43,8 +43,8 @@
 
 ## 6. 検証と証拠
 
-- [ ] 6.1 `openspec validate harden-managed-commands --strict` が成功する
-- [ ] 6.2 `bun test`、`bun run check`、`npm run check` が成功する
-- [ ] 6.3 clean なツリーで official artifact 実行を 1 回行い、来歴と必須観測を含む証拠を `evidence/` に保存する
-- [ ] 6.4 fixture 実行を 1 回行い、互換性証拠にしないことを明示して保存する
-- [ ] 6.5 検証結果を `verification/` に保存する
+- [x] 6.1 `openspec validate harden-managed-commands --strict` が成功する
+- [x] 6.2 `bun test`、`bun run check`、`npm run check` が成功する
+- [x] 6.3 clean なツリーで official artifact 実行を 1 回行い、来歴と必須観測を含む証拠を `evidence/` に保存する
+- [x] 6.4 fixture 実行を 1 回行い、互換性証拠にしないことを明示して保存する
+- [x] 6.5 検証結果を `verification/` に保存する

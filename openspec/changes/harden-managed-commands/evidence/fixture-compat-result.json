@@ -1,0 +1,1245 @@
+{
+	"mode": "fixture",
+	"runnerCompleted": false,
+	"runnerCompletedDefinition": "every recorded item was processed; false when any item stayed not-run. It says nothing about whether the observations passed.",
+	"compatibilityMet": false,
+	"compatibilityMetDefinition": "official mode only, and every required observation is confirmed. A required item that is limited, unavailable, not-run, or failed keeps it false; a fixture run is always false. It does not certify migration or deleting the fork: the base spec keeps the existing agent dir write-back and persistent settings write unproven, and those stay outside the required list. It also says nothing about whether role, /clear, or /model is available: the matrix item is confirmed as soon as any purpose is observed, so read its observed purpose count instead.",
+	"requiredObservations": [
+		"managed extension load",
+		"agent dir precedence",
+		"package dir decoy does not change identity",
+		"help touches only the isolated home",
+		"api key and proxy survive",
+		"bundled SKILL.md is raw markdown",
+		"host version",
+		"managed tsrepl simple cell",
+		"managed tsrepl Bun.Transpiler cell",
+		"managed tsrepl node:vm cell",
+		"cell failure is not reported as a load failure",
+		"model tool call reaches tsrepl",
+		"no real credentials are read",
+		"rlm physical model child",
+		"rlm child usage",
+		"rlm child abort",
+		"data read compatibility",
+		"dedicated Pi write path",
+		"role/clear/model matrix",
+		"clear boundary automatic compaction",
+		"clear boundary manual compaction",
+		"clear boundary fork",
+		"clear boundary tree move",
+		"clear boundary resume",
+		"existing agent dir untouched"
+	],
+	"observationEvidence": [
+		{
+			"observation": "role/clear/model matrix is internally consistent",
+			"expectedEvidence": "an observation recorded by the compatibility runner"
+		},
+		{
+			"observation": "tsrepl simple cell",
+			"expectedEvidence": "an observation recorded by the compatibility runner"
+		},
+		{
+			"observation": "fake provider reaches tsrepl",
+			"expectedEvidence": "an observation recorded by the compatibility runner"
+		},
+		{
+			"observation": "compatibility matrix validation",
+			"expectedEvidence": "an observation recorded by the compatibility runner"
+		},
+		{
+			"observation": "managed extension load",
+			"expectedEvidence": "RPC session_start followed by tsrepl in the managed tool inventory"
+		},
+		{
+			"observation": "agent dir precedence",
+			"expectedEvidence": "the managed Pi reported the fixed isolated agent dir"
+		},
+		{
+			"observation": "help touches only the isolated home",
+			"expectedEvidence": "the help run wrote nothing outside the temporary HOME"
+		},
+		{
+			"observation": "api key and proxy survive",
+			"expectedEvidence": "the fake API key and proxy reached the managed process"
+		},
+		{
+			"observation": "package dir decoy does not change identity",
+			"expectedEvidence": "a decoy PI_PACKAGE_DIR did not change the reported version"
+		},
+		{
+			"observation": "bundled SKILL.md is raw markdown",
+			"expectedEvidence": "the session wrote a SKILL.md that is raw Markdown"
+		},
+		{
+			"observation": "host version",
+			"expectedEvidence": "the managed host reported the official artifact version"
+		},
+		{
+			"observation": "managed tsrepl simple cell",
+			"expectedEvidence": "a cell returning 2 ran on the managed Pi"
+		},
+		{
+			"observation": "managed tsrepl Bun.Transpiler cell",
+			"expectedEvidence": "a TypeScript cell ran through Bun.Transpiler on the managed Pi"
+		},
+		{
+			"observation": "managed tsrepl node:vm cell",
+			"expectedEvidence": "a node:vm cell returned a value on the managed Pi"
+		},
+		{
+			"observation": "cell failure is not reported as a load failure",
+			"expectedEvidence": "a throwing cell was recorded as a cell failure"
+		},
+		{
+			"observation": "data read compatibility",
+			"expectedEvidence": "settings and sessions were read through the dedicated Pi"
+		},
+		{
+			"observation": "auth read compatibility",
+			"expectedEvidence": "the provider auth status came from the dedicated Pi runtime reading the copied agent dir"
+		},
+		{
+			"observation": "external extension read compatibility",
+			"expectedEvidence": "an extension in the copied agent dir was visible through the dedicated Pi runtime"
+		},
+		{
+			"observation": "dedicated Pi write path",
+			"expectedEvidence": "session, model, and thinking level were written and read back through the dedicated Pi"
+		},
+		{
+			"observation": "existing agent dir write-back compatibility",
+			"expectedEvidence": "a write through the dedicated Pi was proven to land in an existing agent dir copy"
+		},
+		{
+			"observation": "settings write compatibility",
+			"expectedEvidence": "a persistent settings write through the Pi extension API was attempted and read back"
+		},
+		{
+			"observation": "model tool call reaches tsrepl",
+			"expectedEvidence": "tool_execution_start/end for tsrepl were observed on the normal model path"
+		},
+		{
+			"observation": "direct execute probe is auxiliary",
+			"expectedEvidence": "the managed tool inventory showed tsrepl; a direct execute would report bypassedPiHooks"
+		},
+		{
+			"observation": "no real credentials are read",
+			"expectedEvidence": "only the fake bearer token reached the local provider"
+		},
+		{
+			"observation": "rlm child abort",
+			"expectedEvidence": "abort request sent, abort reaching the parent cell, the child's provider request closing, and the rlm_usage abort record at settle or after the stop"
+		},
+		{
+			"observation": "rlm child creation",
+			"expectedEvidence": "an observation recorded by the compatibility runner"
+		},
+		{
+			"observation": "rlm child answer",
+			"expectedEvidence": "an observation recorded by the compatibility runner"
+		},
+		{
+			"observation": "rlm child usage",
+			"expectedEvidence": "the child recorded rlm_usage"
+		},
+		{
+			"observation": "rlm physical model child",
+			"expectedEvidence": "a physical-model child completed with a final answer"
+		},
+		{
+			"observation": "rlm auto parent",
+			"expectedEvidence": "the child's own request named a physical model, and the run returned a final answer and an rlm_usage record"
+		},
+		{
+			"observation": "clear boundary automatic compaction",
+			"expectedEvidence": "a compaction written after the boundary carries the clear note and the extension hook, in 0 summarization requests, and the following request omits the cleared marker"
+		},
+		{
+			"observation": "clear boundary manual compaction",
+			"expectedEvidence": "a manual compaction whose span holds cleared conversation is taken over in 0 summarization requests, and a clean span keeps pi's own summary in at least one"
+		},
+		{
+			"observation": "clear boundary fork",
+			"expectedEvidence": "the fork created another session file and its request carried the kept conversation without the cleared marker"
+		},
+		{
+			"observation": "clear boundary tree move",
+			"expectedEvidence": "the extension API moved the leaf to before the boundary and the cleared marker came back into the request"
+		},
+		{
+			"observation": "clear boundary resume",
+			"expectedEvidence": "the session reopened in another process sent a request that still left the cleared marker out"
+		},
+		{
+			"observation": "role/clear/model matrix",
+			"expectedEvidence": "each role/clear/model purpose came from a dedicated-Pi behaviour observation"
+		},
+		{
+			"observation": "existing agent dir untouched",
+			"expectedEvidence": "the seeded existing agent dir kept its content and modification times across every launch"
+		}
+	],
+	"runnerProvenance": {
+		"commit": "66d5c68c4249a0ac24b981bea18ab4836373686a",
+		"diffSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+		"untracked": [],
+		"clean": true
+	},
+	"runtime": {
+		"runner": "bun 1.4.2",
+		"host": "bun 1.4.2",
+		"requiredApis": {
+			"getSettings": true,
+			"appendEntry": true,
+			"setModel": true,
+			"setThinkingLevel": true,
+			"sessionManager": true,
+			"roleApi": false
+		}
+	},
+	"logs": [
+		{
+			"item": "role/clear/model matrix is internally consistent",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "tsrepl simple cell",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "fake provider reaches tsrepl",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "compatibility matrix validation",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "managed extension load",
+			"command": [
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/pi/pi",
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/probe-extension.ts",
+				"-e",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/spirits-extension.js"
+			],
+			"stderr": ""
+		},
+		{
+			"item": "agent dir precedence",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "help touches only the isolated home",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "api key and proxy survive",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "package dir decoy does not change identity",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "bundled SKILL.md is raw markdown",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "host version",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "managed tsrepl simple cell",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "managed tsrepl Bun.Transpiler cell",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "managed tsrepl node:vm cell",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "cell failure is not reported as a load failure",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "data read compatibility",
+			"command": [
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/pi/pi",
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/probe-extension.ts",
+				"-e",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/spirits-extension.js"
+			],
+			"stderr": ""
+		},
+		{
+			"item": "auth read compatibility",
+			"command": [
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/pi/pi",
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/probe-extension.ts",
+				"-e",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/spirits-extension.js"
+			],
+			"stderr": ""
+		},
+		{
+			"item": "external extension read compatibility",
+			"command": [
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/pi/pi",
+				"--mode",
+				"rpc",
+				"--no-session",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/probe-extension.ts",
+				"-e",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/spirits-extension.js"
+			],
+			"stderr": ""
+		},
+		{
+			"item": "dedicated Pi write path",
+			"command": [
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/pi/pi",
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/probe-extension.ts",
+				"-e",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/spirits-extension.js"
+			],
+			"stderr": ""
+		},
+		{
+			"item": "existing agent dir write-back compatibility",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "settings write compatibility",
+			"command": [
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/pi/pi",
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/probe-extension.ts",
+				"-e",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/spirits-extension.js"
+			],
+			"stderr": ""
+		},
+		{
+			"item": "model tool call reaches tsrepl",
+			"command": [
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/pi/pi",
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/probe-extension.ts",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/custom-provider.ts",
+				"-e",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/spirits-extension.js"
+			],
+			"stderr": ""
+		},
+		{
+			"item": "direct execute probe is auxiliary",
+			"command": [
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/pi/pi",
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/probe-extension.ts",
+				"-e",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/spirits-extension.js"
+			],
+			"stderr": ""
+		},
+		{
+			"item": "no real credentials are read",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "rlm child abort",
+			"command": [
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/pi/pi",
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/probe-extension.ts",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/custom-provider.ts",
+				"-e",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/spirits-extension.js"
+			],
+			"stdout": "",
+			"stderr": ""
+		},
+		{
+			"item": "rlm child creation",
+			"command": [
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/pi/pi",
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/probe-extension.ts",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/custom-provider.ts",
+				"-e",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/spirits-extension.js"
+			],
+			"stdout": "",
+			"stderr": ""
+		},
+		{
+			"item": "rlm child answer",
+			"command": [
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/pi/pi",
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/probe-extension.ts",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/custom-provider.ts",
+				"-e",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/spirits-extension.js"
+			],
+			"stdout": "",
+			"stderr": ""
+		},
+		{
+			"item": "rlm child usage",
+			"command": [
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/pi/pi",
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/probe-extension.ts",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/custom-provider.ts",
+				"-e",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/spirits-extension.js"
+			],
+			"stdout": "",
+			"stderr": ""
+		},
+		{
+			"item": "rlm physical model child",
+			"command": [
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/pi/pi",
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/probe-extension.ts",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/custom-provider.ts",
+				"-e",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/spirits-extension.js"
+			],
+			"stdout": "",
+			"stderr": ""
+		},
+		{
+			"item": "rlm auto parent",
+			"command": [
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/pi/pi",
+				"--mode",
+				"rpc",
+				"--no-session",
+				"--no-extensions",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/probe-extension.ts",
+				"-e",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/fixtures/custom-provider.ts",
+				"-e",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi/releases/pi-1.5.0/spirits-extension.js"
+			],
+			"stdout": "",
+			"stderr": ""
+		},
+		{
+			"item": "clear boundary automatic compaction",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "clear boundary manual compaction",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "clear boundary fork",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "clear boundary tree move",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "clear boundary resume",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "role/clear/model matrix",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		},
+		{
+			"item": "existing agent dir untouched",
+			"command": [
+				"/home/betiz/.bun/bin/bun",
+				"/home/betiz/project/spirits/scripts/managed-pi-compat/run.ts",
+				"--mode",
+				"fixture",
+				"--artifact-root",
+				"/tmp/spirits-managed-fixture-JIgunc/managed-pi",
+				"--out",
+				"/tmp/hmc-fixture.json"
+			]
+		}
+	],
+	"existingAgentDirUnchanged": true,
+	"results": [
+		{
+			"label": "fixture-only",
+			"name": "role/clear/model matrix is internally consistent",
+			"state": "confirmed",
+			"detail": "9 purpose rows, every row derived from a purpose definition"
+		},
+		{
+			"label": "fixture-only",
+			"name": "tsrepl simple cell",
+			"state": "confirmed",
+			"detail": "local probe cell returned 2 (probe bypasses Pi hooks)"
+		},
+		{
+			"label": "fixture-only",
+			"name": "fake provider reaches tsrepl",
+			"state": "confirmed",
+			"detail": "local fake provider transport only; not real-provider compatibility"
+		},
+		{
+			"label": "fixture-only",
+			"name": "compatibility matrix validation",
+			"state": "confirmed",
+			"detail": "every row is derived from a purpose definition"
+		},
+		{
+			"label": "fixture-only",
+			"name": "managed extension load",
+			"state": "confirmed",
+			"detail": "session started and tsrepl is registered"
+		},
+		{
+			"label": "fixture-only",
+			"name": "agent dir precedence",
+			"state": "confirmed",
+			"detail": "agent dir and identity are pinned"
+		},
+		{
+			"label": "fixture-only",
+			"name": "help touches only the isolated home",
+			"state": "confirmed",
+			"detail": "help only touched the isolated home",
+			"data": {
+				"exitCode": 0
+			}
+		},
+		{
+			"label": "fixture-only",
+			"name": "api key and proxy survive",
+			"state": "confirmed",
+			"detail": "API key and proxy survived the managed environment"
+		},
+		{
+			"label": "fixture-only",
+			"name": "package dir decoy does not change identity",
+			"state": "confirmed",
+			"detail": "the decoy package dir did not change the version"
+		},
+		{
+			"label": "fixture-only",
+			"name": "bundled SKILL.md is raw markdown",
+			"state": "not-run",
+			"detail": "the session did not write a bundled SKILL.md"
+		},
+		{
+			"label": "fixture-only",
+			"name": "host version",
+			"state": "confirmed",
+			"detail": "host version matches the artifact"
+		},
+		{
+			"label": "fixture-only",
+			"name": "managed tsrepl simple cell",
+			"state": "not-run",
+			"detail": "the fixture host accepted the tool call without executing cell code"
+		},
+		{
+			"label": "fixture-only",
+			"name": "managed tsrepl Bun.Transpiler cell",
+			"state": "not-run",
+			"detail": "the fixture host accepted the tool call without executing cell code"
+		},
+		{
+			"label": "fixture-only",
+			"name": "managed tsrepl node:vm cell",
+			"state": "not-run",
+			"detail": "the fixture host accepted the tool call without executing cell code"
+		},
+		{
+			"label": "fixture-only",
+			"name": "cell failure is not reported as a load failure",
+			"state": "not-run",
+			"detail": "the fixture host did not execute the failing cell"
+		},
+		{
+			"label": "fixture-only",
+			"name": "data read compatibility",
+			"state": "confirmed",
+			"detail": "read 2 settings keys and 1 session entries through the dedicated Pi",
+			"data": {
+				"seededAgentFiles": 4,
+				"settingsKeys": [
+					"defaultProvider",
+					"models"
+				],
+				"sessionEntries": 1
+			}
+		},
+		{
+			"label": "fixture-only",
+			"name": "auth read compatibility",
+			"state": "confirmed",
+			"detail": "the dedicated Pi resolved the credential copied into the isolated agent dir (source: stored)",
+			"data": {
+				"stored": {
+					"configured": true,
+					"source": "stored"
+				},
+				"control": {
+					"configured": false
+				}
+			}
+		},
+		{
+			"label": "fixture-only",
+			"name": "external extension read compatibility",
+			"state": "confirmed",
+			"detail": "the extension copied into the agent dir registered /compat-redacted-command",
+			"data": {
+				"commands": [
+					"compat-redacted-command"
+				]
+			}
+		},
+		{
+			"label": "fixture-only",
+			"name": "dedicated Pi write path",
+			"state": "confirmed",
+			"detail": "session, model, and thinking level were written and read back through the dedicated Pi"
+		},
+		{
+			"label": "fixture-only",
+			"name": "existing agent dir write-back compatibility",
+			"state": "not-run",
+			"detail": "no observation proves a dedicated-Pi write landing in an existing agent dir; the dedicated Pi write path is a separate item"
+		},
+		{
+			"label": "fixture-only",
+			"name": "settings write compatibility",
+			"state": "not-run",
+			"detail": "the Pi extension API does not expose a persistent settings write; Node file writes are not a substitute"
+		},
+		{
+			"label": "fixture-only",
+			"name": "model tool call reaches tsrepl",
+			"state": "confirmed",
+			"detail": "tsrepl ran through the normal model-to-tool path",
+			"data": {
+				"bypassedPiHooks": false
+			}
+		},
+		{
+			"label": "fixture-only",
+			"name": "direct execute probe is auxiliary",
+			"state": "not-run",
+			"detail": "the direct execute probe needs another extension's tool definition; Pi hands every extension its own API object, so no definition is reachable; tsrepl was observed in the tool inventory",
+			"data": {
+				"bypassedPiHooks": true,
+				"toolRegistered": true
+			}
+		},
+		{
+			"label": "fixture-only",
+			"name": "no real credentials are read",
+			"state": "confirmed",
+			"detail": "only the fake bearer token was sent"
+		},
+		{
+			"label": "fixture-only",
+			"name": "rlm child abort",
+			"state": "not-run",
+			"detail": "no child session reached the provider, so nothing was running when the abort arrived (abort sent=true, abort accepted=true, child seen=false, cell aborted=false, child stopped=false, usage at settle=1, usage after stop=0)",
+			"data": {
+				"phases": {
+					"abortSent": true,
+					"abortAccepted": true,
+					"cellAborted": false,
+					"childSeen": false,
+					"childStopped": false,
+					"usageAtSettled": 1,
+					"usageAfterStop": 0,
+					"pollWindowMs": 15000
+				},
+				"cellText": "",
+				"cellIsError": false,
+				"childCutMidRequest": false,
+				"usageAtSettledEntries": 1,
+				"usageAfterStopEntries": 0,
+				"pollReads": [],
+				"providerRequests": []
+			}
+		},
+		{
+			"label": "fixture-only",
+			"name": "rlm child creation",
+			"state": "confirmed",
+			"detail": "child session was created"
+		},
+		{
+			"label": "fixture-only",
+			"name": "rlm child answer",
+			"state": "limited",
+			"detail": "child completed without a final answer"
+		},
+		{
+			"label": "fixture-only",
+			"name": "rlm child usage",
+			"state": "limited",
+			"detail": "child completed without an rlm_usage record"
+		},
+		{
+			"label": "fixture-only",
+			"name": "rlm physical model child",
+			"state": "limited",
+			"detail": "child completed without final answer, usage",
+			"data": {
+				"usageEntries": 0,
+				"providerRequests": []
+			}
+		},
+		{
+			"label": "fixture-only",
+			"name": "rlm auto parent",
+			"state": "not-run",
+			"detail": "the host answers with fixed events and never requests the provider, so the auto parent was never exercised (child created=true, requested model=none, final answer=yes, usage=false, child target in fixture=true, host requests providers=false)",
+			"data": {
+				"providerRequests": []
+			}
+		},
+		{
+			"label": "fixture-only",
+			"name": "clear boundary automatic compaction",
+			"state": "not-run",
+			"detail": "the fake provider received no request, so the compat model never answered",
+			"data": {
+				"stderr": "",
+				"requests": 0,
+				"compactions": []
+			}
+		},
+		{
+			"label": "fixture-only",
+			"name": "clear boundary manual compaction",
+			"state": "not-run",
+			"detail": "the host refused the manual compaction (unsupported fixture command)",
+			"data": {
+				"clearedSpan": {
+					"ran": false,
+					"error": "unsupported fixture command",
+					"summarizationRequests": 0
+				},
+				"cleanSpan": {
+					"ran": false,
+					"error": "unsupported fixture command",
+					"summarizationRequests": 0
+				}
+			}
+		},
+		{
+			"label": "fixture-only",
+			"name": "clear boundary fork",
+			"state": "not-run",
+			"detail": "the seeded session reported no boundary and no message after it",
+			"data": {}
+		},
+		{
+			"label": "fixture-only",
+			"name": "clear boundary tree move",
+			"state": "not-run",
+			"detail": "the seeded session reported no reply that carried the cleared message",
+			"data": {}
+		},
+		{
+			"label": "fixture-only",
+			"name": "clear boundary resume",
+			"state": "not-run",
+			"detail": "the fake provider received no request, so the compat model never answered",
+			"data": {
+				"sessionFile": "/tmp/spirits-managed-compat-7ncLVJ/boundary-resume-session.jsonl"
+			}
+		},
+		{
+			"label": "fixture-only",
+			"name": "role/clear/model matrix",
+			"state": "confirmed",
+			"detail": "confirmed here means observed on the dedicated Pi, including 1 purpose(s) observed as unavailable; 3 of 9 purposes observed, rows derive from those observations",
+			"data": {
+				"confirmedMeans": "a purpose behaviour was observed on the dedicated Pi; unavailable is an observation too",
+				"rows": [
+					{
+						"id": "skill-strong-phase",
+						"feature": "role",
+						"purpose": "Route review/deep work to strong while keeping one selection",
+						"currentMechanism": "spirits/auto + skill phase + models.strong",
+						"alternative": "The same extension routing; the route reports its role to the extension status line",
+						"difference": "No /model role suffix or core footer badge; the routing decision itself is identical",
+						"state": "not-run",
+						"observed": false
+					},
+					{
+						"id": "model-role-vocabulary",
+						"feature": "role",
+						"purpose": "Pin normal or strong without changing the model",
+						"currentMechanism": "/model role suffix and registerModelRoles",
+						"alternative": "/spirits-role <role>: locks the phase, records a spirits_role entry, writes models.role",
+						"difference": "A separate command; pi's /model keeps its own behaviour, and the lock survives resume and reload",
+						"state": "unavailable",
+						"observed": true
+					},
+					{
+						"id": "role-badge",
+						"feature": "role",
+						"purpose": "Show which role handled the last request",
+						"currentMechanism": "Core footer badge reading the route role",
+						"alternative": "ui.setStatus() on the extension status line, updated by the route",
+						"difference": "Renders on the footer's extension status line, not beside the model name",
+						"state": "not-run",
+						"observed": false
+					},
+					{
+						"id": "conversation-clear",
+						"feature": "clear",
+						"purpose": "Remove conversation from context while the display keeps it",
+						"currentMechanism": "Core clearConversation() and /clear",
+						"alternative": "/spirits-clear: a boundary entry plus a context handler that drops what precedes it",
+						"difference": "The chat display keeps the earlier messages; pi's /clear removes them from the display too",
+						"state": "not-run",
+						"observed": false
+					},
+					{
+						"id": "same-session-id",
+						"feature": "clear",
+						"purpose": "Keep the same session ID after clearing",
+						"currentMechanism": "Core clearConversation() keeps the session file and ID",
+						"alternative": "/spirits-clear appends one entry and rewrites nothing",
+						"difference": "None for the ID; the session file keeps growing instead of being reset",
+						"state": "available",
+						"observed": true
+					},
+					{
+						"id": "todo-retention",
+						"feature": "clear",
+						"purpose": "Keep the TODO list after clearing",
+						"currentMechanism": "TODO snapshots live outside the cleared conversation",
+						"alternative": "Same: the boundary is a conversation cut, not a session reset",
+						"difference": "None; a new session would drop the TODO list",
+						"state": "available",
+						"observed": true
+					},
+					{
+						"id": "thinking-level",
+						"feature": "model",
+						"purpose": "Choose the thinking level",
+						"currentMechanism": "Core /model parser",
+						"alternative": "/spirits-model <ref> <level>: pi's own setThinkingLevel plus defaultThinkingLevel",
+						"difference": "A separate command with no completion menu; pi's /model is untouched",
+						"state": "not-run",
+						"observed": false
+					},
+					{
+						"id": "role-selection",
+						"feature": "model",
+						"purpose": "Combine model, thinking level, and role selection in one line",
+						"currentMechanism": "Core parser, role vocabulary, settings save",
+						"alternative": "/spirits-model <ref> [level] [role], parsed from the right",
+						"difference": "No completion or fuzzy search over provider/id/name/description",
+						"state": "not-run",
+						"observed": false
+					},
+					{
+						"id": "default-save",
+						"feature": "model",
+						"purpose": "Save the chosen model and level as defaults",
+						"currentMechanism": "Core /model save keys",
+						"alternative": "Merge-write of pi's own keys into pi's global settings.json, under pi's file lock",
+						"difference": "Same keys and same file; no project-file write, so no trust prompt",
+						"state": "not-run",
+						"observed": false
+					}
+				],
+				"purposes": [
+					{
+						"feature": "role",
+						"purposeId": "skill-strong-phase",
+						"purpose": "Route review/deep work to strong while keeping one selection",
+						"state": "not-run",
+						"detail": "the dedicated Pi refused the spirits/auto selection; no routing behaviour was observed",
+						"alternative": "The same extension routing; the route reports its role to the extension status line",
+						"difference": "No /model role suffix or core footer badge; the routing decision itself is identical"
+					},
+					{
+						"feature": "role",
+						"purposeId": "model-role-vocabulary",
+						"purpose": "Pin normal or strong without changing the model",
+						"state": "unavailable",
+						"detail": "alternative (/spirits-role <role>: locks the phase, records a spirits_role entry, writes models.role): /spirits-role strong served undefined and normal served undefined, expected fake-strong then fake-model",
+						"alternative": "/spirits-role <role>: locks the phase, records a spirits_role entry, writes models.role",
+						"difference": "A separate command; pi's /model keeps its own behaviour, and the lock survives resume and reload"
+					},
+					{
+						"feature": "role",
+						"purposeId": "role-badge",
+						"purpose": "Show which role handled the last request",
+						"state": "not-run",
+						"detail": "the extension never asked the host to set status text",
+						"alternative": "ui.setStatus() on the extension status line, updated by the route",
+						"difference": "Renders on the footer's extension status line, not beside the model name"
+					},
+					{
+						"feature": "model",
+						"purposeId": "thinking-level",
+						"purpose": "Choose the thinking level",
+						"state": "not-run",
+						"detail": "the readback reported nothing ()",
+						"alternative": "/spirits-model <ref> <level>: pi's own setThinkingLevel plus defaultThinkingLevel",
+						"difference": "A separate command with no completion menu; pi's /model is untouched"
+					},
+					{
+						"feature": "model",
+						"purposeId": "role-selection",
+						"purpose": "Combine model, thinking level, and role selection in one line",
+						"state": "not-run",
+						"detail": "the readback reported nothing ()",
+						"alternative": "/spirits-model <ref> [level] [role], parsed from the right",
+						"difference": "No completion or fuzzy search over provider/id/name/description"
+					},
+					{
+						"feature": "model",
+						"purposeId": "default-save",
+						"purpose": "Save the chosen model and level as defaults",
+						"state": "not-run",
+						"detail": "the readback reported nothing ()",
+						"alternative": "Merge-write of pi's own keys into pi's global settings.json, under pi's file lock",
+						"difference": "Same keys and same file; no project-file write, so no trust prompt"
+					},
+					{
+						"feature": "clear",
+						"purposeId": "conversation-clear",
+						"purpose": "Remove conversation from context while the display keeps it",
+						"state": "not-run",
+						"detail": "the request content around the command was not observed",
+						"alternative": "/spirits-clear: a boundary entry plus a context handler that drops what precedes it",
+						"difference": "The chat display keeps the earlier messages; pi's /clear removes them from the display too"
+					},
+					{
+						"feature": "clear",
+						"purposeId": "same-session-id",
+						"purpose": "Keep the same session ID after clearing",
+						"state": "available",
+						"detail": "alternative (/spirits-clear appends one entry and rewrites nothing): the session kept the ID fake-session",
+						"alternative": "/spirits-clear appends one entry and rewrites nothing",
+						"difference": "None for the ID; the session file keeps growing instead of being reset"
+					},
+					{
+						"feature": "clear",
+						"purposeId": "todo-retention",
+						"purpose": "Keep the TODO list after clearing",
+						"state": "available",
+						"detail": "alternative (Same: the boundary is a conversation cut, not a session reset): 1 TODO entries survived the command",
+						"alternative": "Same: the boundary is a conversation cut, not a session reset",
+						"difference": "None; a new session would drop the TODO list"
+					}
+				],
+				"clearAttempt": {
+					"attempted": true,
+					"before": {
+						"sessionId": "fake-session",
+						"messageEntries": 4,
+						"todoEntries": 1
+					},
+					"after": {
+						"sessionId": "fake-session",
+						"messageEntries": 4,
+						"todoEntries": 1
+					},
+					"context": {
+						"observed": false,
+						"detail": "the fake provider recorded no request around the clear"
+					}
+				},
+				"clearDiagnostics": {
+					"stderr": "",
+					"recordTypes": [
+						"response",
+						"tool_execution_start",
+						"tool_execution_end",
+						"agent_settled"
+					]
+				}
+			}
+		},
+		{
+			"label": "fixture-only",
+			"name": "existing agent dir untouched",
+			"state": "confirmed",
+			"detail": "the seeded existing agent dir kept its content and modification times across every launch",
+			"data": {
+				"existingAgentDir": "/tmp/spirits-managed-compat-7ncLVJ/home/.spirits/agent"
+			}
+		}
+	],
+	"cwd": "/tmp/spirits-managed-compat-7ncLVJ/project"
+}
