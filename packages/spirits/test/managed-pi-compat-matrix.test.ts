@@ -8,6 +8,7 @@ import {
 	purposesFor,
 	rolePurposeObservations,
 	validateMatrix,
+	validatePurposeObservations,
 } from "../../../scripts/managed-pi-compat/matrix.ts";
 
 const STRONG_ATTEMPT = {
@@ -160,8 +161,16 @@ test("model default save is read back", () => {
 test("role purposes come from the model that served the request", () => {
 	const routed = rolePurposeObservations(STRONG_ATTEMPT);
 	expect(routed.find((observation) => observation.purposeId === "skill-strong-phase")?.state).toBe("available");
+	// Routing to the plain model is the purpose not happening at all, so it is `unavailable`: a
+	// `limited` row has to leave the user a working part, and here nothing routes.
 	const notRouted = rolePurposeObservations({ ...STRONG_ATTEMPT, strongRequestModel: "fake-model" });
-	expect(notRouted.find((observation) => observation.purposeId === "skill-strong-phase")?.state).toBe("limited");
+	expect(notRouted.find((observation) => observation.purposeId === "skill-strong-phase")?.state).toBe("unavailable");
+	// Strong routed but the plain request followed it: the phases still run, only the difference a
+	// user would see is gone, which is what `limited` is for.
+	const bothStrong = rolePurposeObservations({ ...STRONG_ATTEMPT, normalRequestModel: "fake-strong" });
+	const partial = bothStrong.find((observation) => observation.purposeId === "skill-strong-phase");
+	expect(partial?.state).toBe("limited");
+	expect(partial?.detail).toContain("not distinguishable by model");
 	const noRequest = rolePurposeObservations({ ...STRONG_ATTEMPT, strongRequestModel: undefined });
 	expect(noRequest.find((observation) => observation.purposeId === "skill-strong-phase")?.state).toBe("not-run");
 	// The badge is a terminal surface; absence of an API says nothing about it.
@@ -180,6 +189,52 @@ test("rows are derived from purpose observations", () => {
 	}
 	expect(rows.filter((row) => row.state === "not-run")).toHaveLength(8);
 	validateMatrix(rows);
+});
+
+test("every observed row names the alternative and the difference", () => {
+	const observations = [
+		...rolePurposeObservations(STRONG_ATTEMPT),
+		...modelPurposeObservations({ attempted: true, levelChanged: true, defaultsChanged: true }),
+		...clearPurposeObservations({
+			attempted: true,
+			before: { sessionId: "s-1", messageEntries: 4, todoEntries: 1 },
+			after: { sessionId: "s-1", messageEntries: 5, todoEntries: 1 },
+			context: { observed: true, cleared: true, detail: "only the later turn was in the request" },
+		}),
+	];
+	const rows = deriveRows(observations);
+	for (const row of rows.filter((entry) => entry.state !== "not-run")) {
+		expect(row.alternative, row.id).toBeTruthy();
+		expect(row.difference, row.id).toBeTruthy();
+	}
+	expect(() => validateMatrix(rows)).not.toThrow();
+	// An observed row that lost its alternative is the failure the rule exists for: the reader would
+	// see `available` and take it for pi's own surface.
+	const stripped = rows.map((row) => (row.state === "not-run" ? row : { ...row, alternative: undefined }));
+	expect(() => validateMatrix(stripped)).toThrow();
+});
+
+test("a limited row has to name a difference the user sees", () => {
+	const rows = deriveRows([]).map((row) =>
+		row.feature === "clear" ? { ...row, state: "limited" as const, alternative: "a command", difference: "None" } : row,
+	);
+	expect(() => validateMatrix(rows)).toThrow();
+	// The same row with a visible difference is a legitimate `limited`.
+	const named = rows.map((row) => (row.feature === "clear" ? { ...row, difference: "The chat display keeps the messages" } : row));
+	expect(() => validateMatrix(named)).not.toThrow();
+});
+
+test("an observed purpose detail names the alternative it used", () => {
+	const observations = rolePurposeObservations(STRONG_ATTEMPT);
+	expect(() => validatePurposeObservations(observations)).not.toThrow();
+	const routed = observations.find((observation) => observation.purposeId === "skill-strong-phase")!;
+	expect(routed.detail).toContain("alternative");
+	// `not-run` records a gap in the harness, so naming an alternative would claim a measurement.
+	const gap = observations.find((observation) => observation.purposeId === "role-badge")!;
+	expect(gap.state).toBe("not-run");
+	expect(gap.detail ?? "").not.toContain("alternative");
+	const hidden = observations.map((observation) => ({ ...observation, detail: observation.detail?.replace("alternative", "") }));
+	expect(() => validatePurposeObservations(hidden)).toThrow();
 });
 
 test("matrix validation requires alternatives for unavailable rows", () => {

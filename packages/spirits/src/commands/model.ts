@@ -18,7 +18,8 @@
  * Persistence goes to pi's global settings file (`defaultProvider`, `defaultModel`,
  * `defaultThinkingLevel`, and `models.role` — the same keys the fork route writes), and the command
  * then calls `ctx.reload()` so the next `ctx.model`, the footer, and any later `/model` see the
- * choice. `reload()` replaces this extension runtime and pi marks the command's `pi` handle stale
+ * choice. A settings file that refuses the write does not take the session change back: the command
+ * names the half that failed and skips the reload, because the defaults it would read are unchanged. `reload()` replaces this extension runtime and pi marks the command's `pi` handle stale
  * afterwards, so nothing touches them once it resolves; that is why it is the last statement in
  * every path that runs it.
  */
@@ -30,8 +31,7 @@ import {
 	SETTINGS_KEY_MODELS,
 	SETTINGS_KEY_ROLE,
 	SETTINGS_KEY_THINKING_LEVEL,
-	ROUTING_MODEL_ID,
-	ROUTING_PROVIDER_ID,
+	PI_VIRTUAL_MODEL_API,
 } from "../constants.ts";
 import { ALL_THINKING_LEVELS } from "../routing/register.ts";
 import { asRoleName } from "./role.ts";
@@ -74,14 +74,15 @@ export type ModelTargetResult = { model: PiModel } | { error: string };
  * Resolve a reference to one available model: exact `provider/id` first, then a case-insensitive
  * substring of `provider/id` or of the bare id.
  *
- * `spirits/auto` is excluded: it is the routing pseudo-model, and picking it by hand is what pi's
- * own `/model` already does.
+ * Virtual models are excluded by their api, the same test the routing lookup uses: a virtual entry
+ * routes requests instead of answering them, so it can never be a session model. Naming is not the
+ * test, because the routing entry is free to be called anything.
  */
 export function resolveModelTarget(models: readonly PiModel[], ref: string): ModelTargetResult {
 	const wanted = ref.trim().toLowerCase();
 	if (wanted === "") return { error: "no model reference given" };
 
-	const candidates = models.filter((model) => !(model.provider === ROUTING_PROVIDER_ID && model.id === ROUTING_MODEL_ID));
+	const candidates = models.filter((model) => model.api !== PI_VIRTUAL_MODEL_API);
 	const exact = candidates.find((model) => `${model.provider}/${model.id}`.toLowerCase() === wanted);
 	if (exact) return { model: exact };
 
@@ -104,8 +105,24 @@ export interface ModelCommandActions {
 	setThinkingLevel(level: ThinkingLevel): void;
 	/** Lock the session role and record it on the session branch. */
 	lockRole(role: string): void;
-	/** Merge the persistence patch into pi's global settings file. */
+	/** Draw the chosen role on the extension status line. */
+	showRole(role: string, ctx: ExtensionCommandContext): void;
+	/**
+	 * Merge the persistence patch into pi's global settings file.
+	 *
+	 * A failed write raises; the command reports it instead of pretending the default was saved.
+	 */
 	patchSettings(patch: SettingsPatch): void;
+}
+
+/** What one applied command line left behind. */
+export interface ModelCommandOutcome {
+	/** Line shown to the user. */
+	message: string;
+	/** Whether the session change happened. */
+	applied: boolean;
+	/** Whether the defaults were written, which is also what makes a reload worth doing. */
+	saved: boolean;
 }
 
 /** The settings patch one command line produces: only the parts the user named. */
@@ -130,15 +147,25 @@ export async function applyModelCommand(
 	actions: ModelCommandActions,
 	request: ModelCommandRequest,
 	model: PiModel,
-): Promise<string> {
-	if (!(await actions.setModel(model))) return `could not switch to ${formatModelKey(model)}`;
+): Promise<ModelCommandOutcome> {
+	if (!(await actions.setModel(model))) {
+		return { message: `could not switch to ${formatModelKey(model)}`, applied: false, saved: false };
+	}
 	if (request.level) actions.setThinkingLevel(request.level);
 	if (request.role) actions.lockRole(request.role);
-	actions.patchSettings(modelCommandSettings(request, model));
 	const shown = [formatModelKey(model)];
 	if (request.level) shown.push(request.level);
 	if (request.role) shown.push(request.role);
-	return `using ${shown.join(" ")}`;
+	const applied = `using ${shown.join(" ")}`;
+	try {
+		actions.patchSettings(modelCommandSettings(request, model));
+	} catch (error) {
+		// The session keeps the choice pi already accepted. Undoing it would take the user's own action
+		// away over a settings-file problem, and reloading would re-read the defaults that never landed.
+		const reason = error instanceof Error ? error.message : String(error);
+		return { message: `${applied}; the session changed but the default was not saved: ${reason}`, applied: true, saved: false };
+	}
+	return { message: applied, applied: true, saved: true };
 }
 
 /**
@@ -159,9 +186,12 @@ export function createModelCommandHandler(
 			ctx.ui.notify(target.error, "error");
 			return;
 		}
-		const message = await applyModelCommand(actions, request, target.model);
-		ctx.ui.notify(message, message.startsWith("using ") ? "info" : "warning");
-		if (!message.startsWith("using ")) return;
+		const outcome = await applyModelCommand(actions, request, target.model);
+		ctx.ui.notify(outcome.message, outcome.saved ? "info" : "error");
+		if (!outcome.applied) return;
+		if (request.role) actions.showRole(request.role, ctx);
+		// Nothing was saved, so nothing is there for a reload to pick up.
+		if (!outcome.saved) return;
 		// Last statement: `reload()` retires this command's `pi` handle and context.
 		await ctx.reload();
 	};

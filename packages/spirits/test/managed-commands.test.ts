@@ -124,6 +124,15 @@ test("the routing pseudo-model is never a target of /spirits-model", () => {
 	});
 });
 
+// The exclusion reads the api, so a routing entry named anything else is still excluded, and a
+// physical model that happens to be called `auto` is still a target.
+test("a virtual model is excluded by its api, not by its name", () => {
+	const virtual: PiModel = { provider: "other", id: "router", name: "Router", api: "pi-virtual" };
+	expect(resolveModelTarget([virtual, MODEL_A], "router")).toHaveProperty("error", 'no model matches "router"');
+	expect(resolveModelTarget([virtual, MODEL_A], "other/router")).toHaveProperty("error", 'no model matches "other/router"');
+	expect(resolveModelTarget([virtual, MODEL_A], "sonnet")).toEqual({ model: MODEL_A });
+});
+
 // --------------------------------------------------------------- persistence
 
 test("a model line persists only what the user named", () => {
@@ -162,6 +171,40 @@ test("/spirits-model writes the model, level, role, and settings, then reloads l
 	expect(reloads()).toBe(1);
 });
 
+test("a model line shows the role it locked on the badge", async () => {
+	const { pi, phase } = wire();
+	const { ctx, statuses, reloads } = fakeCommandContext({ available: [MODEL_A] });
+	phase.setRole("normal");
+
+	await pi.commands.get(COMMAND_SPIRITS_MODEL)!.handler("anthropic/claude-sonnet-4-5 strong", ctx);
+
+	expect(statuses.get(ROLE_STATUS_KEY)).toBe("[strong]");
+	expect(reloads()).toBe(1);
+});
+
+// The session change is pi's already; a settings file that will not take the write is reported on its
+// own, and the reload that would read the unchanged defaults back is skipped.
+test("a settings write that fails is reported apart from the session change", async () => {
+	const pi = new FakePi();
+	const phase = createRoutingPhase();
+	registerManagedCommands(pi, {
+		phase,
+		patchSettings: () => {
+			throw new Error("EACCES: permission denied");
+		},
+	});
+	const { ctx, notices, reloads, statuses } = fakeCommandContext({ available: [MODEL_A] });
+
+	await pi.commands.get(COMMAND_SPIRITS_MODEL)!.handler("anthropic/claude-sonnet-4-5 strong", ctx);
+
+	expect(pi.modelChanges).toEqual([MODEL_A]);
+	expect(phase.current()).toBe("strong");
+	expect(statuses.get(ROLE_STATUS_KEY)).toBe("[strong]");
+	expect(notices.at(-1)).toContain("the session changed but the default was not saved");
+	expect(notices.at(-1)).toContain("EACCES");
+	expect(reloads()).toBe(0);
+});
+
 test("a line with no model reference names what it needs instead of changing anything", async () => {
 	const { pi, phase, patches } = wire();
 	const { ctx, notices } = fakeCommandContext({ available: [MODEL_A] });
@@ -185,6 +228,36 @@ test("/spirits-role locks the role, records it on the branch, and persists the d
 	expect(pi.entries).toEqual([{ customType: ROLE_ENTRY_TYPE, data: { role: "strong" } }]);
 	expect(patches).toEqual([{ models: { role: "strong" } }]);
 	expect(reloads()).toBe(1);
+});
+
+test("a role lock shows on the badge before the reload it asks for", async () => {
+	const { pi } = wire();
+	const { ctx, statuses, reloads } = fakeCommandContext();
+
+	await pi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("strong", ctx);
+
+	expect(statuses.get(ROLE_STATUS_KEY)).toBe("[strong]");
+	expect(reloads()).toBe(1);
+});
+
+test("a role lock whose settings write fails keeps the session lock", async () => {
+	const pi = new FakePi();
+	const phase = createRoutingPhase();
+	registerManagedCommands(pi, {
+		phase,
+		patchSettings: () => {
+			throw new Error("the file is locked");
+		},
+	});
+	const { ctx, notices, reloads } = fakeCommandContext();
+
+	await pi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("strong", ctx);
+
+	expect(phase.current()).toBe("strong");
+	expect(pi.entries).toEqual([{ customType: ROLE_ENTRY_TYPE, data: { role: "strong" } }]);
+	expect(notices.at(-1)).toContain("role locked to strong for this session");
+	expect(notices.at(-1)).toContain("the default was not saved");
+	expect(reloads()).toBe(0);
 });
 
 test("an unknown role leaves the lock, the entries, and the settings alone", async () => {
@@ -244,6 +317,18 @@ test("the session start shows the lock the phase carries", async () => {
 	const started = fakeCommandContext();
 	await pi.fire("session_start", { type: "session_start", reason: "start" }, started.ctx);
 	expect(started.statuses.get(ROLE_STATUS_KEY)).toBe("[strong]");
+});
+
+// Reloading extensions replaces the runtime that drew the badge, so the redraw is what keeps the role
+// visible after `/spirits-model` or `/spirits-role` reloaded the extension.
+test("a reload draws the badge again", async () => {
+	const { pi, phase } = wire();
+	phase.setRole("strong");
+	const reloaded = fakeCommandContext();
+
+	await pi.fire("session_start", { type: "session_start", reason: "reload" }, reloaded.ctx);
+
+	expect(reloaded.statuses.get(ROLE_STATUS_KEY)).toBe("[strong]");
 });
 
 test("a resumed session takes the lock back from its entries before showing the badge", async () => {

@@ -30,21 +30,18 @@
 
 **具体的な帰結**: `thinking-level` の行は `limited` のままだが、理由は「完了メニューのない別コマンドで、レベル指定が `/model` の 1 行目と 同じ見た目にならない」ことになり、「RPC が level を返さない」は detail へ移る。`role-badge` の行は「badge がモデル名の隣ではなく status 行に出る」ことが理由になる。
 
-## Decision 4: `/spirits-clear` の区切りの識別方式是変更しない
+## Decision 4: clear 区切りの識別方式是変更しない
 
-**問題**: 現行の実装は、`spirits_clear` custom entry より前の model-visible message を数え、先頭からその数を drop している。entry ID や timestamp で直接判定できないなら、メッセージ数依存は Pi の更新で壊れやすい。
+**問題**: `context` handler は「境界より前の model-visible message 数」を先頭から落としている。メッセージ数依存は Pi の更新で壊れそうなので、entry ID や timestamp で直接判定できるなら置き換える。
 
 **評価**:
 
-- clear 区切りは custom entry として永続化され、`id` と `timestamp` を持つ。`ctx.sessionManager.getBranch()` は現在の branch の entry を順に返すため、`entries.findIndex((entry) => entry.type === "custom" && entry.customType === "spirits_clear")` で区切りの位置を直接取得できる。drop 数を数える代わりにこの index を使えば、message 以外の entry の並びに依存しなくなる。
-- ただし本番の drop 計算は `projectMessages()` の後に行われる。`ProjectMessage` は `Message & { sessionId: string }` であり、元になった session entry の ID を保持しない。したがって projection 上で entry ID を使うには、project 前に index を計算する必要がある。
-- **その計算は既に存在する**。`clearBoundaryIndex(branch)` は `ctx.messages`（session entry の branch）を走査して区切りより前の model-visible message を数えており、この走査自体が branch の entry に直接触れている。つまり現行実装は「entry を走査して決めた drop 数を projection に適用する」形であり、entry ID 由来の情報を失っていない。
-- **残る脆弱性は drop 数の先頭一致**。区切りより前の message が projection で先頭から連続して現れない場合、drop がずれる。branch の先頭から区切りまでは model-visible message の並びで、`projectMessages` はこれを順序どおり projection の先頭に置くため、compaction が介在しない限り一致する。compaction が介在する場合、compaction 自体が `firstKeptEntryId` より前の entry を文脈から外すため、drop 数は projection に存在する message 数より大きくなり、先頭からまとめて落とす挙動は「clear 前の内容を落とす」という目的どおりに働く。
-- timestamp による判定は、同じセッション内で時計が戻らないことを前提に加えて、`spirits_clear` より後の message を選別する処理を別途必要とするため、現行方式より単純にならない。
+- 境界は entry ID を持つ。`clearBoundaryIndex(branch)` は branch 上の `spirits_clear` custom entry の位置を返し、`branchPositions()` は entry ID から branch 位置への写像を作る。`clearedMessagesOf()` は projection の各 entry を `sourceEntry.id` で branch 上に写し、境界より前にある entry が contributions した message 数だけを足す。つまり現行実装は既に entry ID 由来で数量を決めており、本文の文字列照合で数えているのではない。
+- 置き換えられない理由は受取側の型にある。`context` イベントが渡すのは `AgentMessage[]` で、元になった session entry の ID を運ばない (`packages/coding-agent/src/core/extensions/types.ts` の `ContextEvent`)。handler は message ごとに「これは境界より前か」を判定できないので、決定は「先頭から N 件落とす」の形になる。entry ID で filter するには `AgentMessage` に source entry ID を通す必要があり、host 側の型を変える要求になる。
+- timestamp も同じ壁にあたる。message 側に時刻があっても境界 entry と対応付ける手掛からないため、結局 entry ID を通す改造が要る。
+- 残る前提は drop 数の先頭一致だけ。branch の先頭から境界までは model-visible message の並びで、projection はそれを順序どおり先頭に置く。compaction が介在する場合は drop 数が projection の message 数より大きくなり、先頭からまとめて落ちる。これは「clear 前を落とす」という目的どおりの挙動で、実際に compaction を介したケースはユニットテストで押さえている。
 
-**結論**: entry ID による直接判定へは置き換えない。置き換えれば drop 数の先頭一致は消えるが、projection に entry ID を通すために `ProjectMessage` を拡張する必要があり、managed 用の型を 1 つ増やす代价に対して、上記のとおり現行方式は compaction 後も目的どおりに動く。変更しない理由をここに記録する。
-
-**据える観測**: 置き換えない代わりに、壊れたときに必ず検出できる観測項目を Decision 5 と入れる。drop 数の先頭一致が崩れた場合、clear 前のマーカーが fake provider の要求本文に再出現するため、観測項目はこれを `failed` にする。
+**結論**: 置き換えない。drop 数は entry ID から計算されているので「メッセージ数依存」という脆弱性は無い。残る前提が崩れたときは、clear 前のマーカーが fake provider の要求本文に再出現するため、Decision 5 の観測項目が `failed` として拾う。
 
 ## Decision 5: clear 境界の観測は既存 RPC と既存 probe extension で駆動する
 

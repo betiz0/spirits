@@ -36,9 +36,26 @@ import {
 	modelPurposeObservations,
 	rolePurposeObservations,
 	validateMatrix,
+	validatePurposeObservations,
 	type ClearStateRecord,
 	type PurposeObservation,
 } from "./matrix.ts";
+import {
+	compactionRecords,
+	forkTargetOf,
+	NO_AUTOMATIC_COMPACTION,
+	type CompactionRecord,
+	judgeAutomaticCompaction,
+	judgeFork,
+	judgeManualCompaction,
+	judgeResume,
+	judgeTreeMove,
+	startBoundaryProvider,
+	treeTargetOf,
+	type BoundaryProvider,
+	type ManualCompactionAttempt,
+	type BoundaryJudgement,
+} from "./clear-boundary.ts";
 import { createCompatRunner, type CompatRunner } from "./runner.ts";
 import { requestFakeToolCall, startFakeProvider } from "./fake-provider.ts";
 import type { FakeProviderRequest, FakeReply, FakeToolCall } from "./fake-provider.ts";
@@ -59,6 +76,7 @@ import {
 	runStagedRpcProbe,
 	type RpcProbeOptions,
 	type RpcRecord,
+	type RpcStep,
 	type StagedRpcProbeOptions,
 } from "./rpc.ts";
 import {
@@ -86,6 +104,7 @@ import {
 import {
 	buildRunnerProvenance,
 	buildRuntimeEvidence,
+	CLEAR_BOUNDARY_ITEMS,
 	countStates,
 	formatStateCounts,
 	identifyRuntime,
@@ -177,6 +196,21 @@ interface ProbeState {
 	apis: Record<string, boolean>;
 }
 
+/** One labelled session state the probe extension recorded, with the branch it read. */
+interface ProbePurposeState {
+	sessionId?: string;
+	sessionFile?: string;
+	messageEntries?: number;
+	todoEntries?: number;
+	branch?: BranchRecord[];
+	/** Compaction entries the host had written when the snapshot was taken, oldest first. */
+	compactions?: CompactionRecord[];
+	/** Set by `/compat-purpose-navigate`. */
+	targetId?: string;
+	moved?: boolean;
+	error?: string;
+}
+
 interface ProbeResult {
 	text?: string;
 	isError?: boolean;
@@ -188,7 +222,7 @@ interface ProbeResult {
 	sessionEntries?: number;
 	auth?: { stored?: { configured: boolean; source?: string }; control?: { configured: boolean; source?: string } };
 	externalExtension?: { commandName: string; commandObserved: boolean };
-	purposeStates?: Record<string, { sessionId?: string; messageEntries?: number; todoEntries?: number }>;
+	purposeStates?: Record<string, ProbePurposeState>;
 	before?: { level?: string; model?: { provider: string; id: string }; defaults?: Record<string, string | undefined> };
 	after?: { level?: string; model?: { provider: string; id: string }; defaults?: Record<string, string | undefined> };
 	/** What `/compat-purpose-readback` reported: the runtime state after someone else changed it. */
@@ -477,6 +511,11 @@ async function main(): Promise<number> {
 			"existing agent dir write-back compatibility",
 			"settings write compatibility",
 			"role/clear/model matrix",
+			CLEAR_BOUNDARY_ITEMS.automaticCompaction,
+			CLEAR_BOUNDARY_ITEMS.manualCompaction,
+			CLEAR_BOUNDARY_ITEMS.fork,
+			CLEAR_BOUNDARY_ITEMS.treeMove,
+			CLEAR_BOUNDARY_ITEMS.resume,
 		];
 		if (!launch) {
 			for (const name of processItems) {
@@ -499,11 +538,11 @@ async function main(): Promise<number> {
 				// `--no-extensions` keeps unrelated code out of every measurement. The one item that asks
 				// whether an external extension in the agent dir gets loaded drops it, because that flag is
 				// exactly what stops the host from reading those files.
-				const launchCommand = (extraExtensions: readonly string[] = [], agentExtensions = false) => [
+				const launchCommand = (extraExtensions: readonly string[] = [], agentExtensions = false, sessionFile?: string) => [
 					managedPi,
 					"--mode",
 					"rpc",
-					"--no-session",
+					...(sessionFile === undefined ? ["--no-session"] : ["--session", sessionFile]),
 					...(agentExtensions ? [] : ["--no-extensions"]),
 					"-e",
 					PROBE_EXTENSION,
@@ -1250,25 +1289,10 @@ async function main(): Promise<number> {
 				purposes.push(...rolePurposeObservations(strongAttempt));
 
 				// /spirits-model: one line for the model, the thinking level, and the role. The line owns
-				// every change; the probe only reads the runtime back, and the settings file is read from
-				// disk so the persistence is measured rather than asserted by the writer.
+				// every change; the probe only reads the runtime back. The saved defaults are read the same
+				// way, through the dedicated Pi after its reload, because a Node read of the file would judge
+				// the harness's own view of disk rather than what pi loads into a new session.
 				const modelPurposePath = join(runner.workRoot, "purpose-model.json");
-				const settingsPath = join(runner.agentDir, "settings.json");
-				const defaultKeys = (settings: Record<string, unknown>) => ({
-					defaultProvider: settings.defaultProvider,
-					defaultModel: settings.defaultModel,
-					defaultThinkingLevel: settings.defaultThinkingLevel,
-					role: (settings.models as { role?: string } | undefined)?.role,
-				});
-				// A fixture without a settings file is a legitimate starting point: the command creates one.
-				const readSettingsFile = async (): Promise<Record<string, unknown>> => {
-					try {
-						return JSON.parse(await readFile(settingsPath, "utf8")) as Record<string, unknown>;
-					} catch {
-						return {};
-					}
-				};
-				const settingsBefore = defaultKeys(await readSettingsFile());
 				const modelRun = await stagedProbe({
 					command: launchCommand([PROVIDER_EXTENSION, launch.extensionPath]),
 					cwd: runner.workRoot,
@@ -1289,26 +1313,28 @@ async function main(): Promise<number> {
 					timeoutMs: RPC_TIMEOUT_MS,
 				});
 				const modelReadback = await readProbeResult(modelPurposePath);
-				const settingsAfter = defaultKeys(await readSettingsFile());
+				const savedDefaults = modelReadback?.defaults ?? {};
+				const defaultsSaved =
+					savedDefaults.defaultProvider === COMPAT_PROVIDER &&
+					savedDefaults.defaultModel === FAKE_MODEL_ID &&
+					savedDefaults.defaultThinkingLevel === "medium" &&
+					savedDefaults.role === "strong";
 				purposes.push(
 					...modelPurposeObservations({
 						attempted: modelReadback !== undefined,
 						reason: modelReadback === undefined ? `the readback reported nothing (${modelRun.stderr.trim().slice(0, 160)})` : undefined,
 						levelChanged: modelReadback?.level === "medium",
 						setModelResult: modelReadback?.model?.id === FAKE_MODEL_ID,
-						defaultsChanged:
-							JSON.stringify(settingsAfter) !== JSON.stringify(settingsBefore) &&
-							settingsAfter.defaultModel === FAKE_MODEL_ID &&
-							settingsAfter.role === "strong",
-						// The role is the third slot of the same line, so a written `models.role` is the
-						// observation of the role vocabulary on this surface.
+						defaultsChanged: defaultsSaved,
+						// The role is the third slot of the same line, so the `models.role` the reloaded runtime
+						// reads back is the observation of the role vocabulary on this surface.
 						roleVocabulary: {
-							observed: true,
-							state: settingsAfter.role === "strong" ? "available" : "unavailable",
+							observed: modelReadback !== undefined,
+							state: savedDefaults.role === "strong" ? "available" : "unavailable",
 							detail:
-								settingsAfter.role === "strong"
-									? "/spirits-model <ref> <level> <role> wrote models.role while the line selected the model"
-									: `the line left models.role at ${JSON.stringify(settingsAfter.role)}`,
+								savedDefaults.role === "strong"
+									? "/spirits-model <ref> <level> <role> left models.role strong, read back by the reloaded runtime"
+									: `the reloaded runtime read models.role back as ${String(savedDefaults.role)}`,
 						},
 					}),
 				);
@@ -1398,8 +1424,296 @@ async function main(): Promise<number> {
 				}
 				purposes.push(...clearPurposeObservations(clearAttempt));
 
+				// A clear boundary only helps while everything that rebuilds the context after it keeps
+				// honouring it. Each item below drives one of those paths on the dedicated Pi and is judged
+				// by the request the fake provider received and the entries the host wrote.
+				const boundarySettled = (records: readonly RpcRecord[], since: number) =>
+					records.slice(since).some((record) => record.type === "agent_settled");
+				const boundaryPrompt = (id: string, message: string): RpcStep => ({
+					requests: [promptCommand(id, message)],
+					waitFor: boundarySettled,
+					timeoutMs: RPC_TIMEOUT_MS,
+				});
+				const boundaryCommand = (id: string, line: string): RpcStep => ({
+					requests: [promptCommand(id, line)],
+					waitFor: () => false,
+					timeoutMs: PURPOSE_SETTLE_MS,
+				});
+				// Pi decides compaction from the settings file, so the threshold the boundary items are measured
+				// against has to be in place before the launch. The items that judge the settings file itself
+				// already ran, and nothing after this point reads it. The other keys are kept: dropping the
+				// provider and model entries would route these items somewhere other than the fake endpoint.
+				await Bun.write(
+					join(runner.agentDir, "settings.json"),
+					`${JSON.stringify({ compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 1024 } }, null, "\t")}\n`,
+				);
+				const boundaryStage = (options: {
+					purpose: string;
+					provider: BoundaryProvider;
+					stages: readonly RpcStep[];
+					sessionFile?: string;
+				}) =>
+					stagedProbe({
+						command: launchCommand([PROVIDER_EXTENSION, launch.extensionPath], false, options.sessionFile),
+						cwd: runner.workRoot,
+						env: {
+							...baseEnv,
+							[FAKE_PROVIDER_ENV]: options.provider.baseUrl,
+							[PROBE_PURPOSE_ENV]: join(runner.workRoot, `${options.purpose}.json`),
+							// A stage that failed to select the compat model has to fail loudly. With a key present
+							// pi would pick a real provider and the item would measure nothing while looking like it
+							// measured something.
+							ANTHROPIC_API_KEY: "",
+							OPENAI_API_KEY: "",
+						},
+						stages: options.stages,
+						timeoutMs: RPC_TIMEOUT_MS,
+					});
+				const boundaryStates = async (purpose: string) =>
+					(await readProbeResult(join(runner.workRoot, `${purpose}.json`)))?.purposeStates;
+				/** A session file that outlives its process, which the fork, tree move, and resume reopen. */
+				const boundarySessionFile = (purpose: string) => join(runner.workRoot, `${purpose}-session.jsonl`);
+				/** One seeded session with a cleared conversation in it, kept for the items that reopen it. */
+				const seedBoundarySession = async (purpose: string, markers: { before: string; after: string }) => {
+					const provider = startBoundaryProvider(NO_AUTOMATIC_COMPACTION);
+					const sessionFile = boundarySessionFile(purpose);
+					try {
+						await boundaryStage({
+							purpose,
+							provider,
+							sessionFile,
+							stages: [
+								{ requests: [{ id: `${purpose}-model`, type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID }] },
+								boundaryPrompt(`${purpose}-before`, `${markers.before} answer ok`),
+								boundaryCommand(`${purpose}-clear`, "/spirits-clear"),
+								boundaryPrompt(`${purpose}-after`, `${markers.after} answer ok`),
+								boundaryCommand(`${purpose}-state`, "/compat-purpose-state seed"),
+							],
+						});
+					} finally {
+						provider.stop();
+					}
+					const seeded = (await boundaryStates(purpose))?.seed;
+					return seeded === undefined ? undefined : { ...seeded, sessionFile: seeded.sessionFile ?? sessionFile };
+				};
+				/** A stage set whose provider never answered measured nothing, whatever the host wrote. */
+				const noRequestSeen = (provider: BoundaryProvider): BoundaryJudgement | undefined =>
+					provider.requests.length === 0
+						? { state: "not-run", detail: "the fake provider received no request, so the compat model never answered" }
+						: undefined;
+
+				await run(CLEAR_BOUNDARY_ITEMS.automaticCompaction, async () => {
+					const markers = { before: `compat-clear-auto-before-${Date.now()}`, after: `compat-clear-auto-after-${Date.now()}` };
+					// The threshold has to be crossed by the turn that follows the clear. Pi checks it when a
+					// turn ends, so triggering on the conversation before the boundary would compact before
+					// the command and measure pi's own summary instead of the takeover.
+					const provider = startBoundaryProvider(markers.after);
+					try {
+						const probed = await boundaryStage({
+							purpose: "boundary-auto",
+							provider,
+							stages: [
+								{ requests: [{ id: "auto-model", type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID }] },
+								boundaryPrompt("auto-before", `${markers.before} answer ok`),
+								boundaryCommand("auto-clear", "/spirits-clear"),
+								boundaryPrompt("auto-after", `${markers.after} answer ok`),
+								boundaryPrompt("auto-follow", `${markers.after} follow up answer ok`),
+								boundaryCommand("auto-state", "/compat-purpose-state observed"),
+							],
+						});
+						const observed = (await boundaryStates("boundary-auto"))?.observed;
+						const compactions = compactionRecords(observed);
+						return {
+							...(noRequestSeen(provider) ??
+								judgeAutomaticCompaction({
+									attempted: true,
+									compactions,
+									summarizationRequests: provider.summarizationRequests(),
+									followingRequest: provider.bodyWith("follow up answer ok"),
+									beforeMarker: markers.before,
+									afterMarker: markers.after,
+								})),
+							data: {
+								stderr: probed.stderr.trim().slice(0, 300),
+								requests: provider.requests.length,
+								compactions: compactions.map((entry) => ({
+									fromHook: entry.fromHook,
+									firstKeptEntryId: entry.firstKeptEntryId,
+									summary: entry.summary?.slice(0, 160),
+								})),
+							},
+						};
+					} finally {
+						provider.stop();
+					}
+				});
+
+				await run(CLEAR_BOUNDARY_ITEMS.manualCompaction, async () => {
+					const markers = { before: `compat-clear-manual-before-${Date.now()}`, after: `compat-clear-manual-after-${Date.now()}` };
+					const attempt = async (purpose: string, stages: readonly RpcStep[]): Promise<ManualCompactionAttempt> => {
+						const provider = startBoundaryProvider(NO_AUTOMATIC_COMPACTION);
+						try {
+							const probed = await boundaryStage({ purpose, provider, stages });
+							const response = probed.records.find((record) => record.type === "response" && record.command === "compact");
+							const entry = compactionRecords((await boundaryStates(purpose))?.observed).at(-1);
+							return {
+								ran: response?.success === true,
+								error: response?.error ?? (provider.requests.length === 0 ? "the fake provider received no request" : undefined),
+								summary: (response?.data as { summary?: string } | undefined)?.summary ?? entry?.summary,
+								fromHook: entry?.fromHook,
+								summarizationRequests: provider.summarizationRequests(),
+							};
+						} finally {
+							provider.stop();
+						}
+					};
+					const seed = (purpose: string): RpcStep => ({
+						requests: [{ id: `${purpose}-model`, type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID }],
+					});
+					// Cleared conversation sits inside the span pi is about to summarize.
+					const clearedSpan = await attempt("boundary-manual-cleared", [
+						seed("boundary-manual-cleared"),
+						boundaryPrompt("manual-before", `${markers.before} answer ok`),
+						boundaryCommand("manual-clear", "/spirits-clear"),
+						boundaryPrompt("manual-after", `${markers.after} answer ok`),
+						{ requests: [{ id: "manual-cleared-compact", type: "compact" }] },
+						boundaryCommand("manual-cleared-state", "/compat-purpose-state observed"),
+					]);
+					// The boundary has nothing cleared behind it, so pi's own summary has to survive.
+					const cleanSpan = await attempt("boundary-manual-clean", [
+						seed("boundary-manual-clean"),
+						boundaryCommand("manual-clean", "/spirits-clear"),
+						boundaryPrompt("manual-kept-one", `${markers.after} kept one answer ok`),
+						boundaryPrompt("manual-kept-two", `${markers.after} kept two answer ok`),
+						{ requests: [{ id: "manual-clean-compact", type: "compact" }] },
+						boundaryCommand("manual-clean-state", "/compat-purpose-state observed"),
+					]);
+					return {
+						...judgeManualCompaction({ attempted: true, clearedSpan, cleanSpan, beforeMarker: markers.before }),
+						data: { clearedSpan, cleanSpan },
+					};
+				});
+
+				await run(CLEAR_BOUNDARY_ITEMS.fork, async () => {
+					const markers = { before: `compat-clear-fork-before-${Date.now()}`, after: `compat-clear-fork-after-${Date.now()}` };
+					const seeded = await seedBoundarySession("boundary-fork", markers);
+					const target = forkTargetOf(seeded?.branch ?? []);
+					if (seeded?.sessionFile === undefined || target === undefined) {
+						return {
+							...judgeFork({ attempted: false, reason: "the seeded session reported no boundary and no message after it" }),
+							data: { branch: seeded?.branch },
+						};
+					}
+					const provider = startBoundaryProvider(NO_AUTOMATIC_COMPACTION);
+					try {
+						const probed = await boundaryStage({
+							purpose: "boundary-fork-run",
+							provider,
+							sessionFile: seeded.sessionFile,
+							stages: [
+								{ requests: [{ id: "fork-model", type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID }] },
+								{ requests: [{ id: "fork-run", type: "fork", entryId: target.id }] },
+								boundaryCommand("fork-state", "/compat-purpose-state forked"),
+								boundaryPrompt("fork-prompt", "forked answer ok"),
+							],
+						});
+						const forked = (await boundaryStates("boundary-fork-run"))?.forked;
+						const response = probed.records.find((record) => record.type === "response" && record.id === "fork-run");
+						return {
+							...(noRequestSeen(provider) ??
+								judgeFork({
+									attempted: true,
+									forked: response?.success === true,
+									reason: response?.error ?? "the host refused the fork",
+									sessionFile: forked?.sessionFile,
+									parentSessionFile: seeded.sessionFile,
+									followingRequest: provider.bodyWith("forked answer ok"),
+									beforeMarker: markers.before,
+								})),
+							data: { forkTarget: target.id, parentSessionFile: seeded.sessionFile, forkedSessionFile: forked?.sessionFile },
+						};
+					} finally {
+						provider.stop();
+					}
+				});
+
+				await run(CLEAR_BOUNDARY_ITEMS.treeMove, async () => {
+					const markers = { before: `compat-clear-tree-before-${Date.now()}`, after: `compat-clear-tree-after-${Date.now()}` };
+					const seeded = await seedBoundarySession("boundary-tree", markers);
+					const target = treeTargetOf(seeded?.branch ?? [], markers.before);
+					if (seeded?.sessionFile === undefined || target === undefined) {
+						return {
+							...judgeTreeMove({ attempted: false, reason: "the seeded session reported no reply that carried the cleared message" }),
+							data: { branch: seeded?.branch },
+						};
+					}
+					const provider = startBoundaryProvider(NO_AUTOMATIC_COMPACTION);
+					try {
+						await boundaryStage({
+							purpose: "boundary-tree-run",
+							provider,
+							sessionFile: seeded.sessionFile,
+							stages: [
+								{ requests: [{ id: "tree-model", type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID }] },
+								boundaryCommand("tree-move", `/compat-purpose-navigate ${target.id}`),
+								boundaryPrompt("tree-prompt", "moved answer ok"),
+							],
+						});
+						const moved = (await boundaryStates("boundary-tree-run"))?.navigate;
+						return {
+							...(noRequestSeen(provider) ??
+								judgeTreeMove({
+									attempted: true,
+									moved: moved?.moved === true,
+									reason: moved?.error ?? "the extension API refused the move",
+									followingRequest: provider.bodyWith("moved answer ok"),
+									beforeMarker: markers.before,
+								})),
+							data: { treeTarget: target.id, branchAfterMove: moved?.branch },
+						};
+					} finally {
+						provider.stop();
+					}
+				});
+
+				await run(CLEAR_BOUNDARY_ITEMS.resume, async () => {
+					const markers = { before: `compat-clear-resume-before-${Date.now()}`, after: `compat-clear-resume-after-${Date.now()}` };
+					const seeded = await seedBoundarySession("boundary-resume", markers);
+					if (seeded?.sessionFile === undefined) {
+						return judgeResume({ attempted: false, reason: "the seeded session reported no session file to reopen" });
+					}
+					const provider = startBoundaryProvider(NO_AUTOMATIC_COMPACTION);
+					try {
+						await boundaryStage({
+							purpose: "boundary-resume-run",
+							provider,
+							sessionFile: seeded.sessionFile,
+							stages: [
+								{ requests: [{ id: "resume-model", type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID }] },
+								boundaryCommand("resume-state", "/compat-purpose-state resumed"),
+								boundaryPrompt("resume-prompt", "resumed answer ok"),
+							],
+						});
+						const resumed = (await boundaryStates("boundary-resume-run"))?.resumed;
+						return {
+							...(noRequestSeen(provider) ??
+								judgeResume({
+									attempted: true,
+									sessionFile: seeded.sessionFile,
+									openedSessionFile: resumed?.sessionFile,
+									followingRequest: provider.bodyWith("resumed answer ok"),
+									beforeMarker: markers.before,
+								})),
+							data: { sessionFile: seeded.sessionFile, openedSessionFile: resumed?.sessionFile },
+						};
+					} finally {
+						provider.stop();
+					}
+				});
+
 				const rows = deriveRows(purposes);
 				validateMatrix(rows);
+				validatePurposeObservations(purposes);
 				const observedPurposes = purposes.filter((purpose) => purpose.state !== "not-run");
 				const unavailablePurposes = purposes.filter((purpose) => purpose.state === "unavailable");
 				// `confirmed` here means the purpose was observed behaving on the dedicated Pi. It does not

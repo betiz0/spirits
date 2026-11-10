@@ -57,6 +57,7 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 		setModel: (model) => pi.setModel(model),
 		setThinkingLevel: (level) => pi.setThinkingLevel(level),
 		lockRole,
+		showRole: (role, ctx) => badge.update(role, ctx),
 		patchSettings: (patchFields) => patch(patchFields),
 	};
 
@@ -74,7 +75,18 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 				return;
 			}
 			lockRole(role);
-			patch({ [SETTINGS_KEY_MODELS]: { [SETTINGS_KEY_ROLE]: role } });
+			// The badge follows the lock at once: the reload below redraws it on the new runtime, and a
+			// reload that never happens must not leave the old runtime showing the previous role.
+			badge.update(role, ctx);
+			try {
+				patch({ [SETTINGS_KEY_MODELS]: { [SETTINGS_KEY_ROLE]: role } });
+			} catch (error) {
+				// The session keeps the lock; only the default is missing, and a reload would read the
+				// unchanged one back over it.
+				const reason = error instanceof Error ? error.message : String(error);
+				ctx.ui.notify(`role locked to ${role} for this session; the default was not saved: ${reason}`, "error");
+				return;
+			}
 			ctx.ui.notify(`role locked to ${role}`, "info");
 			// Last statement: `reload()` retires this command's `pi` handle and context, and the new
 			// runtime picks the written default role up on its own session start.

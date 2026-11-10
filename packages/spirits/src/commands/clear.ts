@@ -17,6 +17,11 @@
  * belong to entries before the newest marker. Nothing is deleted, and the next rebuild produces the
  * same filtered view.
  *
+ * A per-message predicate is not available: the `context` event hands over `AgentMessage[]`, which
+ * carries no reference back to the session entry it came from. Position is the only handle the
+ * handler has, so the boundary is translated into a count and applied as a prefix drop. The count is
+ * still derived from entry ids, not from message text.
+ *
  * Counting, not content matching, is what makes this exact. For the branch
  *
  *   [0] message(user "first")   [1] message(assistant)   [2] custom(spirits_clear)   [3] message(user "second")

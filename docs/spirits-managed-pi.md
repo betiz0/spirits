@@ -113,7 +113,7 @@ Pi 本体が読むのは `~/.spirits/agent/settings.json` (managed では隔離 
 
 ## 已知の制約
 
-- **role badge の位置**: managed 経路の role 表示は `ui.setStatus()` の拡張 status line に出る。fork 経路の footer 右側・モデル名の隣の badge とは別の場所であり、あれと同じ配置・同じ永続化ではない。
+- **role badge の位置**: managed 経路の role 表示は `ui.setStatus()` の拡張 status line に出る。fork 経路の footer 右側・モデル名の隣の badge とは別の場所であり、あれと同じ配置・同じ永続化ではない。描くのは role を選んだときと、拡張の再読み込み後に session が始まったときの 2 箇所であり、reload で置き換わった runtime でも前の role が表示され続ける。
 - **`rlm` の子と第三者 provider**: 子セッションは拡張を読まない。managed 経路で provider をプログラム登録している拡張 (テストの fake provider など) がある場合、その provider は子から見える形にならない。実 provider は `auth.json` / `models.json` を通すため通常は影響がないが、拡張登録に依存する provider を `rlm` の子に使うことはできない。この制限は change `add-managed-spirits-commands` で受け入れ済みとして記録する。
 - **公式 Pi の帰属ヘッダー**: managed 経路の起動ヘッダーは公式 Pi のものになる。spirits 独自の branding ヘッダーに置き換える patch は入れない。
 - **`/spirits-model` の補完**: 公式 `/model` の補完メニュー・曖昧検索 (name/description を跨ぐ検索) は無い。参照は `provider/id` と its substring に限られる。
@@ -138,8 +138,8 @@ host の実体を bundle に含めないのは、rlm の子セッションが親
 
 公式 Pi 1.5.0 には `registerModelRoles` がない。spirits 拡張は API の有無を起動時に判定し、ある場合は既存の role 登録を使う。ない場合は仮想モデル `spirits/auto`、skill に基づく strong フェーズ、設定からの既定 role 読み取りを残したうえで、同じ状態に届く別コマンドを登録する。起動時に一度だけ制限内容を通知する。
 
-- `/spirits-model <ref> [level] [role]` … モデル、thinking level、role を 1 行で選ぶ。token は右から順に role、level を取り、残りを参照とする（`anthropic/claude-sonnet-4-5 high strong`、`sonnet strong`、`sonnet high`）。モデルは `pi.setModel()`、level は `pi.setThinkingLevel()`、role は phase lock で適用し、永続化は下の「設定の永続書き込み」に従う。最後に `ctx.reload()` を呼ぶので、そのコマンドの `pi` ハンドルと context はそれ以降使わない。
-- `/spirits-role normal|strong` … モデルを変えずに session の role を固定する。
+- `/spirits-model <ref> [level] [role]` … モデル、thinking level、role を 1 行で選ぶ。token は右から順に role、level を取り、残りを参照とする（`anthropic/claude-sonnet-4-5 high strong`、`sonnet strong`、`sonnet high`）。モデルは `pi.setModel()`、level は `pi.setThinkingLevel()`、role は phase lock で適用し、永続化は下の「設定の永続書き込み」に従う。role を選んだときはその role を badge に出す。最後に `ctx.reload()` を呼ぶので、そのコマンドの `pi` ハンドルと context はそれ以降使わない。設定の書き込みだけが失敗したときは、session の変更を取り消さず、保存に失敗した旨を分けて伝え、reload はしない（読み直す既定値が変わっていないため）。
+- `/spirits-role normal|strong` … モデルを変えずに session の role を固定し、badge をその role に更新する。設定の書き込みが失敗しても session の固定は残り、保存失敗だけを別途伝える。
 - `/spirits-clear` … 直前までの会話を LLM context から除く。`spirits_clear` の境界エントリを 1 件追加し、`context` イベントで境界より前の投影メッセージを落とす。session ID・chat 表示・TODO・goal・memory はそのまま。消した会話が要約に載って戻ってくることはない。
 
 ### `/spirits-clear` の境界が及ばない範囲
@@ -265,10 +265,33 @@ redact した既存 agent dir の fixture(`scripts/managed-pi-compat/fixtures/re
 
 role、`/clear`、`/model` の目的を専用 Pi で個別に観測する。判定はすべて RPC と fake provider が受けたリクエスト本体から取り、Node による session ファイルの読み取りは行わない。
 
-- role … skill コマンドで strong フェーズに入ったリクエストがどの物理モデルで流れたかを fake provider の受信リクエストから読む。role 語彙は `/spirits-model <ref> <level> <role>` が `models.role` に書き込むかとして観測する。badge のようなターミナル上の表示は RPC で読み取れないので `not-run` のままにする。
+- role … skill コマンドで strong フェーズに入ったリクエストがどの物理モデルで流れたかを fake provider の受信リクエストから読む。role 語彙は `/spirits-role <role>` が次に流すリクエストのモデルとして観測する。badge はターミナル上の表示そのものは読めないが、描画は `ui.setStatus()` の RPC なので、host が受けた `setStatus` の本数と文言が観測になる。モデル名の隣ではなく拡張 status line に出るという差異を残して `limited` にする。
 - `/clear` … 実行前に `/spirits-clear` のない session でマーカー入りの発話を 1 つ、コマンド実行後にもう 1 つ発話し、コマンド後のリクエスト本体が後マーカーを含み前マーカーを含まないかを fake provider から読む。session ID・会話エントリ数・TODO エントリ数は probe 拡張の `/compat-purpose-state` に RPC で読み取らせ、実行前後で比較する。session ファイルは意図的に全メッセージを残すので、エントリ数だけを持って会話が消えたと判定しない。
-- `/model` … `/spirits-model <ref> <level> [role]` を実行し、fake provider が受けた model、thinking level の読み戻し(`ctx.getThinkingLevel()`)、保存済みの `defaultModel` / `defaultThinkingLevel` / `models.role` から判定する。
+- `/model` … `/spirits-model <ref> <level> [role]` を実行し、fake provider が受けた model、thinking level の読み戻し(`ctx.getThinkingLevel()`)、保存済みの `defaultModel` / `defaultThinkingLevel` / `models.role` から判定する。保存の成否は、コマンドの `ctx.reload()` のあとに再生成された runtime が `pi.getSettings()` で読み返した値で判定する。Node によるファイル読み取りは、Pi が実際に読み込んだ既定値の代用にしない。
 
-コマンド一覧に掲載されていないことだけで組み込み機能の不存在を判定せず、観測できない目的は `not-run` にする。各目的の状態は `available` / `limited` / `unavailable` / `not-run` で記録し、代替案と差異は行に必ず持つ。
+コマンド一覧に掲載されていないことだけで組み込み機能の不存在を判定せず、観測できない目的は `not-run` にする。各目的の状態は `available` / `limited` / `unavailable` / `not-run` で記録し、代替案と差異は目的定義に一度だけ持ち、行と観測の両方へ写す。
 
-マトリクスの行は目的観測から導出する。観測しなかった目的の行は `unavailable` ではなく `not-run` になり、行と目的の状態が矛盾しないことを検証関数で確認する。ターミナル上の表示など RPC 読み取りできない目的は `not-run` のままにする。
+状態の意味は次のとおりで、行と観測の両方に同じ規則が当たる。
+
+- `available` … 目的がその経路で満たされ、利用者の目に見える違いもない。
+- `limited` … 目的は満たすが、目に見える挙動が違う。理由を行の `difference` に書く。
+- `unavailable` … 目的が満たされない。観測できた失敗なので `not-run` とは区別する。
+- `not-run` … 観測できなかった。理由を detail に書く。
+
+**観測手段の制約は `limited` の理由にしない**。「RPC が thinking level を返さない」は Pi の機能の欠けではなく計測経路の制約なので、detail に書き、状態は目的の成否で決める。成否そのものが読めないなら `limited` ではなく `not-run` である。代替手段で満たした観測は detail に `alternative` を語として含め、行は `alternative` と `difference` を必ず持つ。`not-run` の行は持たなくてよい。検証関数は `not-run` 以外の行にこの 2 つが揃っていること、`limited` の行が `None` で始まらない差異を挙げていること、観測した目的の detail に `alternative` が含まれていることを確認する。
+
+マトリクスの行は目的観測から導出する。観測しなかった目的の行は `unavailable` ではなく `not-run` になり、行と目的の状態が矛盾しないことを検証関数で確認する。
+
+### `/spirits-clear` の境界の後
+
+境界はリクエストから会話を削り続ける。だから「その後ろで context を組み直すもの」ごとに、境界がまだ効いているかを実測する。5 つは必須観測に入っており、公式実行で `confirmed` でなければ `compatibilityMet` は false になる。判定に使うのは fake provider に届いた本文のマーカー、probe 拡張が `ctx.sessionManager.getEntries()` から書き写した compaction entry の `summary` と `fromHook`、同じく probe 拡張が記録した session ファイルの 3 つだけ。RPC の `get_entries` は compaction entry を返さないので、要約と作者はセッションを書いているプロセスの側で読むしかない。pi が自分で要約するときの prompt は 2 形ある ( span の要約と split turn の prefix の要約) ため、どちらが届いても「肩代わりしていない」と読めるようにする。
+
+| 項目 | 駆動 | 期待 |
+|---|---|---|
+| `clear boundary automatic compaction` | `settings.json` に `compaction: { enabled: true, keepRecentTokens: 1, reserveTokens: 1024 }` を書き、fake provider は後マーカーの入った最初のリクエストだけで大きい usage を返す。pi は turn の終わりに閾値を見るので、発火は clear の後ろに来る。1 回きりにするのは、後続のリクエストが同じマーカーを持っていて 2 回目の compaction が走らないようにするため | 境界の後で発火した compaction が拡張の書き込んだ entry で ( `fromHook: true`、要約は clear 用の固定文)、要約のためのモデル呼び出しが 0 件で、その後のリクエストに前マーカーが戻らない |
+| `clear boundary manual compaction` | RPC `compact` を 2 通り。消した対話が要約範囲に残る場合と、境界より後ろの対話しかない場合 | 前者は肩代わりして要約 0 件、後者は肩代わりせず Pi 自身の要約ができる。pi が「Nothing to compact」「Already compacted」で断った場合は `not-run` |
+| `clear boundary fork` | 境界入りのセッションを `--session <file>` でシードし、RPC `fork` に境界より後の user entry を渡す | 新しい session ファイルになり、そのセッションのリクエストに前マーカーが戻らない |
+| `clear boundary tree move` | RPC にツリー移動の command は無いので、probe 拡張の `/compat-purpose-navigate <entryId>` から `ctx.navigateTree()` を呼ぶ | 境界より前へ leaf を移すと前マーカーがリクエストに復活する。docs の「境界より前に移るとフィルタが外れる」どおりの挙動 |
+| `clear boundary resume` | シードした session ファイルを `--session <file>` で別プロセスとして開き直す | 前マーカーがリクエストに出ない |
+
+シードは runner が決めたパスのセッションファイルに作るので、fork も resume も同じパスを指定して開き直す。`ctx.sessionManager.getSessionFile()` はセッションがまだファイルを持っていないと `undefined` を返すため、パスの根拠は runner 側になる。隔離 agent dir に session ファイルが増えるだけで、判定済みの既存 agent dir 不変の検査とは無関係である。RPC にも拡張 API にも操作が無い項目は `not-run` にし、観測のための足場を新しく作らない。

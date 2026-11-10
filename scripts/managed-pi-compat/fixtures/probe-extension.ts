@@ -113,17 +113,43 @@ function readDefaultKeys(pi: ExtensionAPI): Record<string, string | undefined> {
 	return {
 		defaultProvider: value(settings.defaultProvider),
 		defaultModel: value(settings.defaultModel),
+		defaultThinkingLevel: value(settings.defaultThinkingLevel),
 		role: value(models?.role),
 	};
 }
+
+/** How much of one entry's content the probe reports, enough to match a marker. */
+const BRANCH_TEXT_LIMIT = 240;
 
 /** Conversation, session ID, and TODO state, read through the dedicated Pi. */
 function readClearState(ctx: ExtensionCommandContext) {
 	const entries = ctx.sessionManager.getEntries();
 	return {
 		sessionId: ctx.sessionManager.getSessionId(),
+		sessionFile: ctx.sessionManager.getSessionFile() ?? undefined,
 		messageEntries: entries.filter((entry) => entry.type === "message").length,
 		todoEntries: entries.filter((entry) => entry.type === "custom" && entry.customType === TODO_ENTRY_TYPE).length,
+		// The branch, not the entry list: an observation that moves the leaf has to pick an entry that
+		// lies on the path the next request will read.
+		branch: ctx.sessionManager.getBranch().map((entry) => ({
+			id: entry.id ?? "",
+			type: entry.type,
+			...(entry.type === "custom" ? { customType: entry.customType } : {}),
+			role: (entry as { message?: { role?: unknown } }).message?.role,
+			text: JSON.stringify((entry as { message?: unknown }).message ?? entry.customType ?? "").slice(0, BRANCH_TEXT_LIMIT),
+		})),
+		// The compaction entries in the session, oldest first. `get_entries` over RPC leaves them out,
+		// so the summary and its author are read where they are written.
+		compactions: entries
+			.filter((entry) => entry.type === "compaction")
+			.map((entry) => {
+				const record = entry as unknown as { summary?: unknown; firstKeptEntryId?: unknown; fromHook?: unknown };
+				return {
+					summary: typeof record.summary === "string" ? record.summary : undefined,
+					firstKeptEntryId: typeof record.firstKeptEntryId === "string" ? record.firstKeptEntryId : undefined,
+					fromHook: typeof record.fromHook === "boolean" ? record.fromHook : undefined,
+				};
+			}),
 	};
 }
 
@@ -297,6 +323,31 @@ export default function probeExtension(pi: ExtensionAPI): void {
 			// reload this extension, and the state recorded before it must survive for the comparison.
 			const path = process.env[PURPOSE_ENV];
 			writeJson(path, { purposeStates: { ...readStoredStates(path), [label]: readClearState(ctx) } });
+		},
+	});
+
+	/**
+	 * Move the session leaf to one entry, through the extension API.
+	 *
+	 * RPC has no tree navigation command, so an observation of the branch below a point has to ask the
+	 * host to move it. The command records the move and the branch that follows it.
+	 */
+	pi.registerCommand("compat-purpose-navigate", {
+		description: "Move the session leaf to an entry and report the branch that follows",
+		handler: async (args: string, ctx: ExtensionCommandContext) => {
+			const targetId = args.trim();
+			const path = process.env[PURPOSE_ENV];
+			let moved = false;
+			let error: string | undefined;
+			try {
+				moved = (await ctx.navigateTree(targetId)).cancelled === false;
+			} catch (cause) {
+				error = cause instanceof Error ? cause.message : String(cause);
+			}
+			const state = readClearState(ctx);
+			writeJson(path, {
+				purposeStates: { ...readStoredStates(path), navigate: { ...state, targetId, moved, ...(error ? { error } : {}) } },
+			});
 		},
 	});
 

@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
 	buildObservationEvidence,
+	CLEAR_BOUNDARY_ITEMS,
 	COMPATIBILITY_MET_DEFINITION,
 	computeCompatibilityMet,
 	computeRunnerCompleted,
@@ -113,6 +114,14 @@ test("failed=0 does not imply compatibility", () => {
 	);
 	expect(results.some((result) => result.state === "failed")).toBe(false);
 	expect(computeCompatibilityMet("official", results)).toBe(false);
+});
+
+// The five boundary observations are what notices that a Pi update broke the clear filter, so an
+// official run that cannot confirm them must not claim compatibility.
+test("the clear boundary observations are required", () => {
+	for (const name of Object.values(CLEAR_BOUNDARY_ITEMS)) {
+		expect(REQUIRED_OBSERVATIONS).toContain(name);
+	}
 });
 
 test("write path and write-back are separate items", () => {

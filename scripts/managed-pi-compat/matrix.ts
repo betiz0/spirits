@@ -10,6 +10,14 @@
 /** Managed-route availability. `not-run` means nothing was observed on the dedicated Pi. */
 export type MatrixState = "available" | "limited" | "unavailable" | "not-run";
 
+/**
+ * The word an observation detail carries when an alternative served the purpose.
+ *
+ * A row says `available` whether pi's own `/model` answered or an extension command served the same
+ * purpose, so the detail has to name the alternative for the row to be readable.
+ */
+export const ALTERNATIVE_MARKER = "alternative";
+
 /** One purpose of a feature. This is the single source of the row wording. */
 export interface PurposeDefinition {
 	id: string;
@@ -125,6 +133,10 @@ export interface PurposeObservation {
 	purpose: string;
 	state: MatrixState;
 	detail?: string;
+	/** The mechanism that served the purpose, taken from the purpose definition. */
+	alternative?: string;
+	/** How the managed route differs from the default route, taken from the purpose definition. */
+	difference?: string;
 }
 
 /**
@@ -138,22 +150,38 @@ export function observePurpose(
 ): PurposeObservation {
 	const definition = PURPOSE_DEFINITIONS.find((entry) => entry.feature === feature && entry.id === purposeId);
 	if (!definition) throw new Error(`Unknown ${feature} purpose: ${purposeId}`);
-	return {
-		feature,
-		purposeId,
-		purpose: definition.purpose,
-		state: observation.observed ? (observation.state ?? "available") : "not-run",
-		...(observation.detail ? { detail: observation.detail } : {}),
-	};
+	return observePurposeState(
+		definition,
+		observation.observed ? (observation.state ?? "available") : "not-run",
+		observation.detail ?? "",
+	);
 }
 
-/** Build one observation from a state the harness actually measured. */
+/**
+ * Build one observation from a state the harness actually measured.
+ *
+ * The alternative and the difference travel with the observation, and the detail of an observed
+ * purpose names the alternative: without the marker a reader cannot tell pi's own surface from an
+ * extension command that serves the same purpose.
+ */
 export function observePurposeState(
 	definition: PurposeDefinition,
 	state: MatrixState,
 	detail: string,
 ): PurposeObservation {
-	return { feature: definition.feature, purposeId: definition.id, purpose: definition.purpose, state, detail };
+	const marked =
+		state !== "not-run" && definition.alternative !== undefined && !detail.includes(ALTERNATIVE_MARKER)
+			? `${ALTERNATIVE_MARKER} (${definition.alternative}): ${detail}`
+			: detail;
+	return {
+		feature: definition.feature,
+		purposeId: definition.id,
+		purpose: definition.purpose,
+		state,
+		...(marked ? { detail: marked } : {}),
+		...(definition.alternative ? { alternative: definition.alternative } : {}),
+		...(definition.difference ? { difference: definition.difference } : {}),
+	};
 }
 
 /** The `not-run` observation for a purpose the harness could not exercise, with the reason. */
@@ -295,7 +323,11 @@ export function modelPurposeObservations(attempt: ModelPurposeAttempt): PurposeO
 			? observePurposeState(
 					definitionFor("model", "thinking-level"),
 					"limited",
-					"the thinking level changed and was read back through the session runtime, not through the /model line",
+					[
+						"the thinking level changed through the session runtime instead of the one-line /model,",
+						"so the completion menu is missing; the RPC read-back answers only for the model,",
+						"which is why the level is confirmed by the following request rather than by a reply",
+					].join(" "),
 				)
 			: purposeNotRun(definitionFor("model", "thinking-level"), attempt.reason ?? "the thinking level was not read back changed"),
 		attempt.roleVocabulary?.observed === true
@@ -355,17 +387,25 @@ export function rolePurposeObservations(attempt: StrongPhaseAttempt): PurposeObs
 			routing,
 			`${attempt.reason ?? "the strong-phase or the plain request never reached the provider"}; no routing behaviour was observed`,
 		);
-	} else if (attempt.strongRequestModel === attempt.expectedStrongModel) {
+	} else if (attempt.strongRequestModel !== attempt.expectedStrongModel) {
+		// The purpose is to route strong work away from the plain model, so a strong-phase request that
+		// stayed on the plain model is a purpose that was not served, not a partial success.
 		routingObservation = observePurposeState(
 			routing,
-			attempt.normalRequestModel === attempt.expectedNormalModel ? "available" : "limited",
+			"unavailable",
+			`the strong-phase request ran on ${attempt.strongRequestModel}, expected ${attempt.expectedStrongModel}`,
+		);
+	} else if (attempt.normalRequestModel === attempt.expectedNormalModel) {
+		routingObservation = observePurposeState(
+			routing,
+			"available",
 			`the plain request ran on ${attempt.normalRequestModel} and the strong-phase request on ${attempt.strongRequestModel}`,
 		);
 	} else {
 		routingObservation = observePurposeState(
 			routing,
 			"limited",
-			`the strong-phase request ran on ${attempt.strongRequestModel}, expected ${attempt.expectedStrongModel}`,
+			`the strong phase routed to ${attempt.strongRequestModel} but the plain request ran on ${attempt.normalRequestModel} too, so the two phases are not distinguishable by model`,
 		);
 	}
 	const vocabulary = definitionFor("role", "model-role-vocabulary");
@@ -418,11 +458,42 @@ export function matrixRows(feature: MatrixRow["feature"], observations: readonly
 	return deriveRows(observations).filter((row) => row.feature === feature);
 }
 
-/** Validate that unavailable rows name an alternative and difference. */
+/** A difference that names nothing the user can see, as written in the purpose definitions. */
+const NO_VISIBLE_DIFFERENCE = /^none\b/i;
+
+/**
+ * Validate the recorded matrix.
+ *
+ * Every observed row has to name the mechanism that served the purpose and how it differs, because
+ * a row that reads only "available" hides an alternative implementation. `limited` additionally has
+ * to name a difference a user sees: a constraint of the observing harness belongs in the
+ * observation detail, and an unobservable purpose belongs in `not-run`.
+ */
 export function validateMatrix(rows: readonly MatrixRow[]): void {
 	for (const row of rows) {
-		if (row.state === "unavailable" && (!row.alternative || !row.difference)) {
-			throw new Error(`Unavailable matrix row for ${row.feature} needs an alternative and difference.`);
+		if (row.state === "not-run") continue;
+		if (!row.alternative || !row.difference) {
+			throw new Error(
+				`Matrix row ${row.feature}/${row.id} was observed as ${row.state} without an alternative and a difference.`,
+			);
+		}
+		if (row.state === "limited" && NO_VISIBLE_DIFFERENCE.test(row.difference)) {
+			throw new Error(
+				`Limited matrix row ${row.feature}/${row.id} names no difference a user sees: ${row.difference}`,
+			);
+		}
+	}
+}
+
+/** Validate that every observed purpose detail names the alternative that served it. */
+export function validatePurposeObservations(observations: readonly PurposeObservation[]): void {
+	for (const observation of observations) {
+		if (observation.state === "not-run") continue;
+		if (definitionFor(observation.feature, observation.purposeId).alternative === undefined) continue;
+		if (!observation.detail?.includes(ALTERNATIVE_MARKER)) {
+			throw new Error(
+				`Purpose observation ${observation.feature}/${observation.purposeId} does not name the alternative it used.`,
+			);
 		}
 	}
 }

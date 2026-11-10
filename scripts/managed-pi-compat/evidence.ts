@@ -133,6 +133,20 @@ export interface CompatEvidence {
 }
 
 /**
+ * Names of the five `/spirits-clear` boundary items.
+ *
+ * They live with the required-observation list because that list, the evidence map, and the runner
+ * have to name the same items.
+ */
+export const CLEAR_BOUNDARY_ITEMS = {
+	automaticCompaction: "clear boundary automatic compaction",
+	manualCompaction: "clear boundary manual compaction",
+	fork: "clear boundary fork",
+	treeMove: "clear boundary tree move",
+	resume: "clear boundary resume",
+} as const;
+
+/**
  * Observations that must be `confirmed` before an official run may claim compatibility. A missing
  * or limited item makes `compatibilityMet` false even when `failed=0`.
  *
@@ -162,6 +176,11 @@ export const REQUIRED_OBSERVATIONS: readonly string[] = [
 	"data read compatibility",
 	"dedicated Pi write path",
 	"role/clear/model matrix",
+	CLEAR_BOUNDARY_ITEMS.automaticCompaction,
+	CLEAR_BOUNDARY_ITEMS.manualCompaction,
+	CLEAR_BOUNDARY_ITEMS.fork,
+	CLEAR_BOUNDARY_ITEMS.treeMove,
+	CLEAR_BOUNDARY_ITEMS.resume,
 	"existing agent dir untouched",
 ];
 
@@ -193,6 +212,16 @@ export const OBSERVATION_EVIDENCE: Readonly<Record<string, string>> = {
 	"dedicated Pi write path": "session, model, and thinking level were written and read back through the dedicated Pi",
 	"existing agent dir write-back compatibility": "a write through the dedicated Pi was proven to land in an existing agent dir copy",
 	"role/clear/model matrix": "each role/clear/model purpose came from a dedicated-Pi behaviour observation",
+	[CLEAR_BOUNDARY_ITEMS.automaticCompaction]:
+		"a compaction written after the boundary carries the clear note and the extension hook, in 0 summarization requests, and the following request omits the cleared marker",
+	[CLEAR_BOUNDARY_ITEMS.manualCompaction]:
+		"a manual compaction whose span holds cleared conversation is taken over in 0 summarization requests, and a clean span keeps pi's own summary in at least one",
+	[CLEAR_BOUNDARY_ITEMS.fork]:
+		"the fork created another session file and its request carried the kept conversation without the cleared marker",
+	[CLEAR_BOUNDARY_ITEMS.treeMove]:
+		"the extension API moved the leaf to before the boundary and the cleared marker came back into the request",
+	[CLEAR_BOUNDARY_ITEMS.resume]:
+		"the session reopened in another process sent a request that still left the cleared marker out",
 	"direct execute probe is auxiliary": "the managed tool inventory showed tsrepl; a direct execute would report bypassedPiHooks",
 	"settings write compatibility": "a persistent settings write through the Pi extension API was attempted and read back",
 };

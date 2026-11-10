@@ -57,6 +57,12 @@ OpenSpec の変更について、実装が change の成果物（specs, tasks, d
 
 **verify1 のレポートは読まずに行う。**
 
+### B-0. OpenSpec の strict 検証
+
+- 対象の変更に対して `openspec validate <change> --strict` を実行し、結果をレポートに記録する。
+- 失敗は CRITICAL。归档すると失敗した内容が本仕様へそのまま入るため、他の観点の結果を待たずに確定してよい。
+- 成果物が揃っていて strict が通る場合も、実行したコマンドと成功した事実を記録する（実行していない検証を「通った」と書かない）。
+
 ### B-1. テストの実行
 
 - 全テストを実行し、失敗をすべて記録する。
@@ -159,7 +165,7 @@ verify1 のレポートが渡されていれば、ここで初めて読む。渡
 前回の verify2 レポートが渡された場合に使う。
 
 1. Phase A を行う。
-2. B-1（全テストと `must` 規約の検査の実行）を行う。
+2. B-0（`openspec validate <change> --strict`）と B-1（全テストと `must` 規約の検査の実行）を行う。
 3. 前回の CRITICAL・WARNING・SPEC を一件ずつ再検証し、解消・未解消・悪化のいずれかを記す。
 4. 前回レポートに記録した HEAD からの差分（`git diff <前回の HEAD>` と未追跡ファイル）で変わったファイルについて、B-2〜B-7 を行う。
    - 前回の検証が未コミット状態で行われていた場合は、差分の範囲を確定できないので、全体を検証し直す。
@@ -168,6 +174,7 @@ verify1 のレポートが渡されていれば、ここで初めて読む。渡
 ## 重大度
 
 **CRITICAL**（archive 前に必ず修正）
+- `openspec validate <change> --strict` の失敗
 - テストの失敗、`must` 規約の検査の失敗
 - 要件・シナリオの意図からの乖離
 - 未完了のタスク、実装が見つからない完了済みタスク
@@ -206,6 +213,8 @@ verify1 のレポートが渡されていれば、ここで初めて読む。渡
 
 archive に進めるのは PASS と PASS WITH WARNINGS のときだけ。verify1 の「Ready for archive」は参考扱いとする。
 
+判定を下す前に B-0 の `openspec validate <change> --strict` を実行済みでなければならない。実行していない判定は archive 不可とする。
+
 ## 出力形式
 
 ```markdown
@@ -213,6 +222,7 @@ archive に進めるのは PASS と PASS WITH WARNINGS のときだけ。verify1
 
 - 検証対象: <基点コミット>..<HEAD のコミット>（未コミット変更: あり / なし）
 - テストコマンド: <command>
+- strict 検証: `openspec validate <change> --strict`（成功 / 失敗）
 - 規約正本: <path / なし>（基点からの変更: あり / なし）
 - verify1 レポート: <path / なし>
 - モード: 通常 / 再検証（前回レポート: <path>）
@@ -223,6 +233,7 @@ archive に進めるのは PASS と PASS WITH WARNINGS のときだけ。verify1
 ### 集計
 | 観点 | 結果 |
 |---|---|
+| strict 検証 | 成功 / 失敗 |
 | テスト | 成功 X / 失敗 Y |
 | 規約検査 | 成功 X / 失敗 Y（正本なしの場合は「省略」） |
 | 要件 | 意図どおり M / 全 N |

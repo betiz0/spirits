@@ -3,6 +3,14 @@
 対象: `feat/add-managed-pi-route` / 公式 Pi 1.5.0 (`v1.5.0` = `f9a2636`)
 この文書は調査と設計提案のみ。実装・ハーネス拡張・OpenSpec change・commit は行っていない。
 
+**書かれた時点からの状態**。本文は書き換え禁止なので、ここだけ最新の対応状況を書く。
+
+| change | 状態 | この文書の提案との差 |
+|---|---|---|
+| `fix-managed-rlm-child-model` | archive 済み (`35595d326`) | §4 の方式どおり。子のモデルは親側で決め、`rlm_usage` に実際に渡したモデルを記録した |
+| `add-managed-spirits-commands` | archive 済み (`2b307337e`) | §2 の 9 目的を拡張側で実装 (`5d1b0a09d`)。設定は Pi の `settings.json` へ key lock で書く (§3 案 A 相当)。`/spirits-clear` は compaction 乗っ取り単独では成立しない (Nothing to compact / Already compacted で hook が発火しない) ため、`spirits_clear` 境界 entry + `context` handler + `session_before_compact` の併用にした。代替扱いの目的は `unavailable` ではなく `alternative` / `difference` を持つ行として残した |
+| `harden-managed-commands` | 進行中 | 代替手段で満たした行の記載、`limited` の意味、`/spirits-clear` の境界の後を追う観測項目を締める |
+
 ---
 
 ## 0. 前提の確認（実測ではなくコードで確認した事実）

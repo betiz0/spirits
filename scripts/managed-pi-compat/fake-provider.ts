@@ -25,6 +25,16 @@ export interface FakeProviderResult {
 	rawResponse: unknown;
 }
 
+/** The context size a reply reports, which is what pi measures an automatic compaction against. */
+export interface FakeUsage {
+	prompt_tokens: number;
+	completion_tokens: number;
+	total_tokens: number;
+}
+
+/** Usage a plain text reply reports unless the fixture asks for another size. */
+const DEFAULT_USAGE: FakeUsage = { prompt_tokens: 2, completion_tokens: 2, total_tokens: 4 };
+
 /** One reply the fake endpoint can produce for a request. */
 export type FakeReply =
 	| { kind: "tool-call"; toolCall?: FakeToolCall; delayMs?: number }
@@ -74,6 +84,14 @@ export interface FakeProviderOptions {
 	 * answers the parent with a tool call and the child with plain text.
 	 */
 	reply?: (body: unknown) => FakeReply;
+	/**
+	 * Report the context size for a plain text reply.
+	 *
+	 * Pi decides an automatic compaction from the usage a reply carries, so a fixture that wants the
+	 * compaction to land at a chosen point grows the reported usage there. Tool-call replies keep the
+	 * small usage the rlm items depend on.
+	 */
+	usage?: (body: unknown) => FakeUsage;
 }
 
 interface ChatMessage {
@@ -139,21 +157,16 @@ function toolCallEvents(toolCall: FakeToolCall, chunks: number): string[] {
 	return events;
 }
 
-function finalAnswerEvents(answer: string): string[] {
+function finalAnswerEvents(answer: string, usage: FakeUsage): string[] {
 	return [
 		chunk("fake-final-1", { role: "assistant", content: "" }, null),
 		chunk("fake-final-2", { content: answer }, null),
-		chunk(
-			"fake-final-3",
-			{},
-			"stop",
-			{ prompt_tokens: 2, completion_tokens: 2, total_tokens: 4 },
-		),
+		chunk("fake-final-3", {}, "stop", usage),
 	];
 }
 
 /** Non-streaming body of a plain text completion. */
-function completionJson(answer: string, finishReason: string): unknown {
+function completionJson(answer: string, finishReason: string, usage: FakeUsage): unknown {
 	return {
 		id: "fake-completion-final",
 		object: "chat.completion",
@@ -166,7 +179,7 @@ function completionJson(answer: string, finishReason: string): unknown {
 				finish_reason: finishReason,
 			},
 		],
-		usage: { prompt_tokens: 2, completion_tokens: 2, total_tokens: 4 },
+		usage,
 	};
 }
 
@@ -253,6 +266,7 @@ export function startFakeProvider(
 				});
 			}
 			const reply = options.reply?.(body);
+			const usage = options.usage?.(body) ?? DEFAULT_USAGE;
 			const delayMs = reply?.delayMs ?? options.delayMs;
 			record.kind = reply ? reply.kind : "tool-call";
 			record.delayMs = delayMs;
@@ -277,20 +291,22 @@ export function startFakeProvider(
 				const call = reply.kind === "tool-call" ? (reply.toolCall ?? toolCall) : undefined;
 				if (stream) {
 					return sseResponse(
-						answer !== undefined ? finalAnswerEvents(answer) : toolCallEvents(call as FakeToolCall, options.toolCallChunks ?? 1),
+						answer !== undefined
+							? finalAnswerEvents(answer, usage)
+							: toolCallEvents(call as FakeToolCall, options.toolCallChunks ?? 1),
 						written,
 					);
 				}
 				written();
 				if (answer !== undefined) {
-					return Response.json(completionJson(answer, "stop"));
+					return Response.json(completionJson(answer, "stop", usage));
 				}
 				return Response.json(toolCallJson(call as FakeToolCall));
 			}
 			if (stream) {
 				return sseResponse(
 					wantsFinalAnswer
-						? finalAnswerEvents(options.finalAnswerAfterToolResult as string)
+						? finalAnswerEvents(options.finalAnswerAfterToolResult as string, usage)
 						: toolCallEvents(toolCall, options.toolCallChunks ?? 1),
 					written,
 				);
