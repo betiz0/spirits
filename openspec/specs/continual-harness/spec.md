@@ -219,7 +219,6 @@
 システムは codemode ツール `spirits_skill_save` を提供し、`name` / `description` / `body` を受け取らなければならない。(SHALL)
 保存先はエージェントディレクトリ配下の `skills/<name>/SKILL.md` とし、`name` と `description` だけを持つ frontmatter と `body` から成る Agent Skills 形式で書かなければならない。(SHALL)
 `description` は、改行、`: `、`#`、引用符を含んでいても、frontmatter を YAML として読んだときに元の文字列と一致し、ほかのキーを生じさせない形で書かなければならない。(SHALL)
-保存先ディレクトリが無ければ作成し、同名スキルが存在する場合は上書きしなければならない。ただし、書き込み先の実体が `<agentDir>/bundled-skills/` 配下にある場合(`skills/<name>` が同梱ディレクトリを指す symlink である場合など)は、保存せずにエラーとし、リンク先のファイルを変更してはならない。この判定は、`<agentDir>` 自体が symlink を経由するパスや相対パスで与えられる場合にも成り立たなければならない。書き込み先がまだ存在しない場合(`skills/` 自体が同梱ディレクトリへの symlink である状態で新しい名前を保存する場合など)も、作成されることになる場所の実体で判定しなければならない。(SHALL)
 成功時は、保存先パスと、スキルの変更が次のセッションまたは `/reload` から有効になる旨を含む確認を返さなければならない。(SHALL)
 
 #### Scenario: スキルの作成
@@ -237,6 +236,9 @@
 #### Scenario: 保存結果の案内
 - **WHEN** `spirits_skill_save` を実行する
 - **THEN** 結果に保存先パスと `/reload` が含まれる
+
+### Requirement: 同梱スキルへの保存の拒否
+保存先ディレクトリが無ければ作成し、同名スキルが存在する場合は上書きしなければならない。ただし、書き込み先の実体が `<agentDir>/bundled-skills/` 配下にある場合(`skills/<name>` が同梱ディレクトリを指す symlink である場合など)は、保存せずにエラーとし、リンク先のファイルを変更してはならない。この判定は、`<agentDir>` 自体が symlink を経由するパスや相対パスで与えられる場合にも成り立たなければならない。書き込み先がまだ存在しない場合(`skills/` 自体が同梱ディレクトリへの symlink である状態で新しい名前を保存する場合など)も、作成されることになる場所の実体で判定しなければならない。(SHALL)
 
 #### Scenario: 同梱ディレクトリへの symlink の拒否
 - **WHEN** `skills/<name>` が `<agentDir>/bundled-skills/` 配下のディレクトリへの symlink である状態で `spirits_skill_save` を実行する

@@ -73,7 +73,6 @@ OpenSpec ワークフローのリクエストを normal と strong の 2 ロー�
 ### Requirement: strong フェーズの開始
 システムは、対象スキル（`sprt-opsx-review-change` と `sprt-opsx-verify-deep`）の起動を、スキル名がその名前に一致するスラッシュコマンド入力として受け取ったとき、strong フェーズへ遷移しなければならない。(SHALL) スキル名の範囲は、Pi がスキルコマンドを展開するときと同じく、最初の半角スペースまたは入力の終わりまでとする。
 対象スキル以外の起動、Pi がスキルとして展開しない入力、およびモデルが SKILL.md を読み取っただけの場合は遷移してはならない。(SHALL)
-システムは、run の実行中でないときに対象スキル以外の入力を受け取った場合、ロールをセッションがロックしているロールにしなければならない。(MUST) 対象スキルの入力の後に run が始まらなかった場合も、システムは strong フェーズを次の run へ持ち越してはならない。(MUST) ただし利用者が strong をロックしている場合、次の run はロックされた strong で走る。run の実行中に steer や follow-up として受け取った入力では、フェーズを変えない。run の実行中に `/model` でロールが指定された場合は、strong フェーズの途中でも `/model によるロールのロック` に従う。
 
 #### Scenario: 起動後の最初のリクエストは strong
 - **GIVEN** `spirits/auto` が選択され、strong の対象が設定されている
@@ -92,6 +91,9 @@ OpenSpec ワークフローのリクエストを normal と strong の 2 ロー�
 - **GIVEN** 入力なしにモデルが SKILL.md を読み取った
 - **WHEN** 同じ run の次のリクエストを受ける
 - **THEN** normal の対象モデルへルートする
+
+### Requirement: strong フェーズの維持と解除
+システムは、run の実行中でないときに対象スキル以外の入力を受け取った場合、ロールをセッションがロックしているロールにしなければならない。(MUST) 対象スキルの入力の後に run が始まらなかった場合も、システムは strong フェーズを次の run へ持ち越してはならない。(MUST) ただし利用者が strong をロックしている場合、次の run はロックされた strong で走る。run の実行中に steer や follow-up として受け取った入力では、フェーズを変えない。run の実行中に `/model` でロールが指定された場合は、strong フェーズの途中でも `/model によるロールのロック` に従う。
 
 #### Scenario: 始まらなかったスキル実行を持ち越さない
 - **GIVEN** strong をロックしておらず、`/skill:sprt-opsx-verify-deep` を送ったが、認証エラーなどで run が始まらなかった
