@@ -2,7 +2,7 @@
 
  managed 経路は公式 Pi の artifact をそのまま使い、Pi の JS ソースに手を入れない(P-SOURCE 0)。よって拡張 API の欠落は上流へ上げるしかない。以下は投稿用に書いた下書きで、**この変更では投稿しない**。投稿する場合は対象版を最新のリリースに合わせ直す。
 
-背景の測定値は [spirits-managed-pi.md](spirits-managed-pi.md) と [openspec/changes/add-managed-spirits-commands](../openspec/changes/add-managed-spirits-commands/design.md) にある。どちらも公式 Pi 1.5.0 で実測した。
+背景の測定値は [spirits-managed-pi.md](spirits-managed-pi.md) と [add-managed-spirits-commands の design](../openspec/changes/archive/2026-11-10-add-managed-spirits-commands/design.md) にある。どちらも公式 Pi 1.5.0 で実測した。
 
 ## PA: `ExtensionContext` に `modelRuntime` を露出する
 

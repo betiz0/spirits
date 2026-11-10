@@ -146,7 +146,7 @@ host の実体を bundle に含めないのは、rlm の子セッションが親
 
 境界はリクエストに載る会話だけを削り、session ファイルは書き換えない。だから 3 つの場所で「消えたはずの会話」が再び効いてくる。
 
-- **使用量の推定と自動 compaction の発火タイミング**。`getContextUsage()` の token 推定と閾値判定は `context` イベントを通らない。境界より前のメッセージは pi がビルドする元の context のまま計上されるので、`/spirits-clear` の直後は使用量が減って見えやすく、自動 compaction も消す前の会話量で測ったタイミングで発火する。リクエスト自体は境界より後だけを送り続けている。引き取った compaction は `firstKeptEntryId` を境界に置くため、その 1 回のあとから推算も境界より後だけで測られる(前提確認 `evidence/precondition-results.json` の `B(b).automatic-compaction-fired` と `B(b).projection-shrinks-after-the-intercepted-compaction`)。
+- **使用量の推定と自動 compaction の発火タイミング**。`getContextUsage()` の token 推定と閾値判定は `context` イベントを通らない。境界より前のメッセージは pi がビルドする元の context のまま計上されるので、`/spirits-clear` の直後は使用量が減って見えやすく、自動 compaction も消す前の会話量で測ったタイミングで発火する。リクエスト自体は境界より後だけを送り続けている。引き取った compaction は `firstKeptEntryId` を境界に置くため、その 1 回のあとから推算も境界より後だけで測られる(前提確認 [precondition-results.json](../openspec/changes/archive/2026-11-10-add-managed-spirits-commands/evidence/precondition-results.json) の `B(b).automatic-compaction-fired` と `B(b).projection-shrinks-after-the-intercepted-compaction`)。
 - **`/tree` で境界より前のノードに移ったとき**。フィルタは現在枝上の最新境界を見るので、境界より前を指すとそこまでの会話が再び context に載る。境界より後ろへ移れば効いたままだ。
 - **fork をまたいだとき**。管理経路が内部で使う fork は全 entry をコピーするので境界も引き継がれる。同じ session を fork 経路(拡張に `registerModelRoles` がある経路)で開くと、その session で managed の `context` handler は登録されず、消した会話が載り返す。fork 経路自身に `/clear` 相当の機構がないため、境界をまたいで fork 経路に持ち込んだ session をそのまま続けることは移行条件として要求しない。
 
