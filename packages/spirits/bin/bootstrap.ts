@@ -83,6 +83,8 @@ if (managed.kind !== "none") {
 		root: managedRoot(homedir()),
 		fetch,
 		home: homedir(),
+		// `install`/`update` resolve the manifest of this binary's own release.
+		version: resolveSpiritsVersion(),
 	});
 	process.exit(exitCode);
 }

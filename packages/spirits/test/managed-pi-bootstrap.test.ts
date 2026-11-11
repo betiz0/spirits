@@ -55,6 +55,7 @@ async function launch(
 		root: value.root,
 		fetch,
 		home: value.home,
+		version: "0.1.0",
 		io: { out: () => {}, err: (line) => errors.push(line) },
 		spawn: async (spawned) => {
 			request = spawned;

@@ -23,7 +23,7 @@
  */
 
 import { chmod, copyFile, lstat, mkdir, readlink, readdir, realpath, rename, rm, symlink, writeFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { AGENT_BACKUP_DIR_PREFIX, AGENT_BACKUP_TEMP_SUFFIX } from "../constants.ts";
 import type { ManagedIo } from "./install.ts";
 
@@ -71,14 +71,26 @@ export interface BackupAgentDirOptions {
 	pid?: number;
 }
 
-/** Record written to the managed root once a backup has been handled. */
-interface AgentBackupState {
-	schemaVersion: 1;
+/** One handled agent directory inside the record. */
+interface AgentBackupRecord {
 	at: string;
 	agentDir: string;
 	reason: AgentBackupResult["reason"];
 	destination?: string;
 	byteSize: number;
+}
+
+/**
+ * Record written to the managed root, one entry per agent directory.
+ *
+ * Entries are keyed by the agent directory's entity path (`realpath`), so pointing
+ * `SPIRITS_CODING_AGENT_DIR` at a different directory takes that directory's first backup instead
+ * of being skipped because some other directory was already handled. A directory that does not
+ * exist yet is keyed by its resolved path (there is no entity to resolve).
+ */
+interface AgentBackupStateFile {
+	schemaVersion: 2;
+	directories: Record<string, AgentBackupRecord>;
 }
 
 function isMissing(error: unknown): boolean {
@@ -117,7 +129,44 @@ async function exists(path: string): Promise<boolean> {
 	}
 }
 
-async function readState(statePath: string): Promise<AgentBackupState | undefined> {
+/** Entity path of an agent directory; resolved path when the directory does not exist yet. */
+async function agentDirKey(agentDir: string): Promise<string> {
+	try {
+		return await realpath(agentDir);
+	} catch {
+		return resolve(agentDir);
+	}
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function asRecord(value: unknown, path: string): AgentBackupRecord {
+	if (!isRecord(value) || typeof value.at !== "string" || typeof value.agentDir !== "string") {
+		throw new Error(`The backup record at ${path} has an entry without at or agentDir.`);
+	}
+	const reason = value.reason;
+	if (reason !== "backed-up" && reason !== "already-recorded" && reason !== "missing-agent-dir") {
+		throw new Error(`The backup record at ${path} has an unknown reason: ${String(reason)}.`);
+	}
+	return {
+		at: value.at,
+		agentDir: value.agentDir,
+		reason,
+		destination: typeof value.destination === "string" ? value.destination : undefined,
+		byteSize: typeof value.byteSize === "number" ? value.byteSize : 0,
+	};
+}
+
+/**
+ * Read the record as the per-agent-directory form.
+ *
+ * The schemaVersion 1 record held a single handled agent directory. It migrates to an entry under
+ * that directory's entity path, so an environment that already took its first backup keeps it and
+ * only takes new backups for directories it has not handled.
+ */
+async function readState(statePath: string): Promise<AgentBackupStateFile | undefined> {
 	const text = await readFileOrUndefined(statePath).catch((error: unknown) => {
 		throw new Error(`Could not read the backup record at ${statePath}: ${errorMessage(error)}`);
 	});
@@ -130,14 +179,20 @@ async function readState(statePath: string): Promise<AgentBackupState | undefine
 			`The backup record at ${statePath} is not valid JSON, so no backup was taken: ${errorMessage(error)}`,
 		);
 	}
-	if (typeof parsed !== "object" || parsed === null) {
+	if (!isRecord(parsed)) {
 		throw new Error(`The backup record at ${statePath} is not an object, so no backup was taken.`);
 	}
-	const state = parsed as Partial<AgentBackupState>;
-	if (state.schemaVersion !== 1 || typeof state.reason !== "string") {
-		throw new Error(`The backup record at ${statePath} has an unknown schemaVersion or reason.`);
+	if (parsed.schemaVersion === 2 && isRecord(parsed.directories)) {
+		const directories: Record<string, AgentBackupRecord> = {};
+		for (const [key, entry] of Object.entries(parsed.directories)) directories[key] = asRecord(entry, statePath);
+		return { schemaVersion: 2, directories };
 	}
-	return state as AgentBackupState;
+	if (parsed.schemaVersion === 1) {
+		const legacy = asRecord(parsed, statePath);
+		const key = await agentDirKey(legacy.agentDir);
+		return { schemaVersion: 2, directories: { [key]: legacy } };
+	}
+	throw new Error(`The backup record at ${statePath} has an unknown schemaVersion or reason.`);
 }
 
 async function readFileOrUndefined(path: string): Promise<string | undefined> {
@@ -254,17 +309,18 @@ const DEFAULT_IO: ManagedIo = {
 export async function backupAgentDirOnce(options: BackupAgentDirOptions): Promise<AgentBackupResult> {
 	const io = options.io ?? DEFAULT_IO;
 	const now = options.now ?? new Date();
-	const existing = await readState(options.statePath);
-	if (existing !== undefined) {
+	const key = await agentDirKey(options.agentDir);
+	const existing = (await readState(options.statePath)) ?? { schemaVersion: 2 as const, directories: {} };
+	if (existing.directories[key] !== undefined) {
 		return { reason: "already-recorded", byteSize: 0, fileCount: 0, links: [], skipped: [] };
 	}
 	if (!(await exists(options.agentDir))) {
 		await writeState(options.statePath, {
-			schemaVersion: 1,
-			at: now.toISOString(),
-			agentDir: options.agentDir,
-			reason: "missing-agent-dir",
-			byteSize: 0,
+			schemaVersion: 2,
+			directories: {
+				...existing.directories,
+				[key]: { at: now.toISOString(), agentDir: options.agentDir, reason: "missing-agent-dir", byteSize: 0 },
+			},
 		});
 		const result: AgentBackupResult = { reason: "missing-agent-dir", byteSize: 0, fileCount: 0, links: [], skipped: [] };
 		report(result, io);
@@ -284,12 +340,17 @@ export async function backupAgentDirOnce(options: BackupAgentDirOptions): Promis
 		throw error instanceof Error ? error : new Error(String(error));
 	}
 	await writeState(options.statePath, {
-		schemaVersion: 1,
-		at: now.toISOString(),
-		agentDir: options.agentDir,
-		reason: "backed-up",
-		destination: finalPath,
-		byteSize: totals.byteSize,
+		schemaVersion: 2,
+		directories: {
+			...existing.directories,
+			[key]: {
+				at: now.toISOString(),
+				agentDir: options.agentDir,
+				reason: "backed-up",
+				destination: finalPath,
+				byteSize: totals.byteSize,
+			},
+		},
 	});
 	const result: AgentBackupResult = {
 		reason: "backed-up",
@@ -303,7 +364,7 @@ export async function backupAgentDirOnce(options: BackupAgentDirOptions): Promis
 	return result;
 }
 
-async function writeState(statePath: string, state: AgentBackupState): Promise<void> {
+async function writeState(statePath: string, state: AgentBackupStateFile): Promise<void> {
 	await mkdir(join(statePath, ".."), { recursive: true, mode: 0o700 }).catch(() => {});
 	try {
 		await writeFile(statePath, `${JSON.stringify(state, null, "\t")}\n`);

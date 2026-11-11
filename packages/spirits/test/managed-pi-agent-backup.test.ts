@@ -98,9 +98,10 @@ test("copies the agent directory once and records the copy", async () => {
 	expect(await readFile(join(first.destination as string, "sessions", "a.jsonl"), "utf8")).toBe("{}\n");
 	expect(await fixture.backups()).toEqual([`${AGENT_BACKUP_DIR_PREFIX}2026-11-10T09-12-33Z`]);
 
+	// The record is keyed by the agent directory's entity path, one entry per directory.
 	const state = JSON.parse(await readFile(fixture.statePath, "utf8"));
-	expect(state).toMatchObject({
-		schemaVersion: 1,
+	expect(state.schemaVersion).toBe(2);
+	expect(state.directories[await realpath(fixture.agentDir)]).toMatchObject({
 		at: "2026-11-10T09:12:33.000Z",
 		agentDir: fixture.agentDir,
 		reason: "backed-up",
@@ -183,7 +184,9 @@ test("reports an absent agent directory without creating a backup", async () => 
 	expect(result.destination).toBeUndefined();
 	expect(fixture.out.join("\n")).toContain("No agent directory to back up yet");
 	await expect(fixture.backups()).resolves.toEqual([]);
-	expect(JSON.parse(await readFile(fixture.statePath, "utf8"))).toMatchObject({ reason: "missing-agent-dir" });
+	// The directory does not exist yet, so the entry is keyed by its resolved path.
+	const recorded = JSON.parse(await readFile(fixture.statePath, "utf8"));
+	expect(recorded.directories[fixture.agentDir]).toMatchObject({ reason: "missing-agent-dir" });
 
 	// The record is what keeps the next launch from copying, so an agent dir created later is not
 	// backed up either: one record, one handling.
@@ -230,9 +233,85 @@ test("refuses to run on a record it cannot read", async () => {
 	await expect(fixture.run()).rejects.toThrow(/not valid JSON/);
 	await expect(fixture.backups()).resolves.toEqual([]);
 
-	await writeFile(fixture.statePath, JSON.stringify({ schemaVersion: 2, reason: "backed-up" }));
+	await writeFile(fixture.statePath, JSON.stringify({ schemaVersion: 3, reason: "backed-up" }));
 	await expect(fixture.run()).rejects.toThrow(/unknown schemaVersion/);
 	await expect(fixture.backups()).resolves.toEqual([]);
+});
+
+test("backs up each agent directory once", async () => {
+	// `SPIRITS_CODING_AGENT_DIR` pointing at another directory is another first launch: that
+	// directory gets its own backup, and neither one silences the other.
+	const fixture = await makeBackupFixture();
+	const secondDir = join(fixture.agentDir, "..", "other-agent");
+	await mkdir(fixture.agentDir, { recursive: true });
+	await writeFile(join(fixture.agentDir, "settings.json"), '{"which":"first"}\n');
+	await mkdir(secondDir, { recursive: true });
+	await writeFile(join(secondDir, "settings.json"), '{"which":"second"}\n');
+
+	const runFor = (agentDir: string, now = NOW) =>
+		backupAgentDirOnce({
+			agentDir,
+			backupsDir: fixture.backupsDir,
+			statePath: fixture.statePath,
+			now,
+			pid: 4242,
+			io: { out: () => {}, err: () => {} },
+		});
+
+	const NOW2 = new Date("2026-11-11T10:00:00.000Z");
+	expect((await runFor(fixture.agentDir)).reason).toBe("backed-up");
+	// A second launch with the same directory does not copy again, even at a later timestamp.
+	expect((await runFor(fixture.agentDir)).reason).toBe("already-recorded");
+	expect((await runFor(secondDir, NOW2)).reason).toBe("backed-up");
+	expect((await runFor(secondDir, NOW2)).reason).toBe("already-recorded");
+
+	// Both directories are recorded, each with its own copy.
+	const state = JSON.parse(await readFile(fixture.statePath, "utf8"));
+	expect(Object.keys(state.directories).sort()).toEqual(
+		[await realpath(fixture.agentDir), await realpath(secondDir)].sort(),
+	);
+	await expect(fixture.backups()).resolves.toEqual([
+		`${AGENT_BACKUP_DIR_PREFIX}2026-11-10T09-12-33Z`,
+		`${AGENT_BACKUP_DIR_PREFIX}2026-11-11T10-00-00Z`,
+	]);
+});
+
+test("migrates the single-agent-directory record", async () => {
+	const fixture = await makeBackupFixture();
+	await mkdir(fixture.agentDir, { recursive: true });
+	await writeFile(join(fixture.agentDir, "settings.json"), "{}\n");
+	// The schemaVersion 1 record: one handled agent directory, no per-directory map.
+	await mkdir(join(fixture.statePath, ".."), { recursive: true });
+	await writeFile(
+		fixture.statePath,
+		JSON.stringify({
+			schemaVersion: 1,
+			at: "2026-11-09T00:00:00.000Z",
+			agentDir: fixture.agentDir,
+			reason: "backed-up",
+			destination: join(fixture.backupsDir, "agent-2026-11-09T00-00-00Z"),
+			byteSize: 3,
+		}),
+	);
+
+	// The recorded directory stays handled; a different directory is still a first launch.
+	expect((await fixture.run()).reason).toBe("already-recorded");
+	const secondDir = join(fixture.agentDir, "..", "other-agent");
+	await mkdir(secondDir, { recursive: true });
+	const migrated = await backupAgentDirOnce({
+		agentDir: secondDir,
+		backupsDir: fixture.backupsDir,
+		statePath: fixture.statePath,
+		now: NOW,
+		pid: 4242,
+		io: { out: () => {}, err: () => {} },
+	});
+	expect(migrated.reason).toBe("backed-up");
+
+	const state = JSON.parse(await readFile(fixture.statePath, "utf8"));
+	expect(state.schemaVersion).toBe(2);
+	expect(state.directories[await realpath(fixture.agentDir)]).toMatchObject({ reason: "backed-up" });
+	expect(state.directories[await realpath(secondDir)]).toMatchObject({ reason: "backed-up" });
 });
 
 test("reports special entries instead of copying them", async () => {

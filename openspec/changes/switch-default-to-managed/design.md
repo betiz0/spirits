@@ -49,6 +49,8 @@
 
 記録先を `<managed root>/agent-backup.json` にする理由: 「managed へ切り替えた事実」の記録なので、守る対象の agent dir ではなく managed root に置く。agent dir 内に置くと、バックアップした直後にそのファイルをコピー対象へ含めてしまう。
 
+記録は agent dir ごとの map（schemaVersion 2、キーは実体パス `realpath`。未存在時は解決パス）。「1 回だけ」は dir 単位で、`SPIRITS_CODING_AGENT_DIR` が別の dir を指したときはその dir の初回としてバックアップを取る。単一 dir を記録していた schemaVersion 1 の記録は読み込み時に移行する（記録済み dir は処理済み扱いのまま、新しい dir だけを追加で取得する）。
+
 - 代替案: agent dir の中に `.managed-backup.json` を置く。→ バックアップ自己参照と、バックアップ後初めて生まれるファイルという扱いの込み入る余地が残る。
 - 代替案: 保存を `cp -a` に任せる。→ 外部コマンド依存が増え、シンボリックリンクの一覧と参照先の表示に必要な情報を構造化して取り出せない。
 
@@ -64,6 +66,10 @@
 
 - 代替案: install.sh が manifest を自分で解析し、tar 展開と overlay 生成と `installed.json` を POSIX sh で書く。→ JSON の構造化パースと SHA256 記録を shell に実装することになり、検証手順が製品実装と二重化してズレる。
 - 代替案: 常に最新リリースの manifest を使う。→ 旧バイナリが残った環境で bundle とバイナリがずれる。ユーザー決定に反する。
+
+`spirits managed-pi install` / `update` も同じ規則（実行中バイナリの埋め込み版 → `spirits-v<version>`）を使う。最新 stable 解決（`resolveLatestStableRelease`）は自己更新と install.sh の専売とし、managed コマンドは叩かない。`SPIRITS_MANAGED_PI_MANIFEST_URL` が設定されているときはこれを優先する（fixture・ミラー用の差し替えは従来どおり。install.sh もこの差し替えでタグを固定している）。未コンパイル実行は managed コマンドに到達する前に従来どおり拒否する。対応リリースの無い版（タグの無いローカルビルド）は manifest 取得の HTTP 失敗として表示される（残課題 W-9）。
+
+実リリースの manifest は拡張 bundle の URL をアセット名だけの相対 URL として配布する（`scripts/build-managed-pi-inputs.ts`）。取得時は manifest URL のディレクトリへ解決するが、保存する `releases/<set-id>/manifest.json` には**解決後の絶対 URL を書く**。`repair` は保存済み manifest しか見ないため、相対 URL のまま保存すると復旧時に取得元が決まらない（独立検証 C-1）。
 
 `ENV_MANAGED_PI_MANIFEST_URL` を install.sh から使うのは、既存の fixture 用の上書きを契約として流用するためで、新しい CLI を増やさない。
 
@@ -98,3 +104,11 @@
 2. 最初の `spirits` 起動前にバックアップが 1 回取られ、保存先・サイズ・リンクが表示される。
 3. 問題があれば `SPIRITS_ROUTE=fork spirits …` で fork に戻る。恒久的に戻す場合は旧バイナリを退避しておく（docs に手順）。
 4. 試用環境で作ったセッションを本番 agent dir へ戻す手順は docs 側に手で従う（自動では行わない）。
+
+## 残課題（独立検証で follow-up に回したもの）
+
+- **W-5**: 初回起動が同時に行われると、バックアップ目録名が秒単位の UTC タイムスタンプしかないため同名衝突する（`rename` が ENOTEMPTY で失敗し、その起動はバックアップ失敗で止まる）。同一秒に 2 つの agent dir を初期化した順番実行でも同じ。別ディレクトリの逐次実行で衝突しない仕組み（衝突時の連番サフィックスなど）が要る。
+- **W-6**: 互換性ランナーが `HOME` を差し替えて走るとき、ランナー内の「既存 agent dir の確認」が本物の `~/.spirits/agent` を見てしまい、隔離 HOME の dir を確認していない空振りがある。
+- **W-8**: 既定経路の初回自動取得は `SPIRITS_MANAGED_PI_MANIFEST_URL` を読まない（読むのは `spirits managed-pi install` / `update` と install.sh だけ）。この「既定経路では manifest の差し替えが効かない」ことを docs に書く。
+- **W-9**: タグの無いローカルビルドの版（例: `0.0.0-dev`）で対応リリースが存在せず、`spirits managed-pi install` / `update` と初回起動の自動取得は HTTP 404 の理由表示で失敗する。開発用バイナリの版の扱い（プレフィックスや案内）を決める。
+- **G-1〜G-3**: 独立検証（verify2）の SUGGESTION 3 件。本文は検証レポート側にあり、この change の記録には未転記（転記後にここへ移す）。

@@ -193,6 +193,51 @@ test("the first launch backs the agent directory up once", async () => {
 	expect(await readFile(join(harness.root, "agent-backup.json"), "utf8")).toContain(backup);
 }, 60_000);
 
+test("a different agent directory gets its own first backup", async () => {
+	// The record is per agent directory (S-2): pointing `SPIRITS_CODING_AGENT_DIR` at another
+	// directory is that directory's first managed launch, not a repeat of the default one.
+	const fixture = await makeReleaseFixture();
+	const harness = await makeHarness(fixture, true);
+	await mkdir(harness.agentDir, { recursive: true });
+	await writeFile(join(harness.agentDir, "settings.json"), '{"which":"default"}\n');
+	const custom = join(fixture.home, "chosen-agent");
+	await mkdir(custom, { recursive: true });
+	await writeFile(join(custom, "settings.json"), '{"which":"chosen"}\n');
+
+	// Distinct timestamps: two directories handled inside the same second would derive the same
+	// backup directory name (recorded as follow-up W-5).
+	const first = await harness.run({ now: new Date("2026-11-12T08:00:00.000Z") });
+	expect(first.exitCode).toBe(0);
+	expect(await entries(harness.backupsDir)).toHaveLength(1);
+
+	const second = await harness.run({
+		now: new Date("2026-11-12T08:00:01.000Z"),
+		env: {
+			PATH: "/usr/bin:/bin",
+			SPIRITS_CODING_AGENT_DIR: custom,
+			PI_ARGS_FILE: harness.argsFile,
+			PI_ENV_FILE: harness.envFile,
+		},
+	});
+	expect(second.exitCode).toBe(0);
+	expect(await entries(harness.backupsDir)).toHaveLength(2);
+	// The second copy is the custom directory's content, not the default one's.
+	const secondBackup = join(harness.backupsDir, "agent-2026-11-12T08-00-01Z");
+	expect(await readFile(join(secondBackup, "settings.json"), "utf8")).toContain("chosen");
+	// A third launch of either directory copies nothing.
+	await harness.run({ now: new Date("2026-11-12T08:00:02.000Z") });
+	await harness.run({
+		now: new Date("2026-11-12T08:00:03.000Z"),
+		env: {
+			PATH: "/usr/bin:/bin",
+			SPIRITS_CODING_AGENT_DIR: custom,
+			PI_ARGS_FILE: harness.argsFile,
+			PI_ENV_FILE: harness.envFile,
+		},
+	});
+	expect(await entries(harness.backupsDir)).toHaveLength(2);
+}, 60_000);
+
 test("a missing agent directory records the backup without copying", async () => {
 	const harness = await makeHarness(await makeReleaseFixture(), true);
 	const result = await harness.run();

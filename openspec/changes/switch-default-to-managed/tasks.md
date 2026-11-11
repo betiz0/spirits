@@ -26,7 +26,7 @@
 
 - [x] 4.1 `src/managed-pi/release-assets.ts` に `installManagedSetFromRelease({ tag, root, env, fetch, io })` と `releaseTagForVersion()` を実装する。検証: `bun test test/managed-pi-release-assets.test.ts`
 - [x] 4.2 `src/update/run.ts` の `UpdateResult` に解決したリリースの `releaseTag` を追加する。検証: `bun test test/update-run.test.ts`
-- [x] 4.3 `bin/bootstrap.ts` で自己更新の後に参加リリースの一式を導入し、失敗時は非ゼロ＋修復手段の表示にする。検証: `bun test test/managed-pi-default-route.test.ts`（update の導線）
+- [x] 4.3 `bin/bootstrap.ts` で自己更新の後に参加リリースの一式を導入し、失敗時は非ゼロ＋修復手段の表示にする。検証: `bun test test/managed-pi-bootstrap.test.ts`（`installManagedSetAfterUpdate` の導線）
 - [x] 4.4 `scripts/install.sh` に配置後の managed 一式の導入（`SPIRITS_MANAGED_PI_MANIFEST_URL` を同じタグへ固定した `managed-pi install`）と失敗時の非ゼロを追加する。検証: `bash scripts/install.test.sh`
 
 ## 5. bundle の版の埋め込みと確認
@@ -41,7 +41,7 @@
 - [x] 6.1 既定で managed が agent dir を使って起動する、`--continue` / `--session` が通る。検証: `bun test test/managed-pi-default-route.test.ts`
 - [x] 6.2 一式が足りない場合と壊れている場合の表示と終了コード。検証: `bun test test/managed-pi-default-route.test.ts`
 - [x] 6.3 隔離経路のガードが引き続き効くこと。検証: `bun test test/managed-pi-agent-dir.test.ts test/managed-pi-bootstrap.test.ts`
-- [x] 6.4 統合: 隔離 HOME で fixture 一式を使い、既定経路の spawn まで通す。検証: `bun test test/managed-pi-integration.test.ts`
+- [x] 6.4 統合: 隔離 HOME で fixture 一式を使い、既定経路の spawn まで通す。検証: `bun test test/managed-pi-default-route.test.ts`（隔離 HOME・fixture 一式・本物の spawner）、`bun test test/managed-pi-bootstrap.test.ts`（手渡し）
 
 ## 7. docs
 
@@ -52,7 +52,7 @@
 ## 8. データの安全性と互換性ランナー
 
 - [x] 8.1 fixture の agent dir で既定経路の managed の読み書きを行い、`SPIRITS_ROUTE=fork` で読めることを `docs/agent-data-compat` の手順で確認し、証拠を残す。検証: `bun scripts/agent-data-compat/run.ts` の出力
-- [x] 8.2 clean なツリーで互換性ランナーの official を 1 回実行し、結果が変わらないことを確認して証拠を残す。検証: `bun scripts/managed-pi-compat/run.ts --mode official …`
+- [x] 8.2 互換性ランナーの official を 1 回実行し、結果が変わらないことを確認して証拠を残す。実行は commit `d8265a9b5` ＋計測用 2 ファイル（`scripts/agent-data-compat/run.ts` / `hosts.ts` の `--managed-route` 追加。official 経路の判定には影響しない）の差分で行った。ランナー（`scripts/managed-pi-compat/`）と bundle は clean な `d8265a9b5` ツリーでビルド済みで、bundle の digest は clean ツリーから再現されている。検証: `bun scripts/managed-pi-compat/run.ts --mode official …`（証拠: `evidence/official-compat/`。実装修正後の再実行は `evidence/README.md`）
 
 ## 9. ゲート
 
@@ -60,3 +60,11 @@
 - [x] 9.2 `openspec validate --all --strict`
 - [x] 9.3 `cd packages/spirits && bun test`
 - [x] 9.4 `bun run check` と `npm run check`
+
+## 10. 独立検証の修正（archive 前）
+
+- [x] 10.1 (C-1) 導入時に保存する manifest の artifact URLを取得元リリースの絶対 URL へ解決して保存し、`repair` が実リリースの形（相対 URL）で復旧できるようにする。検証: `bun test test/managed-pi-repair.test.ts test/managed-pi-command.test.ts`（相対 URL の fixture 追加）
+- [x] 10.2 (S-1) `spirits managed-pi install` / `update` の manifest 解決を実行中のバイナリのリリースへ揃え、`SPIRITS_MANAGED_PI_MANIFEST_URL` の差し替えは優先のまま維持する。検証: `bun test test/managed-pi-command.test.ts`
+- [x] 10.3 (S-2) バックアップの記録を agent dir ごと（実体パス識別）にし、旧記録は移行する。検証: `bun test test/managed-pi-agent-backup.test.ts test/managed-pi-default-route.test.ts`
+- [x] 10.4 (W-7) 「恒久的に fork へ戻る」手順を実行できる方法へ書き換え、隔離 HOME で実行して確かめる（`docs/spirits-default-launch.md`）
+- [x] 10.5 docs と失敗時メッセージの repair 説明を実装に一致させ、残課題を design.md に記録する

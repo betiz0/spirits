@@ -61,7 +61,7 @@ test("managed commands leave the existing agent fixture unchanged", async () => 
 	await installManagedSet({ root: fixture.root, manifest: fixture.manifest, fetch, timeoutMs: 3000 });
 	await updateManagedSet({ root: fixture.root, manifest: fixture.manifest, fetch, timeoutMs: 3000 });
 	await repairManagedSet({ root: fixture.root, setId: fixture.manifest.setId, fetch, timeoutMs: 3000 });
-	await runManagedCommand({ root: fixture.root, action: { kind: "help" }, env: {}, fetch, home, io: silent });
+	await runManagedCommand({ root: fixture.root, action: { kind: "help" }, env: {}, fetch, home, version: "0.1.0", io: silent });
 	// Version and the plain launch go through the production spawner (`spawnManagedProcess`), not a
 	// seam, so the test exercises the same child-process path the wrapper uses.
 	for (const args of [["--version"], []]) {

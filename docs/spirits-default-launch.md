@@ -30,7 +30,7 @@ managed の一式（公式 Pi と拡張 bundle）は、**起動役のバイナ�
 
 ## バックアップ
 
-既定経路で managed を**初めて起動する前**に、agent dir を `~/.spirits/backups/agent-<UTC 時刻>/` へコピーする。実行した事実は `~/.spirits/managed-pi/agent-backup.json` に記録され、2 回目以降は取らない。
+既定経路で managed を**初めて起動する前**に、agent dir を `~/.spirits/backups/agent-<UTC 時刻>/` へコピーする。実行した事実は `~/.spirits/managed-pi/agent-backup.json` に** agent dir ごと**に記録され（実体パスで識別）、同じ dir に対しては 2 回目以降取らない。`SPIRITS_CODING_AGENT_DIR` で別の dir を指したときは、その dir の初回としてバックアップが取られる。導入前の single-dir 記録は自動で引き継がれる。
 
 - ファイルとディレクトリのパーミッションは保存される。
 - シンボリックリンクは**たどらずリンクのまま**保存し、見つけたリンクと参照先を一覧で表示する（例: `skills -> /home/me/.pi/agent/skills`）。参照先のファイルはコピーされない。
@@ -66,24 +66,40 @@ SPIRITS_ROUTE=fork spirits --continue
 
 `SPIRITS_ROUTE` は `fork` のときだけ fork を起動し、未設定とそれ以外の値は既定（managed）になる。Pi 自身に `--fork` フラグがあるため、フラグ名としては提供しない。
 
-恒久的に戻す場合は、今のバイナリを自分で退避してから旧バイナリを置き戻す。
+恒久的に戻す場合は、**退避しておいた `~/.spirits/bin` を戻す**。退避は、fork が既定だった頃のバイナリが入っているうちに（managed 既定版への更新の前に）取っておく。
 
 ```sh
-# 今のバイナリを退避する（更新で上書きされない場所へ）
+# 退避（fork 既定のバイナリがまだ入っているうちに実行）
 cp -a ~/.spirits/bin ~/.spirits/bin.fork-<UTC 時刻>
-# 旧リリースの実行ファイルとテーマ資産を戻す
-VERSION=0.6.0 sh scripts/install.sh
 ```
 
-`VERSION` を指定したインストーラはそのタグの成果物を再配置する。旧バイナリは退避先に残るので、比較や取り直しはそこからできる。fork を起動する手段は、fork を削除する変更までは消えない。
+戻すときは、現在の bin ディレクトリを退けてから、退避しておいたものをはめ直す。
+
+```sh
+# spirits を終了してから
+mv ~/.spirits/bin ~/.spirits/bin.managed-<UTC 時刻>
+mv ~/.spirits/bin.fork-<UTC 時刻> ~/.spirits/bin
+spirits --version   # 退避しておいた版が表示されること
+```
+
+`bin/` には実行ファイルと `theme/` しかない。データ目録（`~/.spirits/agent`）と managed の一式（`~/.spirits/managed-pi`）は `bin/` の外なので、戻し操作の影響を受けない。現在のバイナリは `bin.managed-<UTC 時刻>` のまま残る。
+
+`VERSION` を指定した `install.sh` の再実行は、現状では戻し手段にできない:
+
+```sh
+VERSION=0.6.0 sh scripts/install.sh
+# Error: Failed to download https://github.com/betiz0/spirits/releases/download/spirits-v0.6.0/dark.json.
+```
+
+インストーラは実行ファイルの前にテーマ資産（`dark.json` / `light.json`）をそのタグから取得するが、`spirits-v0.6.0` のリリースにはテーマ資産が添付されておらず、配置まで進まずに失敗する（配置済みのファイルはそのまま）。退避を取り忘れた場合は、今のバイナリで `export SPIRITS_ROUTE=fork` を shell の rc に書いて起動経路を恒久的に fork へ固定できる（実行ファイル自体は managed 既定版のまま。fork を起動する手段は、fork を削除する変更までは消えない）。
 
 ## 一式が壊れたとき
 
-検証を通らない（チェックサムが合わない、`installed.json` が読めない、bundle が書き換わった）ときは、自動で取り直さない。`spirits managed-pi repair` を実行すると、導入済み set の manifest と同じ組を再取得して検証し、`current` を置き換える。
+検証を通らない（チェックサムが合わない、`installed.json` が読めない、bundle が書き換わった）ときは、自動で取り直さない。`spirits managed-pi repair` を実行すると、導入済み set の `manifest.json`（導入時に取得元を絶対 URL へ解決して保存してある）と同じ組を再取得して検証し、`current` を置き換える。リリースの解決はしない。
 
 ```sh
-spirits managed-pi repair        # 同じ組を取り直して検証
-spirits managed-pi update        # 新しいリリースの組へ更新
+spirits managed-pi repair        # 導入済み set の manifest から同じ組を取り直して検証
+spirits managed-pi update        # 起動役バイナリのリリースの組を入れ直す（最新リリースではない）
 ```
 
 どちらも失敗したときは、上記と同じく理由・`spirits managed-pi repair`・`SPIRITS_ROUTE=fork spirits` が出る。agent dir と `~/.spirits/bin` は書き換えられない。

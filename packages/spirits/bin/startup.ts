@@ -101,6 +101,7 @@ export async function runManagedStartup(options: ManagedStartupOptions): Promise
 		env: copyCallerEnv(options.snapshot),
 		fetch: options.fetch,
 		home: options.home,
+		version: options.version,
 	};
 	if (options.cwd !== undefined) command.cwd = options.cwd;
 	if (options.io !== undefined) command.io = options.io;

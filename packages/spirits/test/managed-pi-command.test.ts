@@ -1,16 +1,18 @@
 import { afterAll, expect, test } from "bun:test";
 import { rm, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { ENV_MANAGED_PI_MANIFEST_URL } from "../src/constants.ts";
+import { ENV_MANAGED_PI_MANIFEST_URL, MANAGED_PI_MANIFEST_ASSET_NAME } from "../src/constants.ts";
 import { runManagedCommand } from "../src/managed-pi/command.ts";
 import { installManagedSet } from "../src/managed-pi/install.ts";
 import { readCurrentSet } from "../src/managed-pi/layout.ts";
 import type { FetchLike } from "../src/update/types.ts";
 import { cleanupManagedFixture, directoryExists, makeManagedFixture, type ManagedFixture } from "./managed-pi-fixtures.ts";
+import { makeReleaseFixture, stopManagedReleaseFixtures } from "./managed-pi-release-fixtures.ts";
 
 const fixtures: ManagedFixture[] = [];
 afterAll(async () => {
 	for (const fixture of fixtures) await cleanupManagedFixture(fixture);
+	await stopManagedReleaseFixtures();
 });
 
 interface Lines {
@@ -56,6 +58,7 @@ test("unsupported version installs nothing", async () => {
 		env: { [ENV_MANAGED_PI_MANIFEST_URL]: manifestUrl },
 		fetch: fixtureFetch(value, manifestUrl),
 		home: value.work,
+		version: "0.1.0",
 		io: sink,
 	});
 	expect(exitCode).toBe(1);
@@ -75,6 +78,7 @@ test("repair uses the installed manifest", async () => {
 		env: {},
 		fetch,
 		home: value.work,
+		version: "0.1.0",
 		io: sink,
 	});
 	expect(exitCode).toBe(0);
@@ -90,6 +94,7 @@ test("help does not create an agent directory", async () => {
 		env: {},
 		fetch,
 		home: value.work,
+		version: "0.1.0",
 		io: sink,
 	});
 	expect(exitCode).toBe(0);
@@ -106,9 +111,92 @@ test("help prints the experimental route", async () => {
 		env: {},
 		fetch,
 		home: value.work,
+		version: "0.1.0",
 		io: sink,
 	});
 	expect(exitCode).toBe(0);
 	expect(lines.out.join("\n")).toContain("experimental");
 	expect(lines.out.join("\n")).toContain("spirits managed-pi -- [pi args...]");
+});
+
+test("install resolves the manifest from the running binary's release", async () => {
+	// Same rule as the other routes: the release of the version embedded in the binary, never the
+	// newest release. The releases API is pointed at a closed port, so any attempt to resolve the
+	// latest release would fail the run.
+	const release = await makeReleaseFixture();
+	const { lines, sink } = io();
+	const exitCode = await runManagedCommand({
+		root: release.root,
+		action: { kind: "install" },
+		env: { SPIRITS_RELEASE_BASE_URL: release.baseUrl, SPIRITS_API_BASE_URL: "http://127.0.0.1:9" },
+		fetch,
+		home: release.home,
+		version: "0.1.0",
+		io: sink,
+	});
+	expect(exitCode).toBe(0);
+	expect(release.requests).toContain(
+		`/betiz0/spirits/releases/download/spirits-v0.1.0/${MANAGED_PI_MANIFEST_ASSET_NAME}`,
+	);
+	expect(lines.out.join("\n")).toContain("Installed managed Pi");
+	expect(await readCurrentSet(release.root)).toBe(release.manifest.setId);
+});
+
+test("install uses the running binary's release, not the newest one", async () => {
+	// The binary says 0.1.0 while the fixture release directory also serves a newer tag. The
+	// manifest request must name spirits-v0.1.0 only.
+	const release = await makeReleaseFixture();
+	const { sink } = io();
+	const exitCode = await runManagedCommand({
+		root: release.root,
+		action: { kind: "update" },
+		env: { SPIRITS_RELEASE_BASE_URL: release.baseUrl, SPIRITS_API_BASE_URL: "http://127.0.0.1:9" },
+		fetch,
+		home: release.home,
+		version: "0.1.0",
+		io: sink,
+	});
+	expect(exitCode).toBe(0);
+	expect(
+		release.requests.filter((path) => path.endsWith(MANAGED_PI_MANIFEST_ASSET_NAME)),
+	).toEqual([`/betiz0/spirits/releases/download/spirits-v0.1.0/${MANAGED_PI_MANIFEST_ASSET_NAME}`]);
+});
+
+test("update handles a release manifest that names assets relatively", async () => {
+	// Same real-release shape as the repair test: update resolves the manifest of the running
+	// binary's release and the relative asset URL resolves against that release directory.
+	const release = await makeReleaseFixture({ relativeExtensionUrl: true });
+	const { lines, sink } = io();
+	const exitCode = await runManagedCommand({
+		root: release.root,
+		action: { kind: "update" },
+		env: { SPIRITS_RELEASE_BASE_URL: release.baseUrl },
+		fetch,
+		home: release.home,
+		version: "0.1.0",
+		io: sink,
+	});
+	expect(exitCode).toBe(0);
+	expect(lines.out.join("\n")).toContain("Installed managed Pi");
+	expect(await readCurrentSet(release.root)).toBe(release.manifest.setId);
+});
+
+test("the manifest URL override wins over the running binary's release", async () => {
+	const release = await makeReleaseFixture();
+	const override = `${release.baseUrl}/betiz0/spirits/releases/download/spirits-v9.9.9/${MANAGED_PI_MANIFEST_ASSET_NAME}`;
+	const { sink } = io();
+	const exitCode = await runManagedCommand({
+		root: release.root,
+		action: { kind: "install" },
+		env: { [ENV_MANAGED_PI_MANIFEST_URL]: override },
+		fetch,
+		home: release.home,
+		version: "0.1.0",
+		io: sink,
+	});
+	expect(exitCode).toBe(0);
+	expect(release.requests).toContain(
+		`/betiz0/spirits/releases/download/spirits-v9.9.9/${MANAGED_PI_MANIFEST_ASSET_NAME}`,
+	);
+	expect(release.requests.some((path) => path.includes("spirits-v0.1.0"))).toBe(false);
 });

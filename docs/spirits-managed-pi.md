@@ -14,9 +14,9 @@ spirits managed-pi -- [pi の引数...]
 spirits managed-pi help
 ```
 
-- `install`: 最新の spirits release から manifest を取得し、記録された Pi artifact、拡張 bundle、アセットを取得・検証して `~/.spirits/managed-pi/releases/<set-id>/` に配置する。成功時だけ `current` を切り替える。
-- `update`: 新しい manifest を取得して同じ検証付き導入を行う。完了するまで `current` は旧 set を指す。
-- `repair`: 導入済み set の manifest を使って同じ組を再導入する。bundle の欠落や破損から復旧する。
+- `install`: **起動役バイナリの版と同じリリース**（`spirits-v<version>`）の manifest を取得し、記録された Pi artifact、拡張 bundle、アセットを取得・検証して `~/.spirits/managed-pi/releases/<set-id>/` に配置する。最新リリースは既定にしない。`SPIRITS_MANAGED_PI_MANIFEST_URL` を設定したときはその URL の manifest を使う（fixture・ミラー用の差し替え）。成功時だけ `current` を切り替える。
+- `update`: 同じ規則で manifest を取得し直し、同じ検証付き導入を行う。完了するまで `current` は旧 set を指す。
+- `repair`: 導入済み set の `manifest.json`（導入時に取得元 URL を絶対 URL へ解決して保存してある）を使って同じ組を再導入する。bundle の欠落や破損から復旧する。リリースの解決はしない。
 - 引数なしまたは `--` 以降: 管理された Pi を絶対パスで起動する。PATH 上の `pi` や既定の compiled spirits へ fallback しない。起動前に隔離 agent dir を確定し、既存 agent dir には触れない。
 - `help`: この経路の wrapper help を表示する。Pi の help は `spirits managed-pi --help` または `spirits managed-pi -- --help` で起動する。
 
@@ -30,7 +30,7 @@ manifest は release 資産 `spirits-managed-pi-manifest.json` として配布�
 - `setId`: release set の識別子。`releases/<set-id>/` の名前になる。
 - `platform`: 対応プラットフォーム。現在は `linux-x64` のみ。
 - `pi.version`: 専用 Pi の版。
-- `pi.artifact.url` / `pi.artifact.sha256`: 公式 Pi artifact の取得元と SHA256。
+- `pi.artifact.url` / `pi.artifact.sha256`: 公式 Pi artifact の取得元と SHA256。url は絶対 URL または manifest URL からの相対（リリース資産名のみ）。相対で配布するのが実際のリリースの形であり、導入時には `releases/<set-id>/manifest.json` へ**絶対 URL へ解決したうえで保存**する。`repair` は保存済み manifest だけを見るため、この解決が無いと相対 URL の set を復旧できない。
 - `extension.version`: spirits 拡張 bundle の版。
 - `extension.artifact.url` / `extension.artifact.sha256`: bundle の取得元と SHA256。
 - `overlay.version` / `overlay.sha256`: 生成する overlay `package.json` の版と SHA256。

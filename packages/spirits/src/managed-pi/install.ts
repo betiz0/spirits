@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { guardTempDir } from "../update/cleanup.ts";
 import { resolveIdleTimeoutMs } from "../update/timeout.ts";
 import type { EnvLike, FetchLike } from "../update/types.ts";
-import { downloadManagedArtifact } from "./artifact.ts";
+import { downloadManagedArtifact, resolveManagedArtifactUrl } from "./artifact.ts";
 import {
 	commitReleaseDir,
 	managedTempDir,
@@ -70,6 +70,28 @@ export async function extractTarGz(archivePath: string, destination: string): Pr
 	}
 }
 
+/**
+ * Store artifact URLs resolved against the release base URL.
+ *
+ * A release manifest names its assets relatively (the release directory is implied by the manifest
+ * URL), but `repair` re-installs from the *stored* manifest alone, with no release URL in hand.
+ * Writing the resolved absolute URLs at install time is what keeps `repair` able to fetch the same
+ * set the release shipped; the checksums are untouched.
+ */
+function withResolvedArtifactUrls(manifest: ManagedManifest, baseUrl: string | undefined): ManagedManifest {
+	if (baseUrl === undefined) return manifest;
+	const resolve = (artifact: { url: string; sha256: string }): { url: string; sha256: string } => ({
+		url: resolveManagedArtifactUrl(artifact.url, baseUrl),
+		sha256: artifact.sha256,
+	});
+	return {
+		...manifest,
+		pi: { ...manifest.pi, artifact: resolve(manifest.pi.artifact) },
+		extension: { ...manifest.extension, artifact: resolve(manifest.extension.artifact) },
+		assets: manifest.assets.map((asset) => ({ ...asset, url: resolveManagedArtifactUrl(asset.url, baseUrl) })),
+	};
+}
+
 function assertAssetName(name: string): void {
 	if (!name || name.includes("/") || name.includes("\\") || name === "." || name === "..") {
 		throw new Error(`Unsafe managed asset name: ${name}`);
@@ -121,7 +143,8 @@ export async function installManagedSet(options: InstallManagedSetOptions): Prom
 			});
 		}
 
-		await Bun.write(join(tempDir, "manifest.json"), `${JSON.stringify(options.manifest, null, "\t")}\n`);
+		const stored = withResolvedArtifactUrls(options.manifest, options.baseUrl);
+		await Bun.write(join(tempDir, "manifest.json"), `${JSON.stringify(stored, null, "\t")}\n`);
 		await writeInstalledStateForSet(tempDir, options.manifest);
 		await commitReleaseDir(options.root, setId, tempDir);
 		await switchCurrent(options.root, setId);

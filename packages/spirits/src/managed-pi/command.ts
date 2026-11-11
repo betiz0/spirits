@@ -1,27 +1,23 @@
 /**
  * CLI entry points for `spirits managed-pi`, after the arguments have been classified.
  *
- * The command resolves the manifest from the latest spirits release (or a fixture URL), then runs
- * install, update, repair, help, or launch. Every failure returns a non-zero code and prints a
- * recovery command; no branch falls back to the default route.
+ * `install` and `update` resolve the manifest the same way the other routes do: from the release
+ * of the running binary, never from the newest release. `SPIRITS_MANAGED_PI_MANIFEST_URL` still
+ * overrides the URL for fixtures and pinned mirrors. The commands then run install, update,
+ * repair, help, or launch. Every failure returns a non-zero code and prints a recovery command;
+ * no branch falls back to the default route.
  */
 
-import {
-	ENV_MANAGED_PI_MANIFEST_URL,
-	MANAGED_PI_MANIFEST_ASSET_NAME,
-} from "../constants.ts";
+import { ENV_MANAGED_PI_MANIFEST_URL } from "../constants.ts";
+import { releaseTagForVersion } from "../update/release.ts";
 import type { EnvLike, FetchLike } from "../update/types.ts";
 import { resolveIdleTimeoutMs } from "../update/timeout.ts";
-import {
-	releaseArtifactUrl,
-	resolveLatestStableRelease,
-	resolveReleaseBaseUrl,
-} from "../update/release.ts";
 import { fetchManagedJson } from "./artifact.ts";
 import type { ManagedPiAction } from "./classify.ts";
 import { installManagedSet, type ManagedIo } from "./install.ts";
 import { launchManagedPi, MANAGED_PI_HELP, type ManagedSpawn } from "./launch.ts";
 import { parseManagedManifest, type ManagedManifest } from "./manifest.ts";
+import { fetchManagedManifestOfRelease } from "./release-assets.ts";
 import { repairManagedSet } from "./repair.ts";
 import { readCurrentSet } from "./layout.ts";
 import { updateManagedSet } from "./update.ts";
@@ -33,6 +29,11 @@ export interface ManagedCommandOptions {
 	env: EnvLike;
 	fetch: FetchLike;
 	home: string;
+	/**
+	 * Version embedded in the running binary. `install` and `update` resolve the manifest of
+	 * `spirits-v<version>`, so the set always comes from the release the command runs from.
+	 */
+	version: string;
 	cwd?: string;
 	io?: ManagedIo;
 	/** Test-only spawn seam handed to the launch path; production uses the real spawner. */
@@ -50,32 +51,31 @@ const DEFAULT_IO: ManagedIo = {
 	err: (line) => console.error(line),
 };
 
-/** Resolve the manifest URL from a fixture override or the latest stable spirits release. */
-export async function resolveManagedManifestUrl(options: {
-	env: EnvLike;
-	fetch: FetchLike;
-	timeoutMs: number;
-}): Promise<string> {
-	const override = options.env[ENV_MANAGED_PI_MANIFEST_URL];
-	if (override) return override;
-	const release = await resolveLatestStableRelease({
-		env: options.env,
-		fetch: options.fetch,
-		timeoutMs: options.timeoutMs,
-	});
-	return releaseArtifactUrl(release.tag, MANAGED_PI_MANIFEST_ASSET_NAME, resolveReleaseBaseUrl(options.env));
-}
-
-/** Fetch and validate the manifest. */
+/**
+ * Fetch and validate the manifest for `install`/`update`.
+ *
+ * Default: the release of the running binary (`spirits-v<version>`). The newest release is never
+ * the default: a set from a newer release would pair with a binary it was not built against.
+ * `SPIRITS_MANAGED_PI_MANIFEST_URL` wins when set, so fixtures and pinned mirrors keep working
+ * unchanged; its base URL is the manifest URL's own directory.
+ */
 export async function fetchManagedManifest(options: {
 	env: EnvLike;
 	fetch: FetchLike;
 	timeoutMs: number;
+	version: string;
 }): Promise<ManagedManifestSource> {
-	const url = await resolveManagedManifestUrl(options);
-	const manifest = parseManagedManifest(await fetchManagedJson(options.fetch, url, options.timeoutMs));
-	const baseUrl = new URL(".", url).toString();
-	return { manifest, baseUrl };
+	const override = options.env[ENV_MANAGED_PI_MANIFEST_URL];
+	if (override === undefined || override === "") {
+		return await fetchManagedManifestOfRelease({
+			tag: releaseTagForVersion(options.version),
+			env: options.env,
+			fetch: options.fetch,
+			timeoutMs: options.timeoutMs,
+		});
+	}
+	const manifest = parseManagedManifest(await fetchManagedJson(options.fetch, override, options.timeoutMs));
+	return { manifest, baseUrl: new URL(".", override).toString() };
 }
 
 /** True when the requested Pi version is the one the manifest pins. */
@@ -86,7 +86,12 @@ export function matchesRequestedPiVersion(manifest: ManagedManifest, version: st
 async function runInstallOrUpdate(options: ManagedCommandOptions): Promise<number> {
 	const io = options.io ?? DEFAULT_IO;
 	const timeoutMs = resolveIdleTimeoutMs(options.env);
-	const source = await fetchManagedManifest({ env: options.env, fetch: options.fetch, timeoutMs });
+	const source = await fetchManagedManifest({
+		env: options.env,
+		fetch: options.fetch,
+		timeoutMs,
+		version: options.version,
+	});
 	if (!matchesRequestedPiVersion(source.manifest, options.action.kind === "install" ? options.action.version : undefined)) {
 		io.err(
 			`Unsupported managed Pi combination: the release pins Pi ${source.manifest.pi.version}, not the requested version.`,
