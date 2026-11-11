@@ -111,4 +111,8 @@
 - **W-6**: 互換性ランナーが `HOME` を差し替えて走るとき、ランナー内の「既存 agent dir の確認」が本物の `~/.spirits/agent` を見てしまい、隔離 HOME の dir を確認していない空振りがある。
 - **W-8**: 既定経路の初回自動取得は `SPIRITS_MANAGED_PI_MANIFEST_URL` を読まない（読むのは `spirits managed-pi install` / `update` と install.sh だけ）。この「既定経路では manifest の差し替えが効かない」ことを docs に書く。
 - **W-9**: タグの無いローカルビルドの版（例: `0.0.0-dev`）で対応リリースが存在せず、`spirits managed-pi install` / `update` と初回起動の自動取得は HTTP 404 の理由表示で失敗する。開発用バイナリの版の扱い（プレフィックスや案内）を決める。
-- **G-1〜G-3**: 独立検証（verify2）の SUGGESTION 3 件。本文は検証レポート側にあり、この change の記録には未転記（転記後にここへ移す）。
+独立検証（verify2）の SUGGESTION 3 件:
+
+- **G-1**: 一式が未導入の状態から取得する経路では、`requireCurrentSet` が `assertSupportedManagedPlatform` を通らずに返る（`default-route.ts:114-133` 付近）。ホストの判定は、既存の一式がある経路でしか行われない。配布は linux-x64 だけなので実際には到達しないが、両方の経路で判定を揃えたい。
+- **G-2**: managed root を削除すると、初回起動前のバックアップがもう一度取られる（2 個目のバックアップができる）。ディスクの使用量が増えるので、docs に一言書く。
+- **G-3**: 既定経路は `spawnManagedSet` の例外を捕まえていない（`default-route.ts:159` 以降）。検証を通った後に起動で失敗すると、修復方法の案内が出ないまま、処理されない例外で終了する。
