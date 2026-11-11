@@ -8,8 +8,8 @@
 - Note: `rlm child abort` is confirmed conditionally: the product appends `rlm_usage` after the parent turn ends, so the record is readable in the read taken after the child stops, never at `agent_settled`.
 - Note: `role/clear/model matrix` is confirmed when any purpose was observed on the dedicated Pi; the observed purpose count is printed next to it, and `compatibilityMet` does not follow from it. This run observed 9 of 9 purposes.
 - Existing agent dir untouched: true
-- Runner version: d8265a9b565b23a2d901912f5191a2af6988a405 (diff sha256 b1add87bfedc0d93f345e845be0d965d499fe5fcd18266551751f7ad444409bc, 1 untracked, clean=false)
-- Measured bundle commit: d8265a9b565b23a2d901912f5191a2af6988a405
+- Runner version: 47f8c067b1de9ba735aeb9956bc87209c0140f91 (diff sha256 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855, 0 untracked, clean=true)
+- Measured bundle commit: 47f8c067b1de9ba735aeb9956bc87209c0140f91
 
 ## Required observations not confirmed
 
@@ -53,11 +53,11 @@
 - [confirmed] rlm child usage: rlm_usage was recorded by the child
 - [confirmed] rlm physical model child: physical-model child completed with a final answer and usage
 - [confirmed] rlm auto parent: the auto parent handed the child fake-model, which answered and recorded rlm_usage
-- [confirmed] clear boundary automatic compaction: the compaction after the boundary came from the extension hook with the clear note in 0 summarization request(s), and the following request carried compat-clear-auto-after-1794302940693 without compat-clear-auto-before-1794302940693
+- [confirmed] clear boundary automatic compaction: the compaction after the boundary came from the extension hook with the clear note in 0 summarization request(s), and the following request carried compat-clear-auto-after-1794364210360 without compat-clear-auto-before-1794364210360
 - [confirmed] clear boundary manual compaction: a compaction with cleared conversation in its span was taken over with the clear note in 0 summarization requests, and a clean span kept pi's own summary in 2 request(s)
-- [confirmed] clear boundary fork: the fork created 392be4.jsonl and its request carried the conversation kept after the boundary without compat-clear-fork-before-1794302951246
-- [confirmed] clear boundary tree move: moving the leaf to before the boundary brought compat-clear-tree-before-1794302956755 back into the request, which is the documented drop-off
-- [confirmed] clear boundary resume: the resumed session ession.jsonl kept the boundary and sent no compat-clear-resume-before-1794302962253
+- [confirmed] clear boundary fork: the fork created 039f95.jsonl and its request carried the conversation kept after the boundary without compat-clear-fork-before-1794364220897
+- [confirmed] clear boundary tree move: moving the leaf to before the boundary brought compat-clear-tree-before-1794364226390 back into the request, which is the documented drop-off
+- [confirmed] clear boundary resume: the resumed session ession.jsonl kept the boundary and sent no compat-clear-resume-before-1794364231866
 - [confirmed] role/clear/model matrix: confirmed here means observed on the dedicated Pi, including 0 purpose(s) observed as unavailable; 9 of 9 purposes observed, rows derive from those observations
 - [confirmed] existing agent dir untouched: the seeded existing agent dir kept its content and modification times across every launch
 

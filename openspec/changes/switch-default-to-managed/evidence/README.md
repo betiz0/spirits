@@ -44,31 +44,38 @@ bun scripts/managed-pi-compat/run.ts --mode official \
   false。判定の定義は [docs/spirits-managed-pi.md](../../../docs/spirits-managed-pi.md) のとおり)
 - `existingAgentDirUnchanged=true`
 - 必須観測 25 件はすべて confirmed
+- `targetCommit=47f8c067b`(独立検証の修正コミット)、`workingTreeClean=true`
+
+実装は初回(`targetCommit=d8265a9b5`)と修正後の再実行(`47f8c067b`)で同一の判定結果で、bundle の
+digest も同一(`5cfed658…`)。初回実行は `workingTreeClean=false` だった(内訳は
+`scripts/agent-data-compat/{run.ts,hosts.ts}` の `--managed-route` 追加と計測出力の未追跡ファイルで、
+ランナーと bundle 自体は clean な `d8265a9b5` ツリーで作成済み、digest は再現済み)。修正後の再実行は
+clean なツリーで行ったため、その区別は消えている。
 
 ### 前回 official との比較
 
-比較先: `openspec/changes/archive/2026-11-06-repair-managed-pi-compat-harness/evidence/official/`
-(runner commit `d262a8d6f`)。
+比較先: 直前の official 実行。`openspec/changes/archive/2026-11-10-harden-managed-commands/evidence/official-compat-result.json`
+(runner commit `66d5c68c4`)。
 
-| 観点 | 前回 | 今回 |
+| 観点 | 前回 (harden) | 今回 |
 |---|---|---|
-| 項目数 | 32 | 37 |
-| confirmed / limited / not-run | 28 / 1 / 3 | 34 / 0 / 3 |
-| 共通 32 項目の status 後退 | — | 0 件 |
-| 変化 | — | `rlm auto parent` が limited → confirmed |
-| 追加された項目 | — | `clear boundary resume` / `fork` / `tree move` / `manual compaction` / `automatic compaction`(いずれも confirmed) |
+| 項目数 | 37 | 37 |
+| confirmed / limited / not-run | 34 / 0 / 3 | 34 / 0 / 3 |
+| 全項目の status 後退 | — | 0 件(37 項目すべて同状態) |
 | not-run | `direct execute probe is auxiliary` / `existing agent dir write-back compatibility` / `settings write compatibility` | 前回と同じ 3 件 |
 | Pi / tarball / executable / overlay | 1.5.0 / `df870ba0…` / `61a84400…` / 1.5.0-spirits.1 | 同一 |
-| bundle sha256 | `51f306d1…` | `5cfed65805ea7834713b2fa83064584ed8e8ba999fa5493f4a323f90742dfb07` |
-| `workingTreeClean` | true | false |
+| bundle sha256 | `2f048985e24806545314e0f663f21a5e9c52218cfe66cf8e9266f6ca4e439d47` | `5cfed65805ea7834713b2fa83064584ed8e8ba999fa5493f4a323f90742dfb07` |
+| `workingTreeClean` | true | true |
 
-後退 0 件、`not-run` の中身も同一。`limited` が 1 → 0 は `rlm auto parent` の改善で、本変更ではなく
-その中間で入った修正の結果である。追加 5 項目は `session-clear` の変更で増えた観測。
+項目一覧・状態・`not-run` の中身は同一。bundle sha の差は `d8265a9b5` で bundle に `SPIRITS_VERSION`
+(版の埋め込み)が入ったことで、製品拡張の挙動ではない(同ビルドの manifest が同じ sha を指す。
+`assertOfficialBundleSha` 通過)。後退 0 件。
 
-`workingTreeClean=false` の内訳は `scripts/agent-data-compat/{run.ts,hosts.ts}` の `--managed-route`
-追加と、計測出力の未追跡ファイルで、`scripts/managed-pi-compat/` 自身と bundle はこの編集の前に
-clean なツリー(commit `d8265a9b565b23a2d901912f5191a2af6988a405`)で作っている。bundle の digest は
-上に書いてあるので、ビルド元はそこから独立に検証できる。
+### 参考: 2026-11-06 の official との比較
+
+`openspec/changes/archive/2026-11-06-repair-managed-pi-compat-harness/evidence/official/`
+(runner commit `d262a8d6f`)との比較は参考として残す(項目数が 32 → 37、`rlm auto parent` が
+limited → confirmed などで、差分の大半は `session-clear` と `harden-managed-commands` での観測追加)。
 
 ## 3. ビルド・版の埋め込み
 
