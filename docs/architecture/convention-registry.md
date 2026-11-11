@@ -16,7 +16,7 @@
 - 公開パッケージ(`package.json` の `private` でないもの)は `packages/<ディレクトリ名>` の層を持つ。許可向きは各 `package.json` の `dependencies` / `optionalDependencies` / `peerDependencies` の workspace 依存から検査時に導出する。依存追加は正本の編集なしに新しい向きを許可する。
 - private パッケージと例外層と spirits の層は `registry:layers` の表を正とする。
 - **例外層**は公開パッケージの `tsconfig.build.json` の `exclude` のうち `src/` 配下を指し(`src` 自身を除く)、glob を含まず、実在するディレクトリからなる。例外層の許可向きは「当該パッケージの `package.json` 宣言分 + 同パッケージの例外層以外の部分 + 下記 `registry:layers` に列挙した未宣言パッケージ」である。
-- **spirits** は 10 層に分割される。`packages/spirits/src/index.ts` だけが `entry` 層で、`repl` `rlm` `harness` `todo` `update` `routing` `managed-pi` は互いに依存しない兄弟層。`bin` を除く全 src 層は Pi(`packages/coding-agent` と `packages/tui`)を許可する。ただし `routing` は Pi のうち `packages/coding-agent` のみを許可し、`managed-pi` は `update` への依存を再利用する資産に限定する。
+- **spirits** は 12 層に分割される。`packages/spirits/src/index.ts` だけが `entry` 層で、`repl` `rlm` `harness` `todo` `update` `routing` `commands` `managed-pi` `guard` は互いに依存しない兄弟層(`commands` は `routing` に、`managed-pi` は `update` に限って依存を許可する)。`bin` を除く全 src 層は Pi(`packages/coding-agent` と `packages/tui`)を許可する。ただし `routing` は Pi のうち `packages/coding-agent` のみを許可し、`managed-pi` は `update` への依存を再利用する資産に限定する。
 - 層への所属は `registry:layer-members` の登録パスだけで決める。登録に当てはまらない src のファイルは既定の層に割り当てず、`ARCH-LAYER-UNKNOWN` で失敗する。
 
 ## 機械可読部
@@ -39,7 +39,8 @@
   "spirits:routing": ["spirits:shared", "packages/coding-agent"],
   "spirits:commands": ["spirits:shared", "spirits:routing", "packages/coding-agent"],
   "spirits:managed-pi": ["spirits:shared", "spirits:update", "packages/coding-agent", "packages/tui"],
-  "spirits:entry": ["spirits:repl", "spirits:shared", "spirits:rlm", "spirits:harness", "spirits:todo", "spirits:routing", "spirits:commands", "packages/coding-agent", "packages/tui"],
+  "spirits:guard": ["spirits:shared", "packages/coding-agent", "packages/tui"],
+  "spirits:entry": ["spirits:repl", "spirits:shared", "spirits:rlm", "spirits:harness", "spirits:todo", "spirits:routing", "spirits:commands", "spirits:guard", "packages/coding-agent", "packages/tui"],
   "spirits:bin": ["spirits:entry", "spirits:shared", "spirits:update", "spirits:managed-pi", "packages/coding-agent"]
 }
 ```
@@ -54,6 +55,7 @@
   "spirits:routing": ["packages/spirits/src/routing/"],
   "spirits:commands": ["packages/spirits/src/commands/"],
   "spirits:managed-pi": ["packages/spirits/src/managed-pi/"],
+  "spirits:guard": ["packages/spirits/src/guard/"],
   "spirits:shared": [
     "packages/spirits/src/config.ts",
     "packages/spirits/src/constants.ts",
@@ -141,15 +143,15 @@
 ## ARCH-REPL: repl の後段非依存
 
 - **強度**: SHALL
-- **内容**: `packages/spirits/src/repl/` が `rlm` `harness` `todo` `update` とエントリ(`packages/spirits/src/index.ts`)を import すること(型のみの import と動的 import を含む)を検出して失敗する。
-- **例外**: repl は Pi(`packages/coding-agent` `packages/tui`)と repl 内完結の import に制限される。
+- **内容**: `packages/spirits/src/repl/` が自分のほかの spirits 層を import すること(型のみの import と動的 import を含む)を検出して失敗する。列挙すると `rlm` `harness` `todo` `update` `routing` `commands` `managed-pi` `guard` とエントリ(`packages/spirits/src/index.ts`)、および `bin` で、検査が `ARCH-REPL` として報告する層はこの列挙と同じである。
+- **例外**: repl は Pi(`packages/coding-agent` `packages/tui`)と repl 内完結の import に制限される。`guard` は計測のために session へ entry を append する後段の性質を持つため、特に repl から締め出す(design decision 5)。
 - **判定方法**: 起点が `spirits:repl` の層違反を `ARCH-REPL` として報告する(1 つの層の違反を複数の ID で重ねて報告しない)。
 - **根拠**: ハードルール「後段非依存」。design decision 1。
 
 ## ARCH-SPIRITS-LAYER: spirits の層の許可向き
 
 - **強度**: SHALL
-- **内容**: spirits の各層(`repl` `shared` `rlm` `harness` `todo` `update` `routing` `managed-pi` `entry` `bin`)は `registry:layers` の表に載った層へのみ依存する。`rlm` `harness` `todo` `routing` と `managed-pi` は互いに依存できない兄弟層。エントリ層へ import できるのは `bin` のみ。
+- **内容**: spirits の各層(`repl` `shared` `rlm` `harness` `todo` `update` `routing` `commands` `managed-pi` `guard` `entry` `bin`)は `registry:layers` の表に載った層へのみ依存する。`rlm` `harness` `todo` `routing` `commands` `managed-pi` と `guard` は互いに依存できない兄弟層。エントリ層へ import できるのは `bin` のみ。
 - **例外**: `bin` は `entry` `shared` `update` `managed-pi` と `packages/coding-agent` へ依存できる(コンパイル済み単一バイナリの起動時初期化のため)。
 - **判定方法**: 起点が `spirits:repl` 以外の spirits の層の層違反を `ARCH-SPIRITS-LAYER` として報告する。
 - **根拠**: ハードルール「後段非依存」と Roadmap の兄弟層の分離。design decision 1。

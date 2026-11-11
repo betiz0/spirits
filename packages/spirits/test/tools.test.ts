@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
 import { type PiModel, type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import spiritsExtension from "../src/index.ts";
-import { TSREPL_CELL_ENTRY_TYPE } from "../src/constants.ts";
+import { BASH_PIPE_ALLOW_FILTERS, TSREPL_CELL_ENTRY_TYPE } from "../src/constants.ts";
 import type { CellMetrics } from "../src/repl/metrics.ts";
 import { DEFAULT_SYNC_WATCHDOG, MAX_TIMEOUT, MIN_TIMEOUT } from "../src/repl/cell.ts";
 import { OUTPUT_LIMIT } from "../src/repl/format.ts";
+import { createShHostFn } from "../src/repl/hostfns.ts";
 import { createRlmHostFn } from "../src/rlm/hostfn.ts";
 import type { SpawnParams } from "../src/rlm/spawn.ts";
 import { createTsreplTool, TSREPL_PROMPT_SNIPPET } from "../src/tools.ts";
@@ -51,9 +52,11 @@ test("tool prompt snippet and guidelines", () => {
 	expect(tool.promptSnippet).not.toContain("\n");
 
 	const guidelines = tool.promptGuidelines ?? [];
-	expect(guidelines.length).toBe(2);
-	expect(guidelines.join("\n")).toContain("2 つ以上のコマンド");
+	// 変更 add-action-surface-guard で 3 項目(使い捨てコードの規則が加わった)。内容の検査は下の
+	// 「prompt guidelines are the three rules of the action surface」。
+	expect(guidelines.length).toBe(3);
 	expect(guidelines.join("\n")).toContain("bash");
+	expect(guidelines.join("\n")).toContain("tsrepl");
 });
 
 // The expected numbers come from the constants, so a limit change cannot pass by editing only the test.
@@ -285,4 +288,27 @@ test("dev log disabled", async () => {
 	const tool = createTsreplTool({ dev: { env: "0", sink: (line) => lines.push(line) } });
 	await tool.execute("id", { code: "return 1" }, undefined, undefined, makeToolContext());
 	expect(lines).toEqual([]);
+});
+
+// change add-action-surface-guard: the rule set and the `sh` host function.
+test("prompt guidelines are the three rules of the action surface", () => {
+	const guidelines = createTsreplTool().promptGuidelines ?? [];
+	expect(guidelines).toHaveLength(3);
+	// 1 項目目の許可フィルタは guard が通す一覧そのもの(2 か所に書かない)。
+	for (const filter of BASH_PIPE_ALLOW_FILTERS) {
+		expect(guidelines[0]).toContain(filter);
+	}
+	expect(guidelines[0]).toContain("1 回の起動");
+	expect(guidelines[1]).toContain("シェルの制御構文");
+	expect(guidelines[1]).toContain("awk / jq / xargs");
+	expect(guidelines[2]).toContain("使い捨てコード");
+	expect(guidelines[2]).toContain("python");
+});
+
+test("sh host fn is described", () => {
+	const withSh = createTsreplTool({ hostFns: [createShHostFn()] });
+	expect(withSh.description).toContain("sh(command, options?)");
+	expect(withSh.description).toContain('tool("bash"');
+	// The `rlm` child builds its tsrepl without `sh`, so its description keeps no promise it cannot keep.
+	expect(createTsreplTool().description).not.toContain("sh(command, options?)");
 });

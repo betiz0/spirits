@@ -15,6 +15,8 @@ import type {
 	SessionStartEvent,
 	ThinkingLevel,
 	SessionTreeEvent,
+	ToolCallEvent,
+	ToolCallEventResult,
 	SessionBeforeCompactEvent,
 	SessionBeforeCompactResult,
 	ToolDefinition,
@@ -74,6 +76,7 @@ class FakePi implements ExtensionAPI {
 	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): () => void;
 	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): () => void;
 	on(event: "context", handler: ExtensionHandler<ContextEvent, ContextEventResult>): () => void;
+	on(event: "tool_call", handler: ExtensionHandler<ToolCallEvent, ToolCallEventResult>): () => void;
 	on(
 		event: "session_before_compact",
 		handler: ExtensionHandler<SessionBeforeCompactEvent, SessionBeforeCompactResult>,

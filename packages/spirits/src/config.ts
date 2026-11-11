@@ -14,6 +14,9 @@ import {
 	DEFAULT_MEMORY_INJECTION_CHAR_LIMIT,
 	DEFAULT_MEMORY_PREVIEW_LINES,
 	DEFAULT_TODO_MAX_LINES,
+	ACTION_GUARD_MODES,
+	ACTION_GUARD_MODE_ENFORCE,
+	ENV_ACTION_GUARD,
 	ENV_BUNDLED_SKILLS,
 	ENV_MEMORY_CHAR_LIMIT,
 	ENV_MEMORY_LINE_LIMIT,
@@ -21,6 +24,7 @@ import {
 	ENV_TODO_MAX_LINES,
 	MODEL_ROLES,
 	MODEL_SPEC_SEPARATOR,
+	type ActionGuardMode,
 	SETTINGS_KEY_DEFAULT_MODEL,
 	SETTINGS_KEY_DEFAULT_PROVIDER,
 	SETTINGS_KEY_MODELS,
@@ -81,6 +85,16 @@ function readLimit(env: EnvLike, name: string, fallback: number): number {
 /** Read a feature switch where only `0` disables the feature (unset and other values enable it). */
 function readEnabled(env: EnvLike, name: string): boolean {
 	return env[name] !== DISABLED_FLAG_VALUE;
+}
+
+/**
+ * Resolve the bash guard mode. Unlike the numeric limits, an unusable value is not a silent fallback
+ * to "the loosest reading": only an exact match on one of {@link ACTION_GUARD_MODES} selects that
+ * mode, so a typo, a blank, a cased variant, and a padded value all keep blocking.
+ */
+export function readActionGuardMode(env: EnvLike): ActionGuardMode {
+	const raw = env[ENV_ACTION_GUARD];
+	return ACTION_GUARD_MODES.find((mode) => mode === raw) ?? ACTION_GUARD_MODE_ENFORCE;
 }
 
 /** Strong model target read from the settings file. */

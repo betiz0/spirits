@@ -404,6 +404,58 @@ export interface ExtensionToolContext extends ExtensionContext {
 	executeTool(name: string, args: unknown, options?: ExecuteToolOptions): Promise<AgentToolCallOutcome>;
 }
 
+// ============================================================================
+// Tool call events (`tool_call`)
+// ============================================================================
+
+/** Identity fields every `tool_call` event carries. */
+export interface ToolCallEventBase {
+	type: "tool_call";
+	/**
+	 * The call's id. For a call another tool issued (with `parentToolCallId` set), pi assigns
+	 * `<parent id>/<n>`; such an id never appears as a tool call or a tool result in the transcript,
+	 * only in the parent result's `nestedCalls` record.
+	 */
+	toolCallId: string;
+	/** Set when another tool (for example a codemode script or a tsrepl cell) issued this call. */
+	parentToolCallId?: string;
+}
+
+/** Input of pi's bash tool. */
+export interface BashToolInput {
+	command: string;
+	timeout?: number;
+}
+
+/** `tool_call` event for pi's bash tool. */
+export interface BashToolCallEvent extends ToolCallEventBase {
+	toolName: "bash";
+	input: BashToolInput;
+}
+
+/** `tool_call` event for every tool the guard does not classify. */
+export interface OtherToolCallEvent extends ToolCallEventBase {
+	toolName: string;
+	input: Record<string, unknown>;
+}
+
+/**
+ * Fired before a tool executes. Can block.
+ *
+ * pi's union names one member per core tool (`read`, `edit`, `grep`, and so on). Spirits classifies
+ * bash and ignores the rest, so this mirror declares bash plus everything else.
+ */
+export type ToolCallEvent = BashToolCallEvent | OtherToolCallEvent;
+
+/** Result of a `tool_call` handler. `block` stops the tool; `reason` is what the model reads back. */
+export interface ToolCallEventResult {
+	/** Block tool execution. To modify arguments, mutate `event.input` in place instead. */
+	block?: boolean;
+	reason?: string;
+	/** Hint that the agent should stop after the current tool batch when this call is blocked. */
+	terminate?: boolean;
+}
+
 /** Tool definition for registerTool(). */
 export interface ToolDefinition<TParams extends TSchema = TSchema, TDetails = unknown, TState = any> {
 	name: string;
@@ -464,6 +516,7 @@ export interface ExtensionAPI {
 	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): () => void;
 	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): () => void;
 	on(event: "context", handler: ExtensionHandler<ContextEvent, ContextEventResult>): () => void;
+	on(event: "tool_call", handler: ExtensionHandler<ToolCallEvent, ToolCallEventResult>): () => void;
 	on(
 		event: "session_before_compact",
 		handler: ExtensionHandler<SessionBeforeCompactEvent, SessionBeforeCompactResult>,

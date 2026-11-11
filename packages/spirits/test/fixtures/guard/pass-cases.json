@@ -1,0 +1,298 @@
+{
+	"comment": "Bash commands taken from real spirits session logs, with the home directory, the account name, long hex ids, and mail addresses replaced. Every case is a command the guard must let through: no shell control syntax, no programmable filter, no heredoc, no other-language interpreter, and no pipeline longer than two stages unless the stages behind the first are all allow-listed filters. `firstWords` is the first word of each simple command, in source order.",
+	"cases": [
+		{
+			"command": "cd /work/project/spirits && openspec list --json 2>&1 | head -50",
+			"firstWords": [
+				"cd",
+				"openspec",
+				"head"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && openspec list --json 2>&1 | head -60",
+			"firstWords": [
+				"cd",
+				"openspec",
+				"head"
+			]
+		},
+		{
+			"command": "openspec list --json 2>&1",
+			"firstWords": [
+				"openspec"
+			]
+		},
+		{
+			"command": "openspec status --change add-session-todo-and-clear --json 2>&1",
+			"firstWords": [
+				"openspec"
+			]
+		},
+		{
+			"command": "sh /tmp/verify-5-1.sh 2>&1 | tail -25",
+			"firstWords": [
+				"sh",
+				"tail"
+			]
+		},
+		{
+			"command": "git status --short",
+			"firstWords": [
+				"git"
+			]
+		},
+		{
+			"command": "tmux send-keys -t spirits-todo-test Enter && sleep 3 && tmux capture-pane -t spirits-todo-test -p",
+			"firstWords": [
+				"tmux",
+				"sleep",
+				"tmux"
+			]
+		},
+		{
+			"command": "cat /work/project/spirits/.pi/skills/openspec-apply-change/SKILL.md",
+			"firstWords": [
+				"cat"
+			]
+		},
+		{
+			"command": "sleep 300; tmux capture-pane -t \"=e2e-binary4-f925b6d:\" -p | tail -45",
+			"firstWords": [
+				"sleep",
+				"tmux",
+				"tail"
+			]
+		},
+		{
+			"command": "node_modules/.bin/tsc --noEmit 2>&1 | head -20",
+			"firstWords": [
+				"node_modules/.bin/tsc",
+				"head"
+			]
+		},
+		{
+			"command": "npm run check 2>&1 | tail -30",
+			"firstWords": [
+				"npm",
+				"tail"
+			]
+		},
+		{
+			"command": "ls -l /work/project/spirits/openspec/changes/add-product-identity/",
+			"firstWords": [
+				"ls"
+			]
+		},
+		{
+			"command": "ls -l /work/project/spirits/openspec/changes/add-product-identity/specs/",
+			"firstWords": [
+				"ls"
+			]
+		},
+		{
+			"command": "git -C /work/project/spirits log --oneline --format=\"%H %ad %s\" -- openspec/changes/add-product-identity/ 2>&1 | head -20",
+			"firstWords": [
+				"git",
+				"head"
+			]
+		},
+		{
+			"command": "date +%Y-%m-%d",
+			"firstWords": [
+				"date"
+			]
+		},
+		{
+			"command": "rg -n 'pi\\.dev|report-install' /tmp/spirits-71.strace | head -10",
+			"firstWords": [
+				"rg",
+				"head"
+			]
+		},
+		{
+			"command": "lsof -ti tcp:8899 2>/dev/null; ss -ltnp 2>/dev/null | rg 8899",
+			"firstWords": [
+				"lsof",
+				"ss",
+				"rg"
+			]
+		},
+		{
+			"command": "rg -n --glob '*.ts' \"APP_NAME|APP_TITLE|PI_APP_NAME|PI_CONFIG_DIR|resolveAppIdentity\" packages/coding-agent/test packages/coding-agent/src",
+			"firstWords": [
+				"rg"
+			]
+		},
+		{
+			"command": "find packages/spirits -maxdepth 3 -type f -name 'spirits*' -o -type f -name '*.exe'",
+			"firstWords": [
+				"find"
+			]
+		},
+		{
+			"command": "cat test.sh 2>/dev/null || ls test.sh scripts/ 2>/dev/null",
+			"firstWords": [
+				"cat",
+				"ls"
+			]
+		},
+		{
+			"command": "./test.sh 2>&1 | tail -120",
+			"firstWords": [
+				"./test.sh",
+				"tail"
+			]
+		},
+		{
+			"command": "grep -nE \"FAIL|✗|❯.*failed|failed \\(\" /tmp/verify2-test.log | head -60",
+			"firstWords": [
+				"grep",
+				"head"
+			]
+		},
+		{
+			"command": "grep -nE \"npm notice run|Test Files|Tests \" /tmp/verify2-test.log | head -80",
+			"firstWords": [
+				"grep",
+				"head"
+			]
+		},
+		{
+			"command": "pwd && ls -la && ls openspec 2>/dev/null | head -50",
+			"firstWords": [
+				"pwd",
+				"ls",
+				"ls",
+				"head"
+			]
+		},
+		{
+			"command": "command -v openspec && openspec --version 2>/dev/null; openspec store list --json 2>&1 | head -40",
+			"firstWords": [
+				"command",
+				"openspec",
+				"openspec",
+				"head"
+			]
+		},
+		{
+			"command": "rm docs/config.yaml && echo removed",
+			"firstWords": [
+				"rm",
+				"echo"
+			]
+		},
+		{
+			"command": "tail -20 packages/coding-agent/test/args.test.ts; wc -l packages/coding-agent/test/args.test.ts",
+			"firstWords": [
+				"tail",
+				"wc"
+			]
+		},
+		{
+			"command": "command -v fd; command -v rg; ls ~/.spirits/agent/bin 2>/dev/null; ls ~/.pi/agent/bin 2>/dev/null",
+			"firstWords": [
+				"command",
+				"command",
+				"ls",
+				"ls"
+			]
+		},
+		{
+			"command": "tmux list-panes -t pi-test -F '#{pane_pid}'; ps -ef --forest | grep -A5 -B2 314 | head -30",
+			"firstWords": [
+				"tmux",
+				"ps",
+				"grep",
+				"head"
+			]
+		},
+		{
+			"command": "find /work/project/spirits/packages -name \"*.ts\" -path \"*/src/*\" | head -80",
+			"firstWords": [
+				"find",
+				"head"
+			]
+		},
+		{
+			"command": "sleep 2; tmux capture-pane -t spirits-todo-test -p -S -100 | head -60",
+			"firstWords": [
+				"sleep",
+				"tmux",
+				"head"
+			]
+		},
+		{
+			"command": "pwd && ls -la openspec 2>&1 && find openspec -maxdepth 2 -type f -print 2>/dev/null | sort",
+			"firstWords": [
+				"pwd",
+				"ls",
+				"find",
+				"sort"
+			]
+		},
+		{
+			"command": "nohup ./test.sh > /tmp/verify2-test-sh.log 2>&1 & echo \"started pid $!\"",
+			"firstWords": [
+				"nohup",
+				"echo"
+			]
+		},
+		{
+			"command": "tail -30 /tmp/verify2-test-sh.log; echo \"---\"; ps aux | grep -c \"[t]est.sh\"",
+			"firstWords": [
+				"tail",
+				"echo",
+				"ps",
+				"grep"
+			]
+		},
+		{
+			"command": "nohup npx tsc --noEmit > /tmp/verify2-tsc.log 2>&1 & echo \"tsc pid $!\"",
+			"firstWords": [
+				"nohup",
+				"echo"
+			]
+		},
+		{
+			"command": "npx biome check --error-on-warnings . 2>&1 | tail -15; echo \"BIOME_EXIT:$?\"",
+			"firstWords": [
+				"npx",
+				"tail",
+				"echo"
+			]
+		},
+		{
+			"command": "sh scripts/install.test.sh",
+			"firstWords": [
+				"sh"
+			]
+		},
+		{
+			"command": "date +%F; ls openspec/changes/archive/ | cat",
+			"firstWords": [
+				"date",
+				"ls",
+				"cat"
+			]
+		},
+		{
+			"command": "bash /tmp/v2-dotenv-run.sh && rm -f /tmp/v2-dotenv-run.sh",
+			"firstWords": [
+				"bash",
+				"rm"
+			]
+		},
+		{
+			"command": "ps -o pid,ppid,stat,etime,pcpu,pmem,wchan:20,cmd -p 292072,292075 2>&1; echo \"---\"; ps -ef | grep -E \"292072|292075\" | grep -v grep",
+			"firstWords": [
+				"ps",
+				"echo",
+				"ps",
+				"grep",
+				"grep"
+			]
+		}
+	]
+}

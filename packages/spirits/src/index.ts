@@ -22,6 +22,7 @@ import { readRoutingSettings } from "./config.ts";
 import { MODEL_ROLE_NORMAL } from "./constants.ts";
 import { createRoleBadge } from "./commands/role.ts";
 import { registerManagedCommands } from "./commands/register.ts";
+import { registerBashGuard } from "./guard/register.ts";
 import { registerBundledSkills } from "./harness/bundled-skills/index.ts";
 import { registerContinualHarness } from "./harness/install.ts";
 import { getAgentDir } from "./harness/paths.ts";
@@ -33,6 +34,7 @@ import type { RoutingPhase } from "./routing/phase.ts";
 import { registerDualModelRouting } from "./routing/register.ts";
 import { registerManageTodos } from "./todo/tool.ts";
 import { registerTodoPanel } from "./todo/widget.ts";
+import { createShHostFn } from "./repl/hostfns.ts";
 import { registerTsrepl } from "./tools.ts";
 
 /** The notice a failed optional layer produces, once per runtime. */
@@ -137,7 +139,13 @@ export default function spiritsExtension(pi: ExtensionAPI): void {
 	});
 	const harnessHostFns = registerContinualHarness(pi, { agentDir: getAgentDir() });
 	registerBundledSkills(pi, { agentDir: getAgentDir() });
-	registerTsrepl(pi, { hostFns: [rlm, ...harnessHostFns] });
+	// `sh` goes to the root tsrepl only. A built-in host function reaches the `rlm` child too, and a
+	// child has no bash to run.
+	registerTsrepl(pi, { hostFns: [createShHostFn(), rlm, ...harnessHostFns] });
 	registerManageTodos(pi);
 	registerTodoPanel(pi);
+	// The bash guard is a sibling layer and the last registration. It runs on the way to every bash
+	// call, so a guard that cannot start is a degraded layer rather than a failed load, and a guard
+	// that cannot answer leaves the call alone (the handler swallows what it cannot decide).
+	optional("the bash action guard", () => registerBashGuard(pi), () => {});
 }

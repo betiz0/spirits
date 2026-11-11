@@ -89,3 +89,31 @@ test("override removal restores default", async () => {
 	await rm(promptOverridePath(agentDir));
 	expect(await resolveCodeModePrompt(agentDir)).toContain("tsrepl");
 });
+
+// change add-action-surface-guard: the tool-selection rule is one copy in `TSREPL_PROMPT_GUIDELINES`.
+test("prompt rules match the tsrepl guidelines", async () => {
+	const prompt = await resolveCodeModePrompt(await makeAgentDir());
+	expect(TSREPL_PROMPT_GUIDELINES).toHaveLength(3);
+	expect(prompt).toContain(`- ツール選択の基準: ${TSREPL_PROMPT_GUIDELINES.join(" / ")}`);
+	// bash を呼ぶ最短形として `sh` を使わせ、`tool("bash", ...)` と `exit_code` の説明は残す。
+	expect(prompt).toContain(`await sh(`);
+	expect(prompt).toContain('tool("bash", { command, ...options })');
+	expect(prompt).toContain("exit_code");
+});
+
+// change add-action-surface-guard (S-2): the code block shows all three call shapes, not only `sh`.
+test("prompt examples show sh, tool(bash), and a non-bash tool", async () => {
+	const prompt = await resolveCodeModePrompt(await makeAgentDir());
+	const blocks = prompt.split("```").filter((_part, index) => index % 2 === 1);
+	expect(blocks.length).toBeGreaterThanOrEqual(1);
+	const code = blocks.join("\n");
+	expect(code).toContain("await sh(");
+	expect(code).toContain('await tool("bash"');
+	// bash を呼ばない `tool(` の例も 1 つ。`sh` と `tool("bash")` だけのコードブロックでは不可。
+	const otherToolCall = code
+		.split("\n")
+		.filter((line) => line.includes("await tool("))
+		.filter((line) => !line.includes('tool("bash"'));
+	expect(otherToolCall.length).toBeGreaterThanOrEqual(1);
+	expect(code).toContain("exit_code");
+});

@@ -15,8 +15,63 @@ import type { HostFnCallable, HostFnEntry, HostFnScope } from "./registry.ts";
 
 export const BUILTIN_HOST_FN_NAMES = ["out", "print", "use", "tool"] as const;
 
+/** The tool `sh` runs, and the name its call is measured under. */
+export const SH_HOST_FN_NAME = "sh";
+export const BASH_TOOL_NAME = "bash";
+
 export function createBuiltinHostFns(): HostFnEntry[] {
 	return [outEntry(), printEntry(), useEntry(), toolEntry()];
+}
+
+/**
+ * The `sh` host function: one bash command, reached through the same path as `tool("bash", ...)`.
+ *
+ * It is not a built-in. A built-in reaches every tsrepl, and the point of `sh` is the short form of a
+ * bash call from a session that has bash; the `rlm` child has none. The entry point hands it to the
+ * root tsrepl only, and `tool()` stays the general form.
+ *
+ * The call is recorded under `bash`, because that is the tool that ran and the aggregate that reads
+ * `toolCalls` counts tools, not spellings.
+ */
+export function createShHostFn(): HostFnEntry {
+	return {
+		name: SH_HOST_FN_NAME,
+		description: [
+			"## sh: bash を 1 回実行する",
+			`- \`await sh(command, options?)\` は bash ツールを \`tool("${BASH_TOOL_NAME}", { command, ...options })\` と同じ経路で実行し、同じ値を返します(\`output\` と \`exit_code\` を含む構造化結果)。`,
+			"- 結果の規則は `tool()` と同じで、非ゼロ終了は例外ではなく `exit_code` に出ます。bash を呼べないセッションでは `tool()` と同じ例外になります。",
+		].join("\n"),
+		create(scope: HostFnScope): HostFnCallable {
+			return async (command: unknown, options?: unknown): Promise<unknown> => {
+				const args = { command: String(command), ...(isRecord(options) ? options : {}) };
+				return invokeTool(scope, BASH_TOOL_NAME, args);
+			};
+		},
+	};
+}
+
+/**
+ * One tool call, measured and run, with the failure marked on the record.
+ *
+ * `tool()` and `sh()` are two spellings of the same call, so the record is written where the call is
+ * decided (a cell cut off mid-call still shows the call it started), and arguments and tool output
+ * never enter it.
+ */
+async function invokeTool(scope: HostFnScope, toolName: string, args: unknown): Promise<unknown> {
+	const record: ToolCallRecord = {
+		name: toolName,
+		isError: false,
+		structured: false,
+		exitCode: null,
+		threw: false,
+	};
+	scope.recordToolCall(record);
+	try {
+		return await runTool(scope, toolName, args, record);
+	} catch (error) {
+		record.threw = true;
+		throw error;
+	}
 }
 
 function outEntry(): HostFnEntry {
@@ -68,25 +123,8 @@ function toolEntry(): HostFnEntry {
 		name: "tool",
 		description: "Call another tool through the host tool pipeline.",
 		create(scope: HostFnScope): HostFnCallable {
-			return async (name: unknown, args: unknown): Promise<unknown> => {
-				const toolName = String(name);
-				// The record is written as the call is decided, so a cell cut off mid-call still shows
-				// the call it started. Arguments and tool output never enter it.
-				const record: ToolCallRecord = {
-					name: toolName,
-					isError: false,
-					structured: false,
-					exitCode: null,
-					threw: false,
-				};
-				scope.recordToolCall(record);
-				try {
-					return await runTool(scope, toolName, args, record);
-				} catch (error) {
-					record.threw = true;
-					throw error;
-				}
-			};
+			return async (name: unknown, args: unknown): Promise<unknown> =>
+				invokeTool(scope, String(name), args);
 		},
 	};
 }

@@ -12,6 +12,7 @@ import type { ExtensionContext, PiModel } from "@earendil-works/pi-coding-agent"
 import {
 	COMMAND_SPIRITS_CLEAR,
 	COMMAND_SPIRITS_MODEL,
+	ENV_ACTION_GUARD,
 	TOOL_NAME_SKILL_SAVE,
 } from "../src/constants.ts";
 import { MANAGE_TODOS_TOOL_NAME } from "../src/todo/tool.ts";
@@ -19,6 +20,7 @@ import spiritsExtension, { fallbackRoutingPhase } from "../src/index.ts";
 import { createChildModelResolver } from "../src/routing/child.ts";
 import { registerDualModelRouting } from "../src/routing/register.ts";
 import { AUTO_SELECTION, FakePi, fakeCatalog, fakeToolContext, makeRequest, withoutRoleApi } from "./routing/fake-pi.ts";
+import { makeToolContext } from "./support.ts";
 
 const SONNET: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5", name: "Sonnet", api: "anthropic" };
 
@@ -152,4 +154,49 @@ test("a physical parent model still hands its own model to the child", () => {
 	const { ctx } = fakeToolContext({ available: [SONNET] });
 
 	expect(resolve(SONNET, ctx)).toEqual(SONNET);
+});
+
+// The guard is the last registration and sits on the way to every bash call, so the two things worth
+// holding are that a host which refuses the subscription loses only the guard, and that a loaded
+// extension stops a shell loop without the entry wiring knowing anything about the rules.
+test("a host that refuses tool_call keeps the core and loses only the bash action guard", async () => {
+	// The fake's `on` is an overloaded signature, so the forward goes through the prototype with the
+	// loose signature this host is pretending not to have.
+	const subscribe = FakePi.prototype.on as (event: string, handler: unknown) => () => void;
+	class HostWithoutToolCall extends FakePi {
+		override on(event: string, handler: unknown): () => void {
+			if (event === "tool_call") throw new Error("tool_call is gone");
+			return subscribe.call(this, event, handler);
+		}
+	}
+
+	const pi = new HostWithoutToolCall();
+	expect(() => spiritsExtension(pi)).not.toThrow();
+	expectCoreRegistered(pi);
+
+	const first = fakeCatalog();
+	await pi.fire("session_start", { reason: "startup" }, first.ctx);
+	await pi.fire("session_start", { reason: "resume" }, first.ctx);
+
+	expect(first.notices.filter((notice) => notice.includes("bash action guard"))).toHaveLength(1);
+	expect(pi.errors).toEqual([]);
+});
+
+test("a loaded bash action guard stops a shell loop", async () => {
+	process.env[ENV_ACTION_GUARD] = "enforce";
+	try {
+		const pi = new FakePi();
+		spiritsExtension(pi);
+		const handlers = pi.handlers.get("tool_call") ?? [];
+		expect(handlers.length).toBeGreaterThan(0);
+
+		const results = await Promise.all(
+			handlers.map((handler) =>
+				handler({ type: "tool_call", toolCallId: "call-1", toolName: "bash", input: { command: "for f in *; do wc -l \"$f\"; done" } }, makeToolContext({ cwd: process.cwd() })),
+			),
+		);
+		expect(results.filter((result) => (result as { block?: boolean })?.block)).toHaveLength(1);
+	} finally {
+		delete process.env[ENV_ACTION_GUARD];
+	}
 });

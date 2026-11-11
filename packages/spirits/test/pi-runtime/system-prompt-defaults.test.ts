@@ -3,7 +3,7 @@
  *
  * Spirits adds two things to the system prompt: the `spirits` section (the code-mode prompt, pinned
  * in `test/harness-install.test.ts`) and, through the tsrepl declaration, one tool-list entry and
- * two guideline bullets. Neither may push out what pi builds by itself.
+ * three guideline bullets. Neither may push out what pi builds by itself.
  *
  * The snippet and the guidelines are read off the registered tool declaration, so a rename or a
  * dropped declaration breaks this test rather than only the model's view. pi's session start then

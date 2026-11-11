@@ -1,16 +1,26 @@
 import { expect, test } from "bun:test";
 import {
+	ACTION_GUARD_MODE_ENFORCE,
+	ACTION_GUARD_MODE_OFF,
+	ACTION_GUARD_MODE_WARN,
 	DEFAULT_MEMORY_FILE_LINE_LIMIT,
 	DEFAULT_MEMORY_INJECTION_CHAR_LIMIT,
 	DEFAULT_MEMORY_PREVIEW_LINES,
 	DEFAULT_TODO_MAX_LINES,
+	ENV_ACTION_GUARD,
 	ENV_BUNDLED_SKILLS,
 	ENV_MEMORY_CHAR_LIMIT,
 	ENV_MEMORY_LINE_LIMIT,
 	ENV_MEMORY_PREVIEW_LINES,
 	ENV_TODO_MAX_LINES,
 } from "../src/constants.ts";
-import { loadConfig, readDefaultRoleSetting, readRoutingSettings, readStrongModelSetting } from "../src/config.ts";
+import {
+	loadConfig,
+	readActionGuardMode,
+	readDefaultRoleSetting,
+	readRoutingSettings,
+	readStrongModelSetting,
+} from "../src/config.ts";
 
 test("defaults when unset", () => {
 	expect(loadConfig({})).toEqual({
@@ -144,6 +154,23 @@ test("carries the default role into the routing settings", () => {
 		defaultRole: "strong",
 	});
 	expect(readRoutingSettings({ models: { role: "banana" } })).toEqual({});
+});
+
+// spec "action-surface-guard / 動作モードの切り替え": 既定 enforce、3 つの完全一致、それ以外は enforce。
+test("action guard mode defaults to enforce", () => {
+	expect(readActionGuardMode({})).toBe(ACTION_GUARD_MODE_ENFORCE);
+});
+
+test("action guard mode takes each mode on an exact match", () => {
+	expect(readActionGuardMode({ [ENV_ACTION_GUARD]: "enforce" })).toBe(ACTION_GUARD_MODE_ENFORCE);
+	expect(readActionGuardMode({ [ENV_ACTION_GUARD]: "warn" })).toBe(ACTION_GUARD_MODE_WARN);
+	expect(readActionGuardMode({ [ENV_ACTION_GUARD]: "off" })).toBe(ACTION_GUARD_MODE_OFF);
+});
+
+test("action guard mode resolves anything else to enforce", () => {
+	for (const value of ["strict", "Warn", "", " enforce", "enforce ", "off\n", "OFF", "warn "]) {
+		expect(readActionGuardMode({ [ENV_ACTION_GUARD]: value })).toBe(ACTION_GUARD_MODE_ENFORCE);
+	}
 });
 
 test("bundled skills are enabled unless SPIRITS_BUNDLED_SKILLS=0", () => {

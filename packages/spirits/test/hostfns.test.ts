@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { AgentToolCallOutcome, ExtensionToolContext, JsonValue } from "@earendil-works/pi-coding-agent";
 import { Repl } from "../src/repl/cell.ts";
-import { createBuiltinHostFns, resolveImportTarget } from "../src/repl/hostfns.ts";
+import { BUILTIN_HOST_FN_NAMES, createBuiltinHostFns, createShHostFn, resolveImportTarget } from "../src/repl/hostfns.ts";
 import { HostFnRegistry } from "../src/repl/registry.ts";
 import { makeScope, makeToolContext } from "./support.ts";
 
@@ -239,4 +240,96 @@ test("tool self call", async () => {
 	expect(result.isError).toBe(true);
 	expect(result.text).toContain("tsrepl");
 	expect(calls).toBe(0);
+});
+
+// ---------------------------------------------------------------------------
+// sh host fn (change add-action-surface-guard)
+// ---------------------------------------------------------------------------
+
+/** A repl that offers `sh` the way the root tsrepl does, plus one that does not. */
+function replWithSh(toolContext: ExtensionToolContext): Repl {
+	return new Repl(new HostFnRegistry([...createBuiltinHostFns(), createShHostFn()]));
+}
+
+/**
+ * A bash tool shaped like pi's: an `outputSchema`, a structured result carrying `output` and
+ * `exit_code`, and an error result on a non-zero exit.
+ */
+function bashContext(exitCode = 0): { ctx: ExtensionToolContext; commands: string[]; calls: unknown[] } {
+	const commands: string[] = [];
+	/** The whole argument object of every call, so an option that reaches bash is visible. */
+	const calls: unknown[] = [];
+	const output = exitCode === 0 ? "one\n" : "cat: no such file\n";
+	const ctx = makeToolContext({
+		tools: [{ name: "bash", outputSchema: { type: "object" } }],
+		executeTool: async (_name, args) => {
+			commands.push(String((args as { command?: unknown }).command ?? ""));
+			calls.push(args);
+			return textResult(output, { output, truncated: false, exit_code: exitCode, wall_time_seconds: 0.01 }, exitCode !== 0);
+		},
+	});
+	return { ctx, commands, calls };
+}
+
+test("sh host fn is not a builtin", async () => {
+	expect(BUILTIN_HOST_FN_NAMES).not.toContain("sh");
+	// A plain repl (what the `rlm` child builds) gets no `sh` from the built-ins.
+	const { repl, ctx } = newRepl();
+	const plain = await repl.run({ code: "return typeof sh" }, ctx);
+	expect(plain.details.value).toBe('"undefined"');
+});
+
+test("sh host fn returns what tool(bash) returns", async () => {
+	const { ctx, commands } = bashContext();
+	const repl = replWithSh(ctx);
+	const result = await repl.run(
+		{ code: 'const a = await sh("printf one"); const b = await tool("bash", { command: "printf one" }); return [a.output === b.output, a.exit_code === b.exit_code]' },
+		ctx,
+	);
+	expect(result.isError).toBe(false);
+	expect(result.details.value).toContain("[ true, true ]");
+	expect(commands).toEqual(["printf one", "printf one"]);
+});
+
+test("sh host fn keeps a non-zero exit as a result", async () => {
+	const { ctx } = bashContext(2);
+	const repl = replWithSh(ctx);
+	const result = await repl.run({ code: 'const r = await sh("cat missing"); return [r.exit_code, r.output.includes("no such file")]' }, ctx);
+	expect(result.isError).toBe(false);
+	expect(result.details.value).toContain("[ 2, true ]");
+});
+
+test("sh host fn passes options through to the bash call", async () => {
+	const { ctx, calls } = bashContext();
+	const repl = replWithSh(ctx);
+	const result = await repl.run(
+		{ code: 'await sh("ls", { cwd: "/tmp", timeout: 5000 }); await tool("bash", { command: "ls", cwd: "/tmp", timeout: 5000 })' },
+		ctx,
+	);
+	expect(result.isError).toBe(false);
+	// Not just the command: the whole argument object has to match the explicit `tool("bash")` form.
+	expect(calls).toEqual([
+		{ command: "ls", cwd: "/tmp", timeout: 5000 },
+		{ command: "ls", cwd: "/tmp", timeout: 5000 },
+	]);
+});
+
+test("sh host fn raises what tool(bash) raises when bash is unreachable", async () => {
+	const ctx = makeToolContext({
+		executeTool: async (name) => textResult(`unknown tool ${name}`, undefined, true),
+	});
+	const repl = replWithSh(ctx);
+	const throughSh = await repl.run({ code: 'try { await sh("echo one") } catch (e) { return String(e) }' }, ctx);
+	const throughTool = await repl.run({ code: 'try { await tool("bash", { command: "echo one" }) } catch (e) { return String(e) }' }, ctx);
+	expect(throughSh.details.value).toBe(throughTool.details.value);
+	expect(throughSh.details.value).toContain("unknown tool bash");
+});
+
+test("sh host fn imports no guard", async () => {
+	const directory = new URL("../src/repl/", import.meta.url);
+	for (const file of await readdir(directory)) {
+		if (!file.endsWith(".ts")) continue;
+		const source = await readFile(new URL(file, directory), "utf8");
+		expect(source, file).not.toMatch(/from "\.\.\/guard\//);
+	}
 });

@@ -18,6 +18,8 @@ import type {
 	SessionBeforeCompactEvent,
 	SessionBeforeCompactResult,
 	SessionTreeEvent,
+	ToolCallEvent,
+	ToolCallEventResult,
 } from "@earendil-works/pi-coding-agent";
 import { ENV_TODO_MAX_LINES } from "../src/constants.ts";
 import { TODO_ENTRY_TYPE, type TodoItem, type TodoSnapshot } from "../src/todo/state.ts";
@@ -80,6 +82,7 @@ class FakePi {
 	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): () => void;
 	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): () => void;
 	on(event: "context", handler: ExtensionHandler<ContextEvent, ContextEventResult>): () => void;
+	on(event: "tool_call", handler: ExtensionHandler<ToolCallEvent, ToolCallEventResult>): () => void;
 	on(
 		event: "session_before_compact",
 		handler: ExtensionHandler<SessionBeforeCompactEvent, SessionBeforeCompactResult>,

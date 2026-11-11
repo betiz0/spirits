@@ -8,7 +8,7 @@
 
 import { Type } from "typebox";
 import type { AgentToolResult, ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { TSREPL_CELL_ENTRY_TYPE } from "./constants.ts";
+import { BASH_PIPE_ALLOW_FILTERS, TSREPL_CELL_ENTRY_TYPE } from "./constants.ts";
 import { DEFAULT_SYNC_WATCHDOG, MAX_TIMEOUT, MIN_TIMEOUT, Repl } from "./repl/cell.ts";
 import { OUTPUT_LIMIT } from "./repl/format.ts";
 import type { CellMetrics } from "./repl/metrics.ts";
@@ -35,12 +35,19 @@ export const TSREPL_PROMPT_SNIPPET =
 	"永続 TypeScript REPL。連続実行・出力の加工・結果を次の手順で使う場合に使う";
 
 /**
- * Guideline bullets pi appends to the system prompt's rules while tsrepl is active. Only the two
- * choice rules: pi's own "Use bash for file operations like ls, rg, find" stays in place.
+ * Guideline bullets pi appends to the system prompt's rules while tsrepl is active.
+ *
+ * Three rules, read as one split of the action surface: bash stays a single start whose output is
+ * read as-is, anything that branches, repeats, or parses output is a cell, and throwaway code is a
+ * cell too. The permitted filters of the first rule are the same list the guard lets through a short
+ * pipe, so the rule the model reads and the verdict it meets are built from one source.
+ *
+ * pi's own "Use bash for file operations like ls, rg, find" stays in place above these.
  */
 export const TSREPL_PROMPT_GUIDELINES: readonly string[] = [
-	"2 つ以上のコマンドを続けて実行する、出力の一部だけを取り出す、または結果を次の手順で使う場合は tsrepl を使う",
-	"1 回だけ実行して出力をそのまま読むコマンドは bash を使う",
+	`bash は 1 回の起動で終わり出力をそのまま読むコマンドに使う(&& での連結と、${BASH_PIPE_ALLOW_FILTERS.join(" / ")} だけで絞り込むパイプを含む)`,
+	"分岐・繰り返し・出力の解析や集計・結果を次の手順へ渡す処理は tsrepl で TypeScript として書く。bash にシェルの制御構文、awk / jq / xargs、行範囲の print 以外の sed を書かない",
+	"調査・集計・検証用の使い捨てコードは tsrepl のセルで書く。python や node -e などのインラインコードとスクラッチスクリプトを bash から実行しない(対象プロジェクト自身の実行・テストコマンドは除く)",
 ];
 
 const parameters = Type.Object({

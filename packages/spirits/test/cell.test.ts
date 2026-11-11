@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFile, rm } from "node:fs/promises";
 import { Repl, type ReplOptions, resolveCellTimeouts } from "../src/repl/cell.ts";
 import { HostFnRegistry } from "../src/repl/registry.ts";
-import { createBuiltinHostFns } from "../src/repl/hostfns.ts";
+import { createBuiltinHostFns, createShHostFn } from "../src/repl/hostfns.ts";
 import { makeToolContext } from "./support.ts";
 
 function newRepl(options: ReplOptions = {}): Repl {
@@ -419,4 +419,27 @@ test("timeout message not misclassified", async () => {
 	expect(result.isError).toBe(true);
 	expect(result.text).toContain("./timeout-utils.ts");
 	expect(result.text).not.toContain("打ち切り");
+});
+
+// change add-action-surface-guard: `sh` is measured as the tool that ran, not as its own name.
+test("sh host fn records", async () => {
+	const ctx = makeToolContext({
+		tools: [{ name: "bash", outputSchema: { type: "object" } }],
+		executeTool: async () => ({
+			toolCall: {},
+			result: {
+				content: [{ type: "text", text: "one\n" }],
+				details: undefined,
+				structuredContent: { output: "one\n", truncated: false, exit_code: 0 },
+			},
+			isError: false,
+		}),
+	});
+	const repl = new Repl(new HostFnRegistry([...createBuiltinHostFns(), createShHostFn()]));
+	const result = await repl.run({ code: 'await sh("printf one")' }, ctx);
+
+	expect(result.isError).toBe(false);
+	expect(result.metrics.toolCalls).toEqual([
+		{ name: "bash", isError: false, structured: true, exitCode: 0, threw: false },
+	]);
 });

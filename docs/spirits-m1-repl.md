@@ -32,7 +32,7 @@ Pi 拡張として「永続 TypeScript REPL ツール」を単体で動作させ
 - `repl/cell.ts`: セル評価パイプライン(下記)
 - `repl/format.ts`: 戻り値・print 出力・エラーの整形、truncate
 - `tools.ts`: `pi.registerTool("tsrepl", ...)` 登録
-- 注入関数(M1 時点): `out(v)`, `print(...args)`, `use(spec)`, `tool(name, args)`
+- 注入関数: ビルトインが `out(v)`, `print(...args)`, `use(spec)`, `tool(name, args)`。`sh(command, options?)` はビルトインではなく root の tsrepl 登録が渡す関数で、`tool("bash", { command, ...options })` と同じ結果を返す(`rlm` の子は bash を持たないので持たない)
 - node:vm ESM 系(`vm.SourceTextModule`, `importModuleDynamically`)の実機スパイク
 
 やらない:
@@ -65,9 +65,10 @@ Pi 拡張として「永続 TypeScript REPL ツール」を単体で動作させ
    - 永続の範囲: セルをまたいで残るのは `globalThis` への代入(`globalThis.x = ...` または宣言なしの代入 `x = ...`)だけ。加えて、value を返して成功したセルの値を REPL が `globalThis._` へ代入する(value 無しセルと error セルは `_` を変えず、`reset` で消える)。IIFE 内の `const` / `let` / `function` / `class` はセル内に閉じる。この規則はツール説明でもモデルに示す
 3. `use(spec)`: `node:` / `bun:` の組込と、セッション cwd を基準に解決して cwd 配下に収まる `./` / `../` 相対パスだけを許可し、動的 `import()` する。ベア指定子(同梱依存)・絶対パス・cwd 外・リモート URL は拒否し、理由を含む例外をセルへ投げる。M1 では URL 開放の opt-in を設けない(ベア指定子は M2 以降で検討)
 4. `tool(name, args)`: `ctx.executeTool` で呼び出せるツール(direct ツール、codemode ツール、deferred ツール)から `tsrepl` 自身を除いたものを実行する。`outputSchema` の宣言を見るのはエラー扱いのときだけである。成功時は宣言にかかわらず、`structuredContent` があればそれを、無ければテキストを返す。エラー扱い(`isError`)のときは、そのツールが `outputSchema` を宣言していて結果に `structuredContent` が含まれる場合だけ例外にせず構造化結果を返すため、bash の非ゼロ終了はデータとして読める(成否は `exit_code` で確認する)。例外になるのは、構造化結果の無い失敗・`outputSchema` を宣言しないツールの失敗・存在しないツール・呼び出せないツール・`tsrepl` 自身の指定で、いずれもツールのエラーテキストを含む例外としてセル内に投げ、セル内で catch できる
-5. 出力捕捉: `print()` は 1 行としてバッファへ追記し、結果の printed として返す。整形後の結果テキスト全体には §6 の出力上限(51200 文字と全文ファイル)が掛かる。`out(v)` は value を設定する。コンテキストのホストグローバルは `setTimeout` / `clearTimeout` / `fetch` / `URL` / `TextEncoder` / `TextDecoder` / `structuredClone` だけとし、`process` / `Bun` / `require` / `console` は提供しない(console 参照は print に誘導)
-6. タイムアウト: 打ち切りを 2 つに分ける。セル全体の timeout は指定時のみ(既定なし=打ち切らない)で [500, 2147483647] にクランプし、外側の race が待つ。同期実行(最初の `await` より前)には同期 watchdog を常にかけて、既定 30000ms、timeout 指定時は `min(timeout, 30000)` を vm の `timeout` に渡す(大きい timeout を指定しても同期ハングは 30000ms で止まる)。打ち切りメッセージは 2 種を区別できる: vm の `ERR_SCRIPT_EXECUTION_TIMEOUT` は同期実行の上限超過と「処理を `await` を含む単位へ分割する」提案、race は従来の文言。どちらも「打ち切った旨、部分実行でコンテキストが不整合になり得る、`reset: true` で初期化できる」を含める。呼び出し元(Esc)の中断は `toolContext.signal` 経由で timeout 未指定でも効く。**既知の制約**: `await` の後に始まる同期ループは中断できず、プロセス全体が応答しなくなる(`reset` でも回復しない)
-7. 実行モード: `executionMode: "sequential"` に加え、セル評価の入口でもキューで直列化する。実行を終えたセル(timeout 打ち切りを含む)の非同期処理が後から `print` / `out` を呼んでも、その出力や値は他のセルの結果へ混ぜない
+5. `sh(command, options?)`: 上記 `tool("bash", ...)` と同じ経路(`executeTool` と同じ結果規則)で bash を 1 回実行する短縮形で、`repl/hostfns.ts` の `createShHostFn()` が作る。ビルトインではないため子セッションには届かず、cell 組み込みの名簿にも入らない。セルログ(`tsrepl_cell` の `toolCalls`)には `name: "bash"` として載る
+6. 出力捕捉: `print()` は 1 行としてバッファへ追記し、結果の printed として返す。整形後の結果テキスト全体には §6 の出力上限(51200 文字と全文ファイル)が掛かる。`out(v)` は value を設定する。コンテキストのホストグローバルは `setTimeout` / `clearTimeout` / `fetch` / `URL` / `TextEncoder` / `TextDecoder` / `structuredClone` だけとし、`process` / `Bun` / `require` / `console` は提供しない(console 参照は print に誘導)
+7. タイムアウト: 打ち切りを 2 つに分ける。セル全体の timeout は指定時のみ(既定なし=打ち切らない)で [500, 2147483647] にクランプし、外側の race が待つ。同期実行(最初の `await` より前)には同期 watchdog を常にかけて、既定 30000ms、timeout 指定時は `min(timeout, 30000)` を vm の `timeout` に渡す(大きい timeout を指定しても同期ハングは 30000ms で止まる)。打ち切りメッセージは 2 種を区別できる: vm の `ERR_SCRIPT_EXECUTION_TIMEOUT` は同期実行の上限超過と「処理を `await` を含む単位へ分割する」提案、race は従来の文言。どちらも「打ち切った旨、部分実行でコンテキストが不整合になり得る、`reset: true` で初期化できる」を含める。呼び出し元(Esc)の中断は `toolContext.signal` 経由で timeout 未指定でも効く。**既知の制約**: `await` の後に始まる同期ループは中断できず、プロセス全体が応答しなくなる(`reset` でも回復しない)
+8. 実行モード: `executionMode: "sequential"` に加え、セル評価の入口でもキューで直列化する。実行を終えたセル(timeout 打ち切りを含む)の非同期処理が後から `print` / `out` を呼んでも、その出力や値は他のセルの結果へ混ぜない
 
 ## 6. エラー整形方針(format.ts)
 

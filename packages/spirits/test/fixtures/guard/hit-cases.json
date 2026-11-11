@@ -1,0 +1,275 @@
+{
+	"comment": "Bash commands taken from real spirits session logs, with the home directory, the account name, session ids, long hex runs, and mail addresses replaced. Every case is a command the guard classifies, and `expect` is the category id read from the spec for that shape: S1 shell control syntax or a function definition, S2 awk / jq / xargs, a sed that is not a line-range print, or a pipeline whose stages behind the first are not all allow-listed filters, S3 a heredoc written out to a file, P1 inline code in another language, P2 a non-TypeScript script under a temporary directory. Paths are read against the project working directory /work/project/spirits.",
+	"cases": [
+		{
+			"command": "for p in 292072 292075; do echo \"=== $p status ===\"; grep -E \"^(Name|State|TracerPid|Pid|PPid|Threads|SigBlk|SigIgn|SigCgt|voluntary|nonvoluntary)\" /proc/$p/status 2>&1; echo \"--- wchan/syscall ---\"; cat /proc/$p/wchan 2>&1; echo; cat /proc/$p/syscall 2>&1; echo \"--- cwd ---\"; ls -l /proc/$p/cwd 2>&1; done",
+			"expect": [
+				"S1"
+			]
+		},
+		{
+			"command": "for d in model-commands model-role-badge product-identity dual-model-routing; do echo \"=== $d ===\"; ls -la /work/project/spirits/openspec/specs/$d/ 2>&1; done",
+			"expect": [
+				"S1"
+			]
+		},
+		{
+			"command": "for f in phase router resolve register; do echo \"=== $f.ts ===\"; cat /work/project/spirits/packages/spirits/src/routing/$f.ts; done 2>&1",
+			"expect": [
+				"S1"
+			]
+		},
+		{
+			"command": "for f in /work/project/spirits_old/packages/ai/src/providers/data/xiaomi.json /work/project/spirits/packages/ai/dist/providers/data/xiaomi.json /work/project/spirits/packages/ai/src/providers/data/xiaomi.json; do echo \"== $f\"; ls -l --time-style=+%Y-%m-%dT%H:%M \"$f\" 2>/dev/null; grep -o '\"mimo-v[0-9.]*-[a-z]*\"' \"$f\" 2>/dev/null | sort -u; done",
+			"expect": [
+				"S1"
+			]
+		},
+		{
+			"command": "ps -o pid,ppid,stat,args -p 606253 2>/dev/null; echo \"---\"; if ps -p 606253 >/dev/null 2>&1; then kill -9 606253; echo killed; fi; sleep 0.3; ps -p 606253 >/dev/null 2>&1 && echo \"still alive\" || echo gone; echo \"--- scopes ---\"; systemctl --user list-units 'tmux-spawn-*' --state=active --no-pager 2>/dev/null | head",
+			"expect": [
+				"S1"
+			]
+		},
+		{
+			"command": "strace -f -o /tmp/strace-test.out sleep 300 & sp=$!; sleep 0.5; grep -E 'SigIgn|SigCgt' /proc/$sp/status; kill -HUP $sp; sleep 0.5; if kill -0 $sp 2>/dev/null; then echo \"strace survived SIGHUP\"; kill -9 $sp; else echo \"strace died on SIGHUP\"; fi; pkill -9 -f \"sleep 300\" 2>/dev/null; true",
+			"expect": [
+				"S1"
+			]
+		},
+		{
+			"command": "pid=$(pgrep -f \"dist/spirits-linux-x64 --approve --model my_opencode/kimi-k3\" | head -1); echo \"pid=$pid\"; if [ -n \"$pid\" ]; then tr '\\0' '\\n' < /proc/$pid/environ | grep -c \"^OPENCODE_API_KEY=\"; tr '\\0' '\\n' < /proc/$pid/environ | grep -o \"^OPENCODE_API_KEY=.\\{0,4\\}\"; fi",
+			"expect": [
+				"S1"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && ls openspec/specs/ && echo \"=== main specs ===\" && for d in architecture-guards bundled-skills sprt-opsx-review-change sprt-opsx-verify-deep; do f=\"openspec/specs/$d/spec.md\"; if [ -f \"$f\" ]; then echo \"--- EXISTS $f\"; grep -n \"^#\\|^## \\|^### Requirement\" \"$f\" | head -30; else echo \"--- MISSING $f\"; fi; done",
+			"expect": [
+				"S1"
+			]
+		},
+		{
+			"command": "f() { printf \"'%s'\" \"${1//\\'/'\\\\''}\"; }; f \"a'b\"; echo; f \"plain\"; echo; f \"a b\"; echo",
+			"expect": [
+				"S1"
+			]
+		},
+		{
+			"command": "pgrep -fa \"tsc --noEmit\" | grep -v grep; cat /tmp/verify2-tsc.log | sed 's/\\x1b\\[[0-9;]*m//g' | tail -8; echo \"TSC_LOG_END\"",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits/packages/spirits && sed -i 's/import { dirname, join } from \"node:path\";/import { join } from \"node:path\";/' test/update-cleanup.test.ts && bun test test/update-cleanup.test.ts 2>&1 | tail -20",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "git log --oneline origin/main..spirits-m2-verify; echo \"=== changes dir on origin/main ===\"; git ls-tree -r --name-only origin/main openspec/changes | sed 's|/[^/]*$||' | sort -u; echo \"=== changes dir current ===\"; ls openspec/changes/",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && gh run list --limit 6 2>&1; echo \"=== CI failure annotation ===\"; gh run view 3820352 2>&1 | sed -n '/ANNOTATIONS/,$p' | head -25",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && echo \"===UPSTREAM COMMITS BY TYPE===\" && git log --oneline a276dabe5..FETCH_HEAD | sed -E 's/^[0-9a-f]+ //' | grep -oE '^[a-z]+(\\([^)]*\\))?' | sort | uniq -c | sort -rn | head -15 && echo && echo \"===UPSTREAM TOP CHURNED coding-agent files===\" && git diff --numstat a276dabe5..FETCH_HEAD -- packages/coding-agent/src | sort -rn | head -20",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && sed 's|if run_case a \"$a_cwd\" \"$WORK_DIR/a-agent\" \"$WORK_DIR/a-record.json\"; then|if run_case a \"$a_cwd\" \"$WORK_DIR/a-agent\" \"$WORK_DIR/a-record.json\" SPIRITS_DOTENV_PROBE=1; then|' scripts/test-dotenv-smoke.sh > /tmp/neg-dotenv-test.sh && bash /tmp/neg-dotenv-test.sh dist/spirits-linux-x64; echo \"exit=$?\"; rm -f /tmp/neg-dotenv-test.sh",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "cat /tmp/s88-b-home/.spirits/agent/settings.json 2>/dev/null; echo \"---\"; env | grep -E '^(PI_|SPIRITS_|OPENROUTER|ANTHROPIC|OPENAI)' | sed 's/=.*/=<redacted>/' | sort",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && grep -n \"sleep 1\" scripts/tmux-verify.sh && sed -n '/^\tdone$/,+2p' scripts/tmux-verify.sh | head",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && echo \"===UPSTREAM COMMITS touching root tooling===\" && git log --oneline a276dabe5..FETCH_HEAD -- package.json biome.json tsconfig.json .npmrc | head -30 && echo && echo \"===UPSTREAM new top-level dirs/files===\" && git diff --name-status a276dabe5..FETCH_HEAD | awk '$1==\"A\"' | cut -d/ -f1-2 | sort | uniq -c | sort -rn | head -25",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "cat /proc/292072/io 2>&1; sleep 3; echo \"--- after 3s ---\"; cat /proc/292072/io 2>&1; echo \"=== out file pos ===\"; cat /proc/292072/fdinfo/3; echo \"=== minflt ===\"; awk '{print \"minflt=\"$10\" majflt=\"$12\" nswap=\"$11}' /proc/292072/stat; awk '{print \"minflt=\"$10\" majflt=\"$12}' /proc/292075/stat",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && awk 'NR<=141 {printf \"%d: %s\\n\", NR, $0}' openspec/changes/harden-verification-cleanup/tasks.md | sed -n '86,114p'",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && rg -n \"spirits_skill_delete\" openspec/specs/continual-harness/spec.md | head; echo \"===\"; awk '/### Requirement: .*delete/,/^### Requirement: [^d]/' openspec/specs/continual-harness/spec.md | head -40",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && diff <(awk '/^### Requirement: スキルの保存$/,/^### Requirement: スキルの一覧$/' openspec/specs/continual-harness/spec.md | head -n -1) <(awk '/^### Requirement: スキルの保存$/,/^#### Scenario: 同梱ディレクトリへの symlink の拒否$/' openspec/changes/add-bundled-skills/specs/continual-harness/spec.md | head -n -1)",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && find packages/spirits/src -name tsconfig.json | xargs -I{} sh -c 'echo \"=== {} ===\"; cat {}' && echo '=== QuietStartup type ===' && rg -n 'QuietStartup' packages/coding-agent/src/core/settings-manager.ts | head -5 && rg -n 'export type QuietStartup' -A3 packages/coding-agent/src/core/settings-manager.ts packages/coding-agent/src/core/settings.ts 2>/dev/null",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "lsof -ti:8899 2>/dev/null | xargs -r kill 2>/dev/null; sleep 0.5; setsid bash -c 'exec bun /tmp/mitm.mjs > /tmp/mitm.log 2>&1' < /dev/null & disown; sleep 1.5; cat /tmp/mitm.log",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "lsof -ti:8899 2>/dev/null | xargs -r kill 2>/dev/null; sleep 0.5; setsid bash -c 'exec bun /tmp/mitm.mjs > /tmp/mitm.log 2>&1' < /dev/null & disown; sleep 1.5; cat /tmp/mitm.log; echo '--- compiled help ---'; cd /work/project/spirits && ./dist/spirits-linux-x64 --help 2>&1 | rg -n 'spirits|Update pi|update \\[' | head -8",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && rg -n \"truncateToWidth\" packages/tui/src --glob '*.ts' | head; echo ---; find packages/tui/src -name \"*.ts\" | xargs rg -ln \"truncateToWidth\" | head",
+			"expect": [
+				"S2"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits/packages/spirits && cat > test/__probe.test.ts <<'EOF'\nimport { expect, test } from \"bun:test\";\nimport { SessionManager } from \"../../coding-agent/src/core/session-manager.ts\";\n\ntest(\"probe\", () => {\n\texpect(typeof SessionManager.create).toBe(\"function\");\n});\nEOF\ntimeout 60 bun test test/__probe.test.ts 2>&1 | head -30; rm test/__probe.test.ts",
+			"expect": [
+				"S3"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits/packages/spirits && cat > test/__probe_pi_import.test.ts <<'EOF'\nimport { expect, test } from \"bun:test\";\nimport { loadSkills } from \"@earendil-works/pi-coding-agent\";\n\ntest(\"probe pi runtime import\", () => {\n\texpect(typeof loadSkills).toBe(\"function\");\n});\nEOF\nbun test test/__probe_pi_import.test.ts 2>&1 | tail -8; rm -f test/__probe_pi_import.test.ts",
+			"expect": [
+				"S3"
+			]
+		},
+		{
+			"command": "set -e\nFIX=/tmp/spirits-e2e/fixture-ts\ncat > \"$FIX/test/model.test.ts\" <<'EOF'\nimport { expect, test } from \"bun:test\";\nimport { userName } from \"../src/domain/model.ts\";\n\ntest(\"userName trims\", () => {\n\texpect(userName({ id: 1, name: \" a \" })).toBe(\"a\");\n});\nEOF\ngit -C \"$FIX\" add -A\ngit -C \"$FIX\" commit -qm \"add test\"\ncd \"$FIX\" && bun test 2>&1 | tail -4; git -C \"$FIX\" status --porcelain | wc -l",
+			"expect": [
+				"S3"
+			]
+		},
+		{
+			"command": "cat > /tmp/apitest/timeout-test.ts <<'EOF'\nimport { test, beforeAll } from \"bun:test\";\nbeforeAll(async () => {\n\tawait new Promise((r) => setTimeout(r, 50));\n}, 100);\ntest(\"works\", { timeout: 30000 }, () => {});\ntest(\"positional timeout\", () => {}, 30000);\nEOF\ncd /work/project/spirits/packages/spirits && bun test /tmp/apitest/timeout-test.ts 2>&1 | tail -5",
+			"expect": [
+				"S3"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits/packages/spirits && cat > test/pi-runtime/tmp-resolve-check.test.ts <<'EOF'\nimport { test } from \"bun:test\";\ntest(\"resolve path\", () => {\n\tconsole.log(import.meta.resolve(\"@earendil-works/pi-coding-agent\"));\n});\nEOF\ntimeout 60 bun test test/pi-runtime/tmp-resolve-check.test.ts 2>&1 | head -8; rm test/pi-runtime/tmp-resolve-check.test.ts",
+			"expect": [
+				"S3"
+			]
+		},
+		{
+			"command": "bash -n /tmp/test-spirits/_launch.sh && echo \"syntax ok\" && cat > /tmp/test-spirits/run-physical.sh <<'EOF'\n#!/usr/bin/env bash\n# 物理モデルのまま起動する(バッジが出ないこと・振り分けが効かないことを確認する用)\nSPIRITS_NO_AUTO_SELECT=1 exec \"$(dirname \"$0\")/_launch.sh\" strong \"$@\"\nEOF\nchmod +x /tmp/test-spirits/run-physical.sh && ls -la /tmp/test-spirits/*.sh",
+			"expect": [
+				"S3"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && openspec status --change \"add-product-identity\" --json 2>&1 | python3 -c \"import json,sys; d=json.load(sys.stdin); print([(a['id'],a['status']) for a in d['artifacts']])\"",
+			"expect": [
+				"P1"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && openspec instructions specs --change \"add-product-identity\" --json 2>&1 | python3 -c \"import json,sys; d=json.load(sys.stdin); print('OUTPUT:', d['outputPath']); print('INSTRUCTION:'); print(d['instruction']); print('TEMPLATE:'); print(d['template']); print('DEPS:', d.get('dependencies'))\"",
+			"expect": [
+				"P1"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && openspec status --change \"add-product-identity\" --json 2>&1 | python3 -c \"import json,sys; d=json.load(sys.stdin); print([(a['id'],a['status']) for a in d['artifacts']]); print('complete:', d['isComplete'])\"",
+			"expect": [
+				"P1"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && openspec status --change \"add-self-update\" --json | python3 -c \"import json,sys; d=json.load(sys.stdin); print([{a['id']: a['status']} for a in d['artifacts']]); print(d['nextSteps'])\" && echo \"=== validate help ===\" && openspec validate --help 2>&1 | head -30",
+			"expect": [
+				"P1"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && openspec status --change \"add-self-update\" --json | python3 -c \"import json,sys; d=json.load(sys.stdin); print([{a['id']: a['status']} for a in d['artifacts']]); print('planningComplete:', d['isPlanningComplete'], 'complete:', d['isComplete'])\" && echo \"=== validate ===\" && openspec validate add-self-update --strict --no-interactive 2>&1 | tail -20",
+			"expect": [
+				"P1"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && git status --short && echo \"---\" && find openspec/changes/add-self-update -type f | sort && echo \"---\" && openspec status --change add-self-update --json | python3 -c \"import json,sys; d=json.load(sys.stdin); [print(f\\\"{a['id']}: {a['status']}\\\") for a in d['artifacts']]\"",
+			"expect": [
+				"P1"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && rg -n \"CONFIG_DIR_NAME|piConfig|APP_NAME\" packages/coding-agent/test -g '*.ts' | head -20 && echo \"---root pkg version---\" && node -e \"const p=require('./package.json');console.log('root',p.version);const c=require('./packages/coding-agent/package.json');console.log('coding-agent',c.version, JSON.stringify(c.piConfig))\"",
+			"expect": [
+				"P1"
+			]
+		},
+		{
+			"command": "node -e \"const p=require('./package.json'); console.log(JSON.stringify(p.scripts,null,1)); console.log(p.workspaces)\" && cat packages/spirits/package.json | head -40",
+			"expect": [
+				"P1"
+			]
+		},
+		{
+			"command": "openspec validate --strict add-product-identity && openspec instructions apply --change \"add-product-identity\" --json 2>/dev/null | node -e \"let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const j=JSON.parse(s);console.log(JSON.stringify(j.progress));console.log(j.tasks.filter(t=>!t.done).map(t=>t.id+': '+t.description.slice(0,60)).join('\\n'))})\"",
+			"expect": [
+				"P1"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && python3 /tmp/opsx-sync-add-self-update.py && echo \"--- validate ---\" && openspec validate --help 2>&1 | head -30",
+			"expect": [
+				"P2"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && python3 /tmp/opsx-verify-sync.py && echo \"=== validate all strict ===\" && openspec validate --all --strict --no-interactive 2>&1 | tail -30",
+			"expect": [
+				"P2"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && node /tmp/apitest/gen-fixtures.mjs && find packages/spirits/test/fixtures/architecture -type f | wc -l && ls packages/spirits/test/fixtures/architecture/",
+			"expect": [
+				"P2"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && node /tmp/verify-sync.mjs",
+			"expect": [
+				"P2"
+			]
+		}
+	]
+}

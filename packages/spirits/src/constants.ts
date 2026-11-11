@@ -132,6 +132,103 @@ export const TOOL_NAME_PROMPT_SET = "spirits_prompt_set";
 export const TSREPL_CELL_ENTRY_TYPE = "tsrepl_cell";
 
 // ---------------------------------------------------------------------------
+// Action surface guard (bash classification)
+// ---------------------------------------------------------------------------
+
+/**
+ * Custom session entry type carrying one record per guarded bash decision. pi keeps custom entries
+ * out of the LLM context, so this is measurement data only. Data shape: `GuardRecord` in
+ * `guard/metrics.ts`.
+ */
+export const ACTION_GUARD_ENTRY_TYPE = "spirits_guard";
+
+/** Environment variable selecting the guard mode. Read once at extension load. */
+export const ENV_ACTION_GUARD = "SPIRITS_ACTION_GUARD";
+
+/** Guard mode that classifies and blocks. Used when the variable is unset or does not match exactly. */
+export const ACTION_GUARD_MODE_ENFORCE = "enforce";
+
+/** Guard mode that classifies and records, leaving execution alone. */
+export const ACTION_GUARD_MODE_WARN = "warn";
+
+/** Guard mode that classifies nothing and records nothing. */
+export const ACTION_GUARD_MODE_OFF = "off";
+
+/** A guard mode, in the spelling `SPIRITS_ACTION_GUARD` accepts. */
+export type ActionGuardMode =
+	| typeof ACTION_GUARD_MODE_ENFORCE
+	| typeof ACTION_GUARD_MODE_WARN
+	| typeof ACTION_GUARD_MODE_OFF;
+
+/** The modes `SPIRITS_ACTION_GUARD` accepts. Anything else resolves to {@link ACTION_GUARD_MODE_ENFORCE}. */
+export const ACTION_GUARD_MODES: readonly ActionGuardMode[] = [
+	ACTION_GUARD_MODE_ENFORCE,
+	ACTION_GUARD_MODE_WARN,
+	ACTION_GUARD_MODE_OFF,
+];
+
+/** Identifier of one guard classification. Reported in the block reason and in the measurement. */
+export type GuardCategoryId = "S1" | "S2" | "S3" | "P1" | "P2";
+
+/** Categories that stop a model-issued bash call only; a nested call is left alone. */
+export const SHELL_PROGRAMMING_CATEGORIES: readonly GuardCategoryId[] = ["S1", "S2", "S3"];
+
+/** Categories that stop a model-issued bash call and a nested one alike. */
+export const SCRATCH_CODE_CATEGORIES: readonly GuardCategoryId[] = ["P1", "P2"];
+
+/** What one category stops, and the one-line tsrepl form it should become. */
+export interface GuardCategoryGuidance {
+	/** One line naming what the classification stops. */
+	readonly description: string;
+	/** One line of tsrepl the model should write instead. */
+	readonly example: string;
+}
+
+/** Per-category text, shared by the block reason (`guard/messages.ts`). */
+export const GUARD_CATEGORY_GUIDANCE: Readonly<Record<GuardCategoryId, GuardCategoryGuidance>> = {
+	S1: {
+		description: "シェルの制御構文・関数定義(for / while / until / if / case / select)",
+		example: 'for (const f of (await sh("ls src")).output.split("\\n")) { print(f) }',
+	},
+	S2: {
+		description: "awk / jq / xargs、行範囲の print 以外の sed、許可フィルタ以外を含む長いパイプ",
+		example:
+			'const files = (await sh("rg -n TODO src")).output.split("\\n").map((line) => line.split(":")[0])',
+	},
+	S3: {
+		description: "ヒアドキュメントでファイル内容を生成する書き込み",
+		example: 'const fs = await use("node:fs/promises"); await fs.writeFile("/tmp/body.txt", text)',
+	},
+	P1: {
+		description: "python -c / node -e などの他言語のインラインコード",
+		example: 'const version = JSON.parse((await sh("cat package.json")).output).version',
+	},
+	P2: {
+		description: "一時ディレクトリ配下の TypeScript 以外のスクリプト実行",
+		example: '使い捨てスクリプトはセル本体に書く: return (await sh("python3 scripts/check.py")).exit_code',
+	},
+};
+
+/**
+ * Commands a bash pipe may chain after its first stage without the pipe counting as S2. One copy:
+ * `guard/rules.ts` classifies with it, `tools.ts` lists it in the tsrepl guidelines.
+ */
+export const BASH_PIPE_ALLOW_FILTERS: readonly string[] = [
+	"head",
+	"tail",
+	"wc",
+	"grep",
+	"rg",
+	"sort",
+	"uniq",
+	"cut",
+	"tr",
+	"cat",
+	"nl",
+	"column",
+];
+
+// ---------------------------------------------------------------------------
 // Bundled skills
 // ---------------------------------------------------------------------------
 
