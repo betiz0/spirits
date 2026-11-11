@@ -75,12 +75,11 @@
 - **WHEN** 専用経路用の拡張 bundle が欠落している状態で同じ版を再導入する
 - **THEN** 対応表の検証済み bundle が再配置され、実験経路が再び起動できる
 
-### Requirement: 起動前の identity と保存先の確定
+### Requirement: 起動前の保存先の確定
 システムは、隔離経路の起動において、`--help`、`--version` を含む Pi の実行前に、専用 Pi のアプリ名を spirits に固定し、保存先を `<managed root>/agent` の隔離 agent dir に確定しなければならない。(SHALL)
 隔離経路の未指定時の保存先は `~/.spirits/managed-pi/agent` とし、既存の `~/.spirits/agent` を使ってはならない。(MUST)
 隔離経路では `PI_CODING_AGENT_DIR` および旧名の session dir を保存先の指定として読んではならない。(MUST)
 `SPIRITS_CODING_AGENT_DIR` が未指定の場合、および wrapper が通常経路向けに注入した既定値だけが存在する場合は、明示指定として扱わず、固定の隔離 agent dir を使わなければならない。(MUST)
-`PI_PACKAGE_DIR` は専用 Pi の package dir に固定するか除去し、外部の値で app 名、版、アセットを差し替えられてはならない。(MUST)
 この要件は隔離経路にだけ適用し、既定経路の保存先は「既定経路の agent dir」が定める。(MUST)
 
 #### Scenario: 保存先の既定値
@@ -94,6 +93,10 @@
 #### Scenario: 旧環境変数の無視
 - **WHEN** `PI_CODING_AGENT_DIR=/tmp/old-agent` と旧名の session dir を設定して `spirits managed-pi` を起動する
 - **THEN** 保存先は `/tmp/old-agent` ではなく隔離 agent dir になり、session dir もその配下になる
+
+### Requirement: 専用 Pi の package dir の固定
+`PI_PACKAGE_DIR` は専用 Pi の package dir に固定するか除去し、外部の値で app 名、版、アセットを差し替えられてはならない。(MUST)
+この要件は隔離経路にだけ適用し、既定経路の保存先は「既定経路の agent dir」が定める。(MUST)
 
 #### Scenario: package dir の差し替え防止
 - **WHEN** `PI_PACKAGE_DIR` に別の package.json を持つディレクトリを指定して `spirits managed-pi --version` を実行する
