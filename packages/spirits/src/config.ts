@@ -14,6 +14,7 @@ import {
 	DEFAULT_MEMORY_INJECTION_CHAR_LIMIT,
 	DEFAULT_MEMORY_PREVIEW_LINES,
 	DEFAULT_TODO_MAX_LINES,
+	DEFAULT_TODO_TOGGLE_KEY,
 	ACTION_GUARD_MODES,
 	ACTION_GUARD_MODE_ENFORCE,
 	ENV_ACTION_GUARD,
@@ -22,6 +23,7 @@ import {
 	ENV_MEMORY_LINE_LIMIT,
 	ENV_MEMORY_PREVIEW_LINES,
 	ENV_TODO_MAX_LINES,
+	ENV_TODO_TOGGLE_KEY,
 	MODEL_ROLES,
 	MODEL_SPEC_SEPARATOR,
 	type ActionGuardMode,
@@ -30,6 +32,9 @@ import {
 	SETTINGS_KEY_MODELS,
 	SETTINGS_KEY_ROLE,
 	SETTINGS_KEY_STRONG_MODEL,
+	SETTINGS_KEY_TODO,
+	SETTINGS_KEY_TODO_START_COLLAPSED,
+	SETTINGS_KEY_TODO_TOGGLE_KEY,
 } from "./constants.ts";
 
 /** Resolved memory limits. Unit: lines, JS string length, lines. */
@@ -46,6 +51,10 @@ export interface MemoryLimits {
 export interface TodoConfig {
 	/** TODO item lines shown before the counts line. Unit: lines. */
 	maxLines: number;
+	/** Key that collapses and expands the panel, in pi's `ctrl+shift+l` spelling. */
+	toggleKey: string;
+	/** True only when the settings file sets `todo.startCollapsed` to the boolean `true`. */
+	startCollapsed: boolean;
 }
 
 /** Resolved settings for the bundled skills. */
@@ -177,6 +186,42 @@ export function readRoutingSettings(settings: unknown): RoutingSettings {
 	};
 }
 
+/**
+ * Key syntax accepted for the panel toggle key: modifiers in any order, then one base key. The base
+ * key is a run of alphanumerics or a single ASCII symbol except `+`, because pi splits a key id on
+ * `+` and cannot read `ctrl++`. The symbol ranges are 0x21-0x2F (minus `+`), 0x3A-0x40, 0x5B-0x60,
+ * and 0x7B-0x7E. Whether the base key names a real key is not checked: pi-tui keeps its key list in
+ * types only, and a spirits-side list would duplicate it (design Decision 3).
+ */
+const TOGGLE_KEY_PATTERN = /^(?:(?:ctrl|shift|alt|super)\+)*(?:[a-z0-9]+|[!-*,-/:-@[-`{-~])$/;
+
+/** Normalize a toggle key candidate to lowercase without surrounding space, or unset it. */
+function readToggleKey(value: unknown): string | undefined {
+	if (typeof value !== "string") return undefined;
+	const normalized = value.trim().toLowerCase();
+	return TOGGLE_KEY_PATTERN.test(normalized) ? normalized : undefined;
+}
+
+/**
+ * Resolve the TODO panel settings (design Decision 3/4). The toggle key is the first candidate that
+ * parses: `todo.toggleKey` in the settings file, then `SPIRITS_TODO_TOGGLE_KEY`, then the default, so
+ * a blank or unparseable candidate never claims the key. A candidate that parses but names no real
+ * key is kept as given, because the alternative would silently reclaim the default key the user gave
+ * up. `startCollapsed` is true only for the boolean `true`; an unreadable settings object reaches this
+ * function as whatever the caller holds and reads as expanded.
+ */
+export function resolveTodoConfig(env: EnvLike, settings: unknown): TodoConfig {
+	const todo = settingsValue(settings, SETTINGS_KEY_TODO);
+	return {
+		maxLines: readLimit(env, ENV_TODO_MAX_LINES, DEFAULT_TODO_MAX_LINES),
+		toggleKey:
+			readToggleKey(settingsValue(todo, SETTINGS_KEY_TODO_TOGGLE_KEY)) ??
+			readToggleKey(env[ENV_TODO_TOGGLE_KEY]) ??
+			DEFAULT_TODO_TOGGLE_KEY,
+		startCollapsed: settingsValue(todo, SETTINGS_KEY_TODO_START_COLLAPSED) === true,
+	};
+}
+
 /** Resolve the harness configuration, falling back to defaults for absent or invalid values. */
 export function loadConfig(env: EnvLike): SpiritsConfig {
 	return {
@@ -185,9 +230,8 @@ export function loadConfig(env: EnvLike): SpiritsConfig {
 			injectionCharLimit: readLimit(env, ENV_MEMORY_CHAR_LIMIT, DEFAULT_MEMORY_INJECTION_CHAR_LIMIT),
 			fileLineLimit: readLimit(env, ENV_MEMORY_LINE_LIMIT, DEFAULT_MEMORY_FILE_LINE_LIMIT),
 		},
-		todo: {
-			maxLines: readLimit(env, ENV_TODO_MAX_LINES, DEFAULT_TODO_MAX_LINES),
-		},
+		// No settings file: `loadConfig` only reads the environment, so the file-only candidates are unset.
+		todo: resolveTodoConfig(env, {}),
 		bundledSkills: {
 			enabled: readEnabled(env, ENV_BUNDLED_SKILLS),
 		},

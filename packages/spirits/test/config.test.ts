@@ -7,12 +7,14 @@ import {
 	DEFAULT_MEMORY_INJECTION_CHAR_LIMIT,
 	DEFAULT_MEMORY_PREVIEW_LINES,
 	DEFAULT_TODO_MAX_LINES,
+	DEFAULT_TODO_TOGGLE_KEY,
 	ENV_ACTION_GUARD,
 	ENV_BUNDLED_SKILLS,
 	ENV_MEMORY_CHAR_LIMIT,
 	ENV_MEMORY_LINE_LIMIT,
 	ENV_MEMORY_PREVIEW_LINES,
 	ENV_TODO_MAX_LINES,
+	ENV_TODO_TOGGLE_KEY,
 } from "../src/constants.ts";
 import {
 	loadConfig,
@@ -20,6 +22,7 @@ import {
 	readDefaultRoleSetting,
 	readRoutingSettings,
 	readStrongModelSetting,
+	resolveTodoConfig,
 } from "../src/config.ts";
 
 test("defaults when unset", () => {
@@ -29,7 +32,7 @@ test("defaults when unset", () => {
 			injectionCharLimit: DEFAULT_MEMORY_INJECTION_CHAR_LIMIT,
 			fileLineLimit: DEFAULT_MEMORY_FILE_LINE_LIMIT,
 		},
-		todo: { maxLines: DEFAULT_TODO_MAX_LINES },
+		todo: { maxLines: DEFAULT_TODO_MAX_LINES, toggleKey: DEFAULT_TODO_TOGGLE_KEY, startCollapsed: false },
 		bundledSkills: { enabled: true },
 	});
 });
@@ -78,6 +81,74 @@ test("todo max lines falls back on 0, abc, -1", () => {
 	for (const value of ["0", "abc", "-1"]) {
 		expect(loadConfig({ [ENV_TODO_MAX_LINES]: value }).todo.maxLines).toBe(DEFAULT_TODO_MAX_LINES);
 	}
+});
+
+// spec "session-todo / 開閉キーは設定ファイル、環境変数、既定値の順に決まる"
+test("開閉キーの既定値", () => {
+	expect(DEFAULT_TODO_TOGGLE_KEY).toBe("ctrl+shift+l");
+	expect(resolveTodoConfig({}, {})).toEqual({
+		maxLines: DEFAULT_TODO_MAX_LINES,
+		toggleKey: DEFAULT_TODO_TOGGLE_KEY,
+		startCollapsed: false,
+	});
+	expect(loadConfig({}).todo.toggleKey).toBe(DEFAULT_TODO_TOGGLE_KEY);
+});
+
+test("設定ファイルの開閉キーが環境変数より優先される", () => {
+	expect(
+		resolveTodoConfig({ [ENV_TODO_TOGGLE_KEY]: "ctrl+shift+j" }, { todo: { toggleKey: "ctrl+shift+k" } }).toggleKey,
+	).toBe("ctrl+shift+k");
+	expect(resolveTodoConfig({}, { todo: { toggleKey: "ctrl+shift+k" } }).toggleKey).toBe("ctrl+shift+k");
+	expect(resolveTodoConfig({ [ENV_TODO_TOGGLE_KEY]: "ctrl+shift+j" }, {}).toggleKey).toBe("ctrl+shift+j");
+});
+
+test("設定ファイルの開閉キーが構文不正なら環境変数を使う", () => {
+	for (const value of ["", "   ", "ctrl+", "ctrl l", "shift+ctrl+", 1, true, null, ["ctrl+k"]]) {
+		expect(resolveTodoConfig({ [ENV_TODO_TOGGLE_KEY]: "ctrl+shift+j" }, { todo: { toggleKey: value } }).toggleKey).toBe(
+			"ctrl+shift+j",
+		);
+	}
+	// `todo` がオブジェクトでない場合も項目が無いものとして扱う。
+	expect(resolveTodoConfig({ [ENV_TODO_TOGGLE_KEY]: "ctrl+shift+j" }, { todo: "ctrl+k" }).toggleKey).toBe(
+		"ctrl+shift+j",
+	);
+});
+
+test("すべての候補が構文不正なら既定値", () => {
+	for (const value of ["", "ctrl+", " ctrl ++ ", "ctrl+k l", "shift+ctrl+"]) {
+		expect(resolveTodoConfig({ [ENV_TODO_TOGGLE_KEY]: value }, {}).toggleKey).toBe(DEFAULT_TODO_TOGGLE_KEY);
+	}
+	expect(resolveTodoConfig({ [ENV_TODO_TOGGLE_KEY]: "ctrl+" }, { todo: { toggleKey: "" } }).toggleKey).toBe(
+		DEFAULT_TODO_TOGGLE_KEY,
+	);
+});
+
+test("記号の基底キーを受け付ける", () => {
+	for (const value of ["alt+,", "ctrl+.", "super+/", "ctrl+shift+-", "alt+9", "ctrl+`", "shift+~"]) {
+		expect(resolveTodoConfig({}, { todo: { toggleKey: value } }).toggleKey).toBe(value);
+	}
+	// `+` は pi がキー id を分割するため基底キーにできず、候補ごと飛ばす。
+	expect(resolveTodoConfig({}, { todo: { toggleKey: "ctrl++" } }).toggleKey).toBe(DEFAULT_TODO_TOGGLE_KEY);
+});
+
+test("大文字と前後の空白を正規化する", () => {
+	expect(resolveTodoConfig({}, { todo: { toggleKey: " Ctrl+Shift+K " } }).toggleKey).toBe("ctrl+shift+k");
+	expect(resolveTodoConfig({ [ENV_TODO_TOGGLE_KEY]: "\tALT+L\n" }, {}).toggleKey).toBe("alt+l");
+});
+
+test("存在しないキー名はそのまま採用する", () => {
+	expect(resolveTodoConfig({}, { todo: { toggleKey: "ctrl+foo" } }).toggleKey).toBe("ctrl+foo");
+	expect(resolveTodoConfig({}, { todo: { toggleKey: "ctrl+shift+notakey" } }).toggleKey).toBe("ctrl+shift+notakey");
+});
+
+test("startCollapsed は真偽値 true のときだけ true", () => {
+	expect(resolveTodoConfig({}, { todo: { startCollapsed: true } }).startCollapsed).toBe(true);
+	for (const value of ["true", 1, "1", false, null, undefined, {}]) {
+		expect(resolveTodoConfig({}, { todo: { startCollapsed: value } }).startCollapsed).toBe(false);
+	}
+	// 環境変数を持たないため、環境だけでは折りたたまれない。
+	expect(resolveTodoConfig({ [ENV_TODO_TOGGLE_KEY]: "ctrl+k" }, {}).startCollapsed).toBe(false);
+	expect(resolveTodoConfig({}, "not an object").startCollapsed).toBe(false);
 });
 
 test("reads a provider-qualified strong model setting", () => {

@@ -15,7 +15,7 @@ import { join } from "node:path";
 import type { ExtensionToolContext, ExtensionUIContext } from "@earendil-works/pi-coding-agent";
 import { resolveTodoSnapshot, TODO_ENTRY_TYPE, type TodoSnapshot } from "../src/todo/state.ts";
 import { createManageTodosTool } from "../src/todo/tool.ts";
-import { refreshTodoPanel, TODO_WIDGET_KEY } from "../src/todo/widget.ts";
+import { createTodoPanelState, refreshTodoPanel, TODO_WIDGET_KEY } from "../src/todo/widget.ts";
 import { SessionManager } from "./pi-runtime/session-manager.ts";
 import { makeToolContext } from "./support.ts";
 
@@ -48,6 +48,7 @@ async function runManageTodos(session: SessionManager, updates: unknown[]): Prom
 	const tool = createManageTodosTool({
 		pi: { appendEntry: (customType, data) => void session.appendCustomEntry(customType, data) },
 		maxLines: 5,
+		state: createTodoPanelState(false),
 	});
 	return (tool.execute as unknown as Execute)("id", { updates }, undefined, undefined, panelContext(session, []));
 }
@@ -86,7 +87,7 @@ test("tool call persists to the session file and restores after reopen", async (
 		expect(resolveTodoSnapshot(reopened.getBranch())).toEqual(expected);
 
 		const calls: SetWidgetCall[] = [];
-		refreshTodoPanel(panelContext(reopened, calls), 5);
+		refreshTodoPanel(panelContext(reopened, calls), 5, createTodoPanelState(false));
 		expect(calls).toHaveLength(1);
 		expect(calls[0].key).toBe(TODO_WIDGET_KEY);
 		expect(calls[0].options).toEqual({ placement: "belowEditor" });
@@ -122,7 +123,7 @@ test("restores the last valid snapshot when the latest record is malformed", asy
 		});
 
 		const calls: SetWidgetCall[] = [];
-		refreshTodoPanel(panelContext(reopened, calls), 5);
+		refreshTodoPanel(panelContext(reopened, calls), 5, createTodoPanelState(false));
 		expect(renderWidget(calls[0].content, 80)).toEqual(["○ #1 Fix bug"]);
 	} finally {
 		await rm(dir, { recursive: true, force: true });

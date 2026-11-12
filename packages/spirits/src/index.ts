@@ -5,8 +5,10 @@
  * which lets cells start child agent sessions through the same host function registry.
  * M4 adds the continual harness: `goal` / `note` host functions, the code-mode and memory
  * prompt sections, and the skill / prompt codemode tools. The branding module replaces pi's
- * startup header in TUI mode. The session TODO list adds the `manage_todos` tool. Dual model
- * routing registers the `spirits/auto` virtual model that splits requests between two roles.
+ * startup header in TUI mode. The session TODO list adds the `manage_todos` tool and the panel that
+ * shows the list between the editor and the footer, which the user collapses to a counts line and
+ * expands again with a configurable key. Dual model routing registers the `spirits/auto` virtual model
+ * that splits requests between two roles.
  *
  * pi initializes an extension by calling this factory, and a throw anywhere inside it discards
  * *every* registration the extension made (`core/extensions/loader.ts`: `load.discard()`). Only the
@@ -18,7 +20,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { installBrandingHeader } from "./branding/header.ts";
-import { readRoutingSettings } from "./config.ts";
+import { readSettingsFile, globalSettingsPath } from "./commands/settings-store.ts";
+import { readRoutingSettings, resolveTodoConfig } from "./config.ts";
 import { MODEL_ROLE_NORMAL } from "./constants.ts";
 import { createRoleBadge } from "./commands/role.ts";
 import { registerManagedCommands } from "./commands/register.ts";
@@ -33,7 +36,7 @@ import { createChildModelResolver } from "./routing/child.ts";
 import type { RoutingPhase } from "./routing/phase.ts";
 import { registerDualModelRouting } from "./routing/register.ts";
 import { registerManageTodos } from "./todo/tool.ts";
-import { registerTodoPanel } from "./todo/widget.ts";
+import { createTodoPanelState, registerTodoPanel } from "./todo/widget.ts";
 import { createShHostFn } from "./repl/hostfns.ts";
 import { registerTsrepl } from "./tools.ts";
 
@@ -56,6 +59,22 @@ export function fallbackRoutingPhase(readDefaultRole: () => string | undefined):
 			lock = role;
 		},
 	};
+}
+
+/**
+ * The global settings file, read once per extension load.
+ *
+ * The read is the one pi itself does (`SettingsManager` reads the same path), and a file that is not
+ * there, not JSON, or not an object is read as no settings at all. A broken settings file costs the
+ * settings that live in it and nothing else: pi discards *every* registration when this factory
+ * throws, and TODO, routing, and the commands would all go down with it.
+ */
+function readGlobalSettings(): Record<string, unknown> {
+	try {
+		return readSettingsFile(globalSettingsPath());
+	} catch {
+		return {};
+	}
 }
 
 export default function spiritsExtension(pi: ExtensionAPI): void {
@@ -142,8 +161,14 @@ export default function spiritsExtension(pi: ExtensionAPI): void {
 	// `sh` goes to the root tsrepl only. A built-in host function reaches the `rlm` child too, and a
 	// child has no bash to run.
 	registerTsrepl(pi, { hostFns: [createShHostFn(), rlm, ...harnessHostFns] });
-	registerManageTodos(pi);
-	registerTodoPanel(pi);
+	// One resolved TODO config and one open/closed state feed both registrations: the tool and the panel
+	// handlers then cannot disagree on the line limit or on what the user last chose. The settings file is
+	// read here and only here, so the toggle key is fixed for the load, which is what pi's shortcut
+	// registration needs, and an edit lands on the next `/reload`.
+	const todo = resolveTodoConfig(process.env, readGlobalSettings());
+	const todoPanel = createTodoPanelState(todo.startCollapsed);
+	registerManageTodos(pi, todo, todoPanel);
+	registerTodoPanel(pi, todo, todoPanel);
 	// The bash guard is a sibling layer and the last registration. It runs on the way to every bash
 	// call, so a guard that cannot start is a degraded layer rather than a failed load, and a guard
 	// that cannot answer leaves the call alone (the handler swallows what it cannot decide).

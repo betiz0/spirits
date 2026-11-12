@@ -38,6 +38,7 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import { PI_VIRTUAL_MODEL_API } from "../../src/constants.ts";
+import type { RecordedShortcut } from "../support.ts";
 
 type RecordedHandler = (event: unknown, ctx: ExtensionContext) => unknown;
 
@@ -57,6 +58,8 @@ export class FakePi implements ExtensionAPI {
 	settings: Record<string, unknown> = {};
 	/** Commands registered through `registerCommand()`, in registration order. */
 	readonly commands = new Map<string, RegisteredCommandOptions>();
+	/** Shortcuts registered through `registerShortcut()`, keyed by the key id as registered. */
+	readonly shortcuts = new Map<string, RecordedShortcut>();
 	/** Models handed to `setModel()`, in order. */
 	readonly modelChanges: PiModel[] = [];
 	/** Thinking levels handed to `setThinkingLevel()`, in order. */
@@ -66,6 +69,10 @@ export class FakePi implements ExtensionAPI {
 
 	registerCommand(name: string, options: RegisteredCommandOptions): void {
 		this.commands.set(name, options);
+	}
+
+	registerShortcut(shortcut: string, options: RecordedShortcut): void {
+		this.shortcuts.set(shortcut, options);
 	}
 
 	async setModel(model: PiModel): Promise<boolean> {

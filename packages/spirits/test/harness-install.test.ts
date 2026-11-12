@@ -20,11 +20,13 @@ import type {
 import type { TSchema } from "typebox";
 import { registerContinualHarness } from "../src/harness/install.ts";
 import { memoryDir, notesPath, promptOverridePath } from "../src/harness/paths.ts";
-import { makeScope, makeToolContext } from "./support.ts";
+import { makeScope, makeToolContext, type RecordedShortcut } from "./support.ts";
 
 class FakePi implements ExtensionAPI {
 	readonly tools: ToolDefinition[] = [];
 	readonly entries: Array<{ customType: string; data: unknown }> = [];
+	/** Shortcuts registered through `registerShortcut()`, keyed by the key id as registered. */
+	readonly shortcuts = new Map<string, RecordedShortcut>();
 	readonly handlers: Array<ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>> = [];
 	readonly sessionHandlers: Array<ExtensionHandler<SessionStartEvent>> = [];
 	readonly treeHandlers: Array<ExtensionHandler<SessionTreeEvent>> = [];
@@ -50,6 +52,10 @@ class FakePi implements ExtensionAPI {
 	registerModelRoles(): void {}
 
 	registerCommand(): void {}
+
+	registerShortcut(shortcut: string, options: RecordedShortcut): void {
+		this.shortcuts.set(shortcut, options);
+	}
 
 	async setModel(): Promise<boolean> {
 		return true;

@@ -1,5 +1,6 @@
 import type {
 	CallableToolInfo,
+	ExtensionContext,
 	ExtensionModelRegistry,
 	ExtensionToolContext,
 	ReadonlySessionManager,
@@ -44,6 +45,17 @@ export function makeToolContext(
 			options.executeTool ??
 			(async () => ({ toolCall: {}, result: { content: [], details: undefined }, isError: false })),
 	};
+}
+
+/**
+ * One `registerShortcut()` registration, as the test fakes record it.
+ *
+ * The key id is the string the extension passed, so a test can look a shortcut up by the key the
+ * settings resolved and then run the handler the way pi's input layer would.
+ */
+export interface RecordedShortcut {
+	description?: string;
+	handler: (ctx: ExtensionContext) => unknown;
 }
 
 export interface CapturedScope {

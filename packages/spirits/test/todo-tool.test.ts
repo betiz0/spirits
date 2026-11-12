@@ -23,13 +23,17 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
 import spiritsExtension from "../src/index.ts";
+import { resolveTodoConfig } from "../src/config.ts";
 import { createManageTodosTool, MANAGE_TODOS_PROMPT_GUIDELINES, registerManageTodos } from "../src/todo/tool.ts";
+import { createTodoPanelState } from "../src/todo/widget.ts";
 import { TODO_ENTRY_TYPE } from "../src/todo/state.ts";
-import { makeToolContext } from "./support.ts";
+import { makeToolContext, type RecordedShortcut } from "./support.ts";
 
 class FakePi implements ExtensionAPI {
 	readonly tools: ToolDefinition[] = [];
 	readonly entries: Array<{ customType: string; data: unknown }> = [];
+	/** Shortcuts registered through `registerShortcut()`, keyed by the key id as registered. */
+	readonly shortcuts = new Map<string, RecordedShortcut>();
 
 	registerTool<TParams extends TSchema = TSchema, TDetails = unknown, TState = unknown>(
 		tool: ToolDefinition<TParams, TDetails, TState>,
@@ -52,6 +56,10 @@ class FakePi implements ExtensionAPI {
 	registerModelRoles(): void {}
 
 	registerCommand(): void {}
+
+	registerShortcut(shortcut: string, options: RecordedShortcut): void {
+		this.shortcuts.set(shortcut, options);
+	}
 
 	async setModel(): Promise<boolean> {
 		return true;
@@ -94,12 +102,19 @@ type Execute = (
 	ctx: ReturnType<typeof makeToolContext>,
 ) => Promise<{ content: readonly unknown[]; details: unknown; isError?: boolean }>;
 
+/** The panel settings and state of a run with no settings file, matching the entry point's defaults. */
+function panel() {
+	const config = resolveTodoConfig({}, {});
+	return { config, state: createTodoPanelState(config.startCollapsed) };
+}
+
 async function runTool(
 	pi: FakePi,
 	updates: unknown[],
 	branch: readonly SessionEntry[] = [],
 ): Promise<{ content: readonly unknown[]; details: unknown; isError?: boolean }> {
-	const tool = createManageTodosTool({ pi });
+	const { config, state } = panel();
+	const tool = createManageTodosTool({ pi, maxLines: config.maxLines, state });
 	return (tool.execute as unknown as Execute)(
 		"id",
 		{ updates },
@@ -123,7 +138,8 @@ function textOf(result: { content: readonly unknown[] }): string {
 
 test("registers manage_todos as a direct sequential tool", () => {
 	const pi = new FakePi();
-	registerManageTodos(pi);
+	const { config, state } = panel();
+	registerManageTodos(pi, config, state);
 	const tool = pi.tools.find((candidate) => candidate.name === "manage_todos");
 	expect(tool).toBeDefined();
 	expect(tool?.exposure).toBe("direct");
@@ -193,7 +209,8 @@ test("result lists all items with ids", async () => {
 
 test("guidelines say ids are assigned by the tool", () => {
 	const pi = new FakePi();
-	registerManageTodos(pi);
+	const { config, state } = panel();
+	registerManageTodos(pi, config, state);
 	const tool = pi.tools.find((candidate) => candidate.name === "manage_todos");
 	const guidelines = (tool?.promptGuidelines ?? []).join("\n");
 	expect(guidelines).toContain("ツールが採番");

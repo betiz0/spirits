@@ -13,7 +13,7 @@ import type {
 	ExtensionAPI,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import { loadConfig } from "../config.ts";
+import type { TodoConfig } from "../config.ts";
 import { DEFAULT_TODO_MAX_LINES } from "../constants.ts";
 import {
 	applyTodoUpdates,
@@ -22,7 +22,7 @@ import {
 	type TodoSnapshot,
 	TODO_ENTRY_TYPE,
 } from "./state.ts";
-import { updateTodoPanel } from "./widget.ts";
+import { updateTodoPanel, type TodoPanelState } from "./widget.ts";
 
 /** External tool name. */
 export const MANAGE_TODOS_TOOL_NAME = "manage_todos";
@@ -90,6 +90,11 @@ export interface ManageTodosToolOptions {
 	pi: Pick<ExtensionAPI, "appendEntry">;
 	/** TODO lines shown by the panel. Defaults to `DEFAULT_TODO_MAX_LINES`. */
 	maxLines?: number;
+	/**
+	 * The panel's open/closed state, the same instance the panel registration got. A successful call
+	 * redraws in whatever state the user last chose, so the tool never reads or writes the state.
+	 */
+	state: TodoPanelState;
 }
 
 /** Format an invalid batch as a single line with the failing position. */
@@ -115,7 +120,7 @@ export function formatTodoSnapshot(snapshot: TodoSnapshot): string {
 export function createManageTodosTool(
 	options: ManageTodosToolOptions,
 ): ToolDefinition<ManageTodosParameters, ManageTodosDetails> {
-	const { pi } = options;
+	const { pi, state } = options;
 	const maxLines = options.maxLines ?? DEFAULT_TODO_MAX_LINES;
 	return {
 		name: MANAGE_TODOS_TOOL_NAME,
@@ -138,7 +143,7 @@ export function createManageTodosTool(
 			}
 
 			pi.appendEntry(TODO_ENTRY_TYPE, result.snapshot);
-			updateTodoPanel(ctx, result.snapshot, maxLines);
+			updateTodoPanel(ctx, result.snapshot, maxLines, state);
 			return {
 				content: [{ type: "text", text: formatTodoSnapshot(result.snapshot) }],
 				details: result.snapshot,
@@ -147,8 +152,12 @@ export function createManageTodosTool(
 	};
 }
 
-/** Register the `manage_todos` tool on a pi extension. */
-export function registerManageTodos(pi: ExtensionAPI): void {
-	const { maxLines } = loadConfig(process.env).todo;
-	pi.registerTool(createManageTodosTool({ pi, maxLines }));
+/**
+ * Register the `manage_todos` tool on a pi extension.
+ *
+ * The resolved settings and the panel state come from the entry point: the tool and the panel render
+ * from one pair, so a successful call cannot draw with a different limit than the event handlers.
+ */
+export function registerManageTodos(pi: ExtensionAPI, config: TodoConfig, state: TodoPanelState): void {
+	pi.registerTool(createManageTodosTool({ pi, maxLines: config.maxLines, state }));
 }

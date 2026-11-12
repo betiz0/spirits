@@ -103,6 +103,21 @@ export const DEFAULT_TODO_MAX_LINES = 5;
 /** Environment variable overriding DEFAULT_TODO_MAX_LINES. */
 export const ENV_TODO_MAX_LINES = "SPIRITS_TODO_MAX_LINES";
 
+/** Default key that collapses and expands the panel. Last candidate after the settings key and ENV_TODO_TOGGLE_KEY. */
+export const DEFAULT_TODO_TOGGLE_KEY = "ctrl+shift+l";
+
+/** Environment variable holding the panel toggle key, beaten by SETTINGS_KEY_TODO_TOGGLE_KEY. */
+export const ENV_TODO_TOGGLE_KEY = "SPIRITS_TODO_TOGGLE_KEY";
+
+/** Settings key holding the panel UI settings. pi keeps the key because it keeps unknown keys. */
+export const SETTINGS_KEY_TODO = "todo";
+
+/** Settings key under SETTINGS_KEY_TODO holding the toggle key, the first candidate of the toggle key. */
+export const SETTINGS_KEY_TODO_TOGGLE_KEY = "toggleKey";
+
+/** Settings key under SETTINGS_KEY_TODO holding the initial collapsed state. Only boolean `true` collapses. */
+export const SETTINGS_KEY_TODO_START_COLLAPSED = "startCollapsed";
+
 /** File `note()` appends to. Also the only file whose excerpt is taken from the tail. */
 export const MEMORY_NOTES_FILE_NAME = "notes.md";
 

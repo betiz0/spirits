@@ -16,6 +16,7 @@
  */
 
 import type { Static, TSchema } from "typebox";
+import type { KeyId } from "@earendil-works/pi-tui";
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -496,6 +497,18 @@ export interface ExtensionAPI {
 	registerModelRoles(definition: ModelRoleRegistration): void;
 	/** Register a `/`-command the user can type. The handler gets a command-capable context. */
 	registerCommand(name: string, options: RegisteredCommandOptions): void;
+	/**
+	 * Register a keyboard shortcut, shown in `/hotkeys` by its description. pi resolves conflicts with
+	 * a built-in keybinding when it collects the shortcuts: a reserved key drops the extension shortcut
+	 * with a warning, a non-reserved one is taken over by the extension, also with a warning.
+	 */
+	registerShortcut(
+		shortcut: KeyId,
+		options: {
+			description?: string;
+			handler: (ctx: ExtensionContext) => Promise<void> | void;
+		},
+	): void;
 	/** Select a model for this session without changing the configured default. */
 	setModel(model: PiModel): Promise<boolean>;
 	/** Current thinking level of the session. */
