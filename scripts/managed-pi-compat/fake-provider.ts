@@ -58,6 +58,15 @@ export interface FakeProviderRequest {
 	 * reached this endpoint naming the virtual model was never resolved to a physical model.
 	 */
 	model?: string;
+	/**
+	 * The thinking level the request body carried, read off `reasoning_effort`.
+	 *
+	 * This is how the runner measures a thinking level. pi owns the level and puts it on the request, and
+	 * the RPC `set_thinking_level` is the only way an outside driver moves it, so reading the level here
+	 * and sending it there is one observation with two ends. A model that is not reasoning-capable carries
+	 * nothing, which is why this is `undefined` rather than a level name.
+	 */
+	reasoningEffort?: string;
 	/** The reply class the endpoint chose for this request. */
 	kind?: "tool-call" | "text";
 	/** Milliseconds after the endpoint started. */
@@ -238,11 +247,13 @@ export function startFakeProvider(
 				body = undefined;
 			}
 			const requested = (body as { model?: unknown } | undefined)?.model;
+			const effort = (body as { reasoning_effort?: unknown } | undefined)?.reasoning_effort;
 			const record: FakeProviderRequest = {
 				url: request.url,
 				authorization,
 				body,
 				model: typeof requested === "string" ? requested : undefined,
+				reasoningEffort: typeof effort === "string" ? effort : undefined,
 				receivedAt: elapsed(),
 			};
 			requests.push(record);
@@ -383,6 +394,24 @@ interface ToolCallAccumulator {
 }
 
 /** Parse SSE `chat.completion.chunk` events into tool calls and a final answer. */
+/**
+ * The thinking level carried by the request whose prompt contains `marker`, newest last.
+ *
+ * A marker keeps the reading tied to one turn: the runner seeds the conversation, then reads the level
+ * of the marked request only. A request with no level reads as `undefined`, which is how a
+ * non-reasoning model or a cleared level shows up.
+ */
+export function reasoningEffortFor(
+	provider: { requests: readonly FakeProviderRequest[] },
+	marker: string,
+): string | undefined {
+	for (const request of [...provider.requests].reverse()) {
+		const json = JSON.stringify(request.body ?? "");
+		if (json.includes(marker)) return request.reasoningEffort;
+	}
+	return undefined;
+}
+
 export function parseSseChunks(text: string): {
 	toolCalls: FakeToolCall[];
 	finalAnswer?: string;

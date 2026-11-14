@@ -35,8 +35,8 @@ const RECORDING_EXTENSION = `export default (pi) => {
 
 /** Load one extension source through pi's own discovery, on a runner that owns it. */
 async function withRunner(source: string): Promise<{ runner: ExtensionRunner; cleanup: () => Promise<void> }> {
-	const cwd = await mkdtemp(join(tmpdir(), "spirits-model-roles-cwd-"));
-	const agentDir = await mkdtemp(join(tmpdir(), "spirits-model-roles-agent-"));
+	const cwd = await mkdtemp(join(tmpdir(), "spirits-role-api-cwd-"));
+	const agentDir = await mkdtemp(join(tmpdir(), "spirits-role-api-agent-"));
 	await mkdir(join(agentDir, "extensions"), { recursive: true });
 	await writeFile(join(agentDir, "extensions", "roles.ts"), source, "utf8");
 

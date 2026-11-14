@@ -224,6 +224,41 @@ cp ~/.spirits/agent/prompts/spirits/code-mode.md.bak ~/.spirits/agent/prompts/sp
 
 `rlm` の子セッションには、メモリ要約・code-mode プロンプト・`goal` / `note` は自動で渡らない。子に必要な情報は親が `rlm` の prompt に含める。
 
+## ロールの振り分け(`/spirits-role`)
+
+管理ルートは `spirits/auto` という振り分け用の仮想モデルを 1 つ立て、リクエストを 2 ロールのどちらかに流す。`normal` は通常の応答、`strong` は複雑な依頼向けの強いモデルです。実際のモデル選択・thinking レベル・既定の保存は pi 本体の `/model` が握ったままで、spirits はその上にロールの層だけを乗せる。
+
+| 入力 | 動作 |
+|---|---|
+| `/spirits-role` | 対話端末では設定一覧、それ以外では `status` と同じ実行報告 |
+| `/spirits-role status` | 有効/無効、ロック、現在のステップ、直近の要求、両ロールの解決結果と出どころ、無視した設定値 |
+| `/spirits-role normal` / `/spirits-role strong` | セッションのロールをロックする。ロックはステップより強力で、ロックした時点で進行中のステップは終える |
+| `/spirits-role <role> model <ref>` | そのロールのモデルを global settings に保存する。`<ref>` は `provider/id` の完全一致、または部分一致 1 件。空白を含む行末までが参照 |
+| `/spirits-role <role> thinking <level>` | そのロールの thinking レベルを保存する。`<level>` は pi の語彙(`off` `minimal` `low` `medium` `high` `xhigh` `max`) |
+| `/spirits-role <step> role <role|unset>` | ワークフローのステップ中のロールを上書きする |
+| `/spirits-role <step> thinking <level|unset>` | ワークフローのステップ中の thinking レベルを上書きする |
+| `/spirits-role <role|step> <item> unset` | その設定を削除して既定に戻す |
+
+語の照合は大文字小文字を問わない。解釈できない入力・項目の省略・空の参照・0 件や複数件のモデル参照では何も変更せず、理由だけを出す。設定を書いたあとは `ctx.reload()` するので、その場で次のリクエストから効く。
+
+| 設定キー(global settings) | 内容 |
+|---|---|
+| `models.role` | ロックの既定。pi の `/model` が保存するキーと同じで、セッション記録が無いときの初期値 |
+| `models.normal` / `models.strong` | 各ロールのモデル。`provider/id` の文字列。プロバイダ無しなら既定プロバイダで解決する。文字列でない値は読まずに無視し、`status` に出す |
+| `models.thinking.normal` / `models.thinking.strong` | 各ロールの thinking レベル |
+| `models.steps.<name>.role` / `models.steps.<name>.thinking` | ステップ別のロールと thinking レベル。`<name>` は一覧のステップ名のみ |
+| `defaultProvider` / `defaultModel` | `models.normal` が未設定のときの normal の対象。pi 本体のキーをそのまま読む |
+
+解決の順は、ロールについて ステップ設定 → ステップの既定ロール → セッションのロック（セッションの開始時に `models.role` から初期化する）。thinking について ステップ設定 → ロールの設定 → pi のセッション選択。`models.strong` が未設定・使えないときは無言で normal に落ち、設定済みなのに使えないときだけ run ごと 1 回通知する。`spirits/auto` を選んでいない(物理モデルを直接選んでいる)間は振り分けは行われず、`status` はそれを有効/無効として出す。
+
+`models.steps` のキーは一覧のステップ名だけを受け付ける。手編集で一覧に無い名前や語彙に無い値を書いても効かず、`/spirits-role status` が無視した値として出す。
+
+ステップはスキルとプロンプトテンプレートの一覧から来る。開始コマンドが `pi.getCommands()` に実在すると確認できた入力だけでステップが始まり、一覧の継続指定にしたがって応答が落ち着いてもステップを維持するかどうかを決める。一覧そのものは `src/constants.ts` の `STEP_DEFINITIONS` にある。
+
+設定一覧は対話 TUI 専用の `SettingsList` で、ロック・2 ロールのモデルと thinking・ステップ設定を行として並べる。行の編集はコマンドと同じ書き込み経路を通り、一覧を閉じるときに 1 回だけ `ctx.reload()` する。対話 TUI 以外では一覧を開かない。
+
+詳細と pi 本体の `/model` との対応は [docs/spirits-managed-pi.md](../docs/spirits-managed-pi.md)。
+
 ## セッション TODO と `/clear`
 
 ### セッション TODO(`manage_todos`)
@@ -266,7 +301,7 @@ LLM は `manage_todos` ツールで、現在のセッションの現在のブラ
 | 設定 | 既定 | 内容 |
 |---|---|---|
 | `SPIRITS_TODO_MAX_LINES`(環境変数) | 5 | 展開時に表示する未完了項目の最大行数 N。正の整数でない値(空文字列、`abc`、`0`、`-1` など)は既定値に戻る |
-| `todo.toggleKey`(設定ファイル) | `ctrl+shift+l` | 開閉キー。決定順は `todo.toggleKey` → `SPIRITS_TODO_TOGGLE_KEY` → 既定値で、採用できない候補は飛ばして次へ進む |
+| `todo.toggleKey`(設定ファイル) | `ctrl+alt+p` | 開閉キー。決定順は `todo.toggleKey` → `SPIRITS_TODO_TOGGLE_KEY` → 既定値で、採用できない候補は飛ばして次へ進む |
 | `SPIRITS_TODO_TOGGLE_KEY`(環境変数) | 無し | 開閉キー。設定ファイルに妥当な値があるときは設定ファイルが優先される |
 | `todo.startCollapsed`(設定ファイル) | 展開 | 真偽値 `true` のときだけ折りたたみで開始する。`"true"`、`1`、未設定、読めない設定ファイルは展開で開始する |
 
@@ -278,7 +313,9 @@ LLM は `manage_todos` ツールで、現在のセッションの現在のブラ
 
 設定ファイルと環境変数は拡張の読み込み時に 1 回だけ読む。実行中の変更は反映されず、`/reload` または次の起動から反映される。設定ファイルが存在しない、JSON として解釈できない、オブジェクトでない場合は値が無いものとして扱い、拡張の読み込みは失敗しない。
 
-`ctrl+shift+<letter>` は端末側が自分で使っていることがある(kitty の `kitty_mod+l`、WezTerm の `CTRL+SHIFT+L` など)。その場合は spirits に届かないので、`todo.toggleKey` に端末が送る別のキーを書く。
+既定の `ctrl+alt+p` は、端末が修飾キーを別途報告しなくても `ESC` に制御文字が続く 2 バイトで届く。`ctrl+shift+<letter>` は kitty のキーレポートか xterm の modifyOtherKeys が有効なときだけ `ctrl+<letter>` と区別でき、tmux は既定でどちらも切っている。そのため修飾キーを別途報告しない端末では `ctrl+shift+<letter>` が `ctrl+<letter>` と同じバイト列になり、`ctrl+l` は Pi のモデル選択を開く組み込み操作が握っているため開閉できない。効かないときは `todo.toggleKey` に端末が送る別のキーを書く。`ctrl+shift+<letter>` 自体を端末側が自用している場合(kitty の `kitty_mod+l`、WezTerm の `CTRL+SHIFT+L`)も spirits に届かない。同じことは `ctrl+alt+<letter>` でも起こり、Ubuntu のデスクトップ既定は `Ctrl+Alt+T` をターミナル起動に握っているため、その環境では spirits にキー自体が届かない。
+
+同じく修飾キー報告を要さない `ctrl+alt+<letter>` の中でも、基底キーの制御バイトが別のキー名と衝突するものは避ける。`h` は `ESC+0x08` で alt+Backspace、`m` は `ESC+0x0d` で alt+Enter(Pi の追加発言キュー)、`i` は `ESC+0x09` で alt+Tab、`j` は `ESC+0x0a` の行送りになり、`[` は `ESC ESC` で 2 回の Escape に見える。Pi が組み込みで持つのは `ctrl+alt+]`(`tui.editor.jumpBackward`) だけなので、残る 22 文字(`h` `i` `j` `m` `[` を除く)はそのまま使える。実測でも 26 文字すべてが tmux(`extended-keys off`) で発火し、衝突 warning は `]` 以外に出なかった。
 
 ### `/clear`(対話 TUI)
 

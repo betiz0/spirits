@@ -38,9 +38,12 @@ const SETTINGS: RoutingSettings = {
  * The resolver under test, with the phase driven the way the event handlers drive it.
  * `readSettings` is a live read, so a settings edit between two children shows up in the next one.
  */
+/** The command list of a session that has the deep-verify skill, which is what opens its step. */
+const DEEP_VERIFY_COMMANDS = [{ name: "skill:sprt-opsx-verify-deep", source: "skill" as const }];
+
 function harness(options: { settings?: RoutingSettings; branch?: readonly SessionEntry[] } = {}) {
 	let settings = options.settings ?? SETTINGS;
-	const phase = createRoutingPhase();
+	const phase = createRoutingPhase({ listCommands: () => DEEP_VERIFY_COMMANDS });
 	const resolve = createChildModelResolver({ phase, readSettings: () => settings });
 	return {
 		resolve,
@@ -69,9 +72,9 @@ test("leaves a physical parent selection untouched", () => {
 	const { ctx, notices } = context();
 	enterStrong();
 
-	expect(resolve(SONNET, ctx)).toEqual(SONNET);
+	expect(resolve(SONNET, ctx)).toEqual({ model: SONNET });
 	// A physical parent never reaches the resolution, so a strong phase changes nothing for it.
-	expect(resolve(LUNA, ctx)).toEqual(LUNA);
+	expect(resolve(LUNA, ctx)).toEqual({ model: LUNA });
 	expect(notices).toEqual([]);
 });
 
@@ -81,8 +84,33 @@ test("resolves a strong phase child to the strong target", () => {
 	const { ctx, notices } = context();
 	enterStrong();
 
-	expect(resolve(AUTO_SELECTION, ctx)).toEqual(OPUS);
+	expect(resolve(AUTO_SELECTION, ctx)).toEqual({ model: OPUS });
 	expect(notices).toEqual([]);
+});
+
+// spec "dual-model-routing / 子の thinking レベル": 親の run と同じ解決が子に効く
+test("the child takes the run's thinking level", () => {
+	const { resolve, enterStrong } = harness({ settings: { ...SETTINGS, thinking: { strong: "high", normal: "low" } } });
+	const { ctx } = context();
+	enterStrong();
+
+	// The strong step resolves to strong's own level, not the session's.
+	expect(resolve(AUTO_SELECTION, ctx)).toEqual({ model: OPUS, thinkingLevel: "high" });
+
+	// A step setting beats the role's, because the step is the narrower request.
+	const stepped = harness({ settings: { ...SETTINGS, thinking: { strong: "high" }, steps: { "sprt-opsx-verify-deep": { thinking: "max" } } } });
+	stepped.enterStrong();
+	expect(stepped.resolve(AUTO_SELECTION, ctx)).toEqual({ model: OPUS, thinkingLevel: "max" });
+});
+
+// A physical parent selection is not routed, so the child keeps the session's own level: spirits
+// changes nothing about a session it does not route.
+test("a physical parent carries no thinking level", () => {
+	const { resolve, enterStrong } = harness({ settings: { ...SETTINGS, thinking: { strong: "high" } } });
+	const { ctx } = context();
+	enterStrong();
+
+	expect(resolve(SONNET, ctx)).toEqual({ model: SONNET });
 });
 
 // spec "dual-model-routing / normal 位相の子は既定モデル"
@@ -91,12 +119,12 @@ test("resolves a normal phase child to the default model", async () => {
 	const { ctx } = context();
 	phase.setRole(MODEL_ROLE_NORMAL);
 
-	expect(resolve(AUTO_SELECTION, ctx)).toEqual(SONNET);
+	expect(resolve(AUTO_SELECTION, ctx)).toEqual({ model: SONNET });
 
 	// An idle input that is not a target skill command keeps the phase normal.
 	await phase.handleInput("plain request");
 	expect(phase.current()).toBe(MODEL_ROLE_NORMAL);
-	expect(resolve(AUTO_SELECTION, ctx)).toEqual(SONNET);
+	expect(resolve(AUTO_SELECTION, ctx)).toEqual({ model: SONNET });
 });
 
 // spec "dual-model-routing / strong が使えなければ黙って normal の対象"
@@ -107,21 +135,21 @@ test("falls back to the normal target without a notice", () => {
 	});
 	const first = context();
 	unconfigured.enterStrong();
-	expect(unconfigured.resolve(AUTO_SELECTION, first.ctx)).toEqual(SONNET);
+	expect(unconfigured.resolve(AUTO_SELECTION, first.ctx)).toEqual({ model: SONNET });
 	expect(first.notices).toEqual([]);
 
 	// Strong configured and in the catalog, but its provider has no credentials while the default's has.
 	const unauthed = harness({ settings: { ...SETTINGS, strong: { provider: "openai", modelId: "gpt-5.6-luna" } } });
 	const second = fakeToolContext({ available: [SONNET, LUNA], authedProviders: ["anthropic"] });
 	unauthed.enterStrong();
-	expect(unauthed.resolve(AUTO_SELECTION, second.ctx)).toEqual(SONNET);
+	expect(unauthed.resolve(AUTO_SELECTION, second.ctx)).toEqual({ model: SONNET });
 	expect(second.notices).toEqual([]);
 
 	// Strong not configured at all.
 	const noStrong = harness({ settings: { defaultProvider: "anthropic", defaultModelId: "claude-sonnet-4-5" } });
 	const third = context();
 	noStrong.enterStrong();
-	expect(noStrong.resolve(AUTO_SELECTION, third.ctx)).toEqual(SONNET);
+	expect(noStrong.resolve(AUTO_SELECTION, third.ctx)).toEqual({ model: SONNET });
 	expect(third.notices).toEqual([]);
 });
 
@@ -183,7 +211,7 @@ test("falls back to the latest successful response", () => {
 		branch: [makeUserEntry("asked"), makeAssistantEntry("openai", "gpt-5.6-luna")],
 	});
 
-	expect(resolve(AUTO_SELECTION, ctx)).toEqual(LUNA);
+	expect(resolve(AUTO_SELECTION, ctx)).toEqual({ model: LUNA });
 });
 
 // spec "dual-model-routing / 直近の成功レスポンスに資格情報が無い"
@@ -208,7 +236,7 @@ test("refuses a latest successful response without credentials", () => {
 	expect(message).toContain("openai/gpt-5.6-luna");
 	expect(message).toContain("no credentials");
 	// The plain context still resolves it, so the case is the credentials and nothing else.
-	expect(resolve(AUTO_SELECTION, ctx)).toEqual(LUNA);
+	expect(resolve(AUTO_SELECTION, ctx)).toEqual({ model: LUNA });
 });
 
 // spec "dual-model-routing / 既定モデルを失った子は直近の成功レスポンス" (scan exclusions)
@@ -222,7 +250,7 @@ test("skips a failed or aborted response and uses the last successful one", () =
 		],
 	});
 
-	expect(resolve(AUTO_SELECTION, ctx)).toEqual(OPUS);
+	expect(resolve(AUTO_SELECTION, ctx)).toEqual({ model: OPUS });
 });
 
 // A failed route leaves the virtual selection on its response, and a virtual model is never a target.
@@ -265,7 +293,7 @@ test("prefers the strong target over the default and the previous response", () 
 	const { ctx } = context({ branch: [makeAssistantEntry("openai", "gpt-5.6-luna")] });
 	enterStrong();
 
-	expect(resolve(AUTO_SELECTION, ctx)).toEqual(OPUS);
+	expect(resolve(AUTO_SELECTION, ctx)).toEqual({ model: OPUS });
 });
 
 // spec "dual-model-routing / 設定変更は次の子から反映する"
@@ -274,10 +302,10 @@ test("re-reads the strong target after the strong setting moves", () => {
 	const { ctx } = context();
 	enterStrong();
 
-	expect(resolve(AUTO_SELECTION, ctx)).toEqual(OPUS);
+	expect(resolve(AUTO_SELECTION, ctx)).toEqual({ model: OPUS });
 
 	// The phase stays strong and only the strong setting moves to another usable model.
 	setSettings({ ...SETTINGS, strong: { provider: "openai", modelId: "gpt-5.6-luna" } });
 	expect(phase.current()).toBe(MODEL_ROLE_STRONG);
-	expect(resolve(AUTO_SELECTION, ctx)).toEqual(LUNA);
+	expect(resolve(AUTO_SELECTION, ctx)).toEqual({ model: LUNA });
 });

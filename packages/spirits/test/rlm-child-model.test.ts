@@ -32,7 +32,10 @@ const USAGE: RlmTokens = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, tot
 /** Host function and resolver wired as the entry point wires them, over a capturing spawn. */
 function harness(options: { settings?: RoutingSettings } = {}) {
 	let settings = options.settings ?? SETTINGS;
-	const phase = createRoutingPhase();
+	// The session has the deep-verify skill, which is the starter of the step this file enters.
+	const phase = createRoutingPhase({
+		listCommands: () => [{ name: "skill:sprt-opsx-verify-deep", source: "skill" }],
+	});
 	const models: PiModel[] = [];
 	const spawn: SpawnFn = async (params) => {
 		models.push(params.model);
@@ -52,9 +55,10 @@ function harness(options: { settings?: RoutingSettings } = {}) {
 		setSettings(next: RoutingSettings): void {
 			settings = next;
 		},
-		/** Enter the strong phase the way the target skill command does. */
+		/** Open the step the way the target skill command does, then prove its run started. */
 		enterStrong(): void {
 			phase.handleInput(`${SKILL_COMMAND_PREFIX}sprt-opsx-verify-deep fix-managed-rlm-child-model`);
+			phase.requestResolved();
 		},
 	};
 }
@@ -115,7 +119,9 @@ test("a change during the queue wait is picked up by the waiting call", async ()
 	// The strong target starts on a model of its own, so neither the phase change nor the settings change
 	// alone can produce the expected child: only reading both after the wait gives OPUS.
 	let settings: RoutingSettings = { ...SETTINGS, strong: { provider: LUNA.provider, modelId: LUNA.id } };
-	const phase = createRoutingPhase();
+	const phase = createRoutingPhase({
+		listCommands: () => [{ name: "skill:sprt-opsx-verify-deep", source: "skill" }],
+	});
 	const models: PiModel[] = [];
 	const resolvers: Array<() => void> = [];
 	const spawn: SpawnFn = (params) =>

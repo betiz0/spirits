@@ -19,6 +19,14 @@ export interface RuntimeEvidence {
 	host: string;
 	/** Required extension APIs and whether the host exposed them; `unknown` when unobserved. */
 	requiredApis: Record<string, boolean | "unknown">;
+	/**
+	 * The extension bundle the run launched, and its digest.
+	 *
+	 * Without it a result cannot say whether it measured an installed release or a bundle built from the
+	 * working tree, which is the difference between evidence about a change and evidence about the last
+	 * release.
+	 */
+	extension?: { path: string; sha256: string };
 }
 
 /** One observation paired with the evidence that would confirm it. */
@@ -360,6 +368,7 @@ export function buildRuntimeEvidence(input: {
 	runnerRuntime: string;
 	hostRuntime?: string;
 	requiredApis?: Record<string, boolean | undefined>;
+	extension?: { path: string; sha256: string };
 }): RuntimeEvidence {
 	const requiredApis: Record<string, boolean | "unknown"> = {};
 	for (const [name, present] of Object.entries(input.requiredApis ?? {})) {
@@ -369,6 +378,7 @@ export function buildRuntimeEvidence(input: {
 		runner: input.runnerRuntime,
 		host: input.hostRuntime ?? "unknown",
 		requiredApis,
+		...(input.extension ? { extension: input.extension } : {}),
 	};
 }
 

@@ -57,7 +57,7 @@ import {
 	type BoundaryJudgement,
 } from "./clear-boundary.ts";
 import { createCompatRunner, type CompatRunner } from "./runner.ts";
-import { requestFakeToolCall, startFakeProvider } from "./fake-provider.ts";
+import { reasoningEffortFor, requestFakeToolCall, startFakeProvider } from "./fake-provider.ts";
 import type { FakeProviderRequest, FakeReply, FakeToolCall } from "./fake-provider.ts";
 import {
 	classifyAuxiliaryProbe,
@@ -109,6 +109,7 @@ import {
 	formatStateCounts,
 	identifyRuntime,
 } from "./evidence.ts";
+import { stageFixtureBundle } from "./fixture-bundle.ts";
 import {
 	assertOfficialBundleSha,
 	buildOfficialIdentity,
@@ -134,11 +135,15 @@ const PROBE_STATE_ENV = "MANAGED_PI_COMPAT_PROBE_STATE";
 const PROBE_RESULT_ENV = "MANAGED_PI_COMPAT_PROBE_RESULT";
 /** Labelled session states, kept out of the result file because `agent_settled` rewrites it. */
 const PROBE_PURPOSE_ENV = "MANAGED_PI_COMPAT_PROBE_PURPOSE";
+
 const FAKE_PROVIDER_ENV = "MANAGED_PI_COMPAT_FAKE_PROVIDER_URL";
 const FAKE_API_KEY = "compat-fake-key";
 const FAKE_PROXY = "http://compat-proxy.invalid";
 /** Provider and models the fixture registers; the strong id proves a strong-phase route happened. */
 const COMPAT_PROVIDER = "compat-fake";
+/** The routing entry the session selects to put its requests under spirits. */
+const ROUTING_PROVIDER = "spirits";
+const ROUTING_MODEL = "auto";
 const FAKE_MODEL_ID = "fake-model";
 const STRONG_MODEL_ID = "fake-strong";
 /** Skill command prefix and the bundled skill that puts the spirits router into its strong phase. */
@@ -149,7 +154,13 @@ const PLAIN_PROMPT = "compat plain prompt answer ok";
 /** Turns that only measure the role pin, so their model choice is unambiguous. */
 const PINNED_PROMPT = "compat pinned role prompt answer ok";
 const UNPINNED_PROMPT = "compat unpinned role prompt answer ok";
+/** The turn a step's own role setting is judged on. */
+const STEP_PROMPT = "compat step setting prompt answer ok";
 const STRONG_PROMPT = "compat strong prompt answer ok";
+/** The thinking level one `/spirits-role normal thinking <level>` line is asked to install. */
+const MODEL_PURPOSE_LEVEL = "high";
+/** The turn that shows whether the role's thinking level reached the provider. */
+const MODEL_PURPOSE_PROMPT = "compat thinking level prompt answer ok";
 /**
  * Extension commands write their result file synchronously and the RPC surface reports no
  * completion for them, so a stage that sends one waits a fixed settle instead of an event.
@@ -298,6 +309,13 @@ function statusSetRecords(records: readonly RpcRecord[]): string[] {
 	return records
 		.filter((record) => record.type === "extension_ui_request" && record.method === "setStatus")
 		.map((record) => String((record as { statusText?: unknown }).statusText ?? ""));
+}
+
+/** `notify` requests the host received, oldest first, with the message the extension asked for. */
+function notifyRecords(records: readonly RpcRecord[]): string[] {
+	return records
+		.filter((record) => record.type === "extension_ui_request" && record.method === "notify")
+		.map((record) => String((record as { message?: unknown }).message ?? ""));
 }
 
 function promptCommand(id: string, message: string) {
@@ -473,7 +491,12 @@ async function main(): Promise<number> {
 			const artifactRoot = options.artifactRoot ? expandHome(options.artifactRoot) : managedRoot();
 			const setId = await readCurrentSet(artifactRoot);
 			if (setId) {
-				const verified = await verifyManagedSet(artifactRoot, setId);
+				// `--bundle` in fixture mode stages a set around an extension the caller built, so the run
+				// measures the code under review instead of the release that happens to be installed. Without
+				// it the run measures the installed set, which is what this mode has always meant.
+				const verified = options.bundle
+					? (await stageFixtureBundle({ artifactRoot, setId, bundle: options.bundle, workRoot: runner.workRoot })).set
+					: await verifyManagedSet(artifactRoot, setId);
 				launch = {
 					managedPi: verified.piExecutable,
 					packageDir: verified.packageDir,
@@ -481,6 +504,13 @@ async function main(): Promise<number> {
 					manifest: verified.manifest,
 				};
 			}
+		}
+		// Which extension the run actually launched, recorded with the result: a matrix row that cannot say
+		// what it measured cannot be compared with another run.
+		let measuredExtension: { path: string; sha256: string } | undefined;
+		if (launch) {
+			const bytes = new Uint8Array(await Bun.file(launch.extensionPath).arrayBuffer());
+			measuredExtension = { path: launch.extensionPath, sha256: sha256Hex(bytes) };
 		}
 
 		const processItems = [
@@ -1248,6 +1278,26 @@ async function main(): Promise<number> {
 								waitFor: (records, since) => modelEvents(records.slice(since), "agent_settled").length > 0,
 								timeoutMs: RPC_TIMEOUT_MS,
 							},
+							// A step setting is narrower than the step list's default role and than the lock, so the
+							// review step — whose listed default is strong — is asked to answer on normal. Only the
+							// setting can bring that request back from the strong model.
+							{
+								requests: [promptCommand("step-set", `/spirits-role ${STRONG_PHASE_SKILL} role normal`)],
+								waitFor: () => false,
+								timeoutMs: PURPOSE_SETTLE_MS,
+							},
+							{
+								requests: [promptCommand("step-run", `${SKILL_COMMAND_PREFIX}${STRONG_PHASE_SKILL} ${STEP_PROMPT}`)],
+								waitFor: (records, since) => modelEvents(records.slice(since), "agent_settled").length > 0,
+								timeoutMs: RPC_TIMEOUT_MS,
+							},
+							// The status report is asked for after a routing has been answered, so the report the
+							// matrix judges is one that has a lock, a step, and a last request to name.
+							{
+								requests: [promptCommand("status-report", "/spirits-role status")],
+								waitFor: () => false,
+								timeoutMs: PURPOSE_SETTLE_MS,
+							},
 						],
 						timeoutMs: RPC_TIMEOUT_MS,
 					});
@@ -1275,6 +1325,9 @@ async function main(): Promise<number> {
 						},
 						// The badge is a footer surface, but drawing it is an RPC call the harness does see:
 						// the extension asks the host to set status text, and that request names the role.
+						// The step setting is read the same way the routing is: the model that served the step's
+						// request. Normal means the setting beat the step list's strong default.
+						stepSettingsApplied: modelUsedFor(roleProvider, STEP_PROMPT) === FAKE_MODEL_ID,
 						roleBadge: statusSetRecords(roleRun.records).length > 0
 							? {
 									observed: true,
@@ -1282,64 +1335,96 @@ async function main(): Promise<number> {
 									detail: `the extension asked the host to draw ${statusSetRecords(roleRun.records).length} role status line(s) over RPC, which is the extension status line, not the core footer badge`,
 								}
 							: { observed: false, detail: "the extension never asked the host to set status text" },
+						// The status report reaches the user as a notice, and a notice is an RPC call the harness
+						// can read. The last one is the report the `status` line asked for.
+						statusReport: notifyRecords(roleRun.records).at(-1),
 					};
 				} finally {
 					roleProvider.stop();
 				}
 				purposes.push(...rolePurposeObservations(strongAttempt));
 
-				// /spirits-model: one line for the model, the thinking level, and the role. The line owns
-				// every change; the probe only reads the runtime back. The saved defaults are read the same
-				// way, through the dedicated Pi after its reload, because a Node read of the file would judge
-				// the harness's own view of disk rather than what pi loads into a new session.
+				// /spirits-role: a role's model and thinking level are settings, so the command line owns the
+				// write and the probe only reads the runtime back. The level is measured where it counts: in the
+				// body the fake provider received, not in a value read off an extension call. The saved target is
+				// read through the dedicated Pi after its reload, because a Node read of the file would judge the
+				// harness's own view of disk rather than what pi loads into a new session.
 				const modelPurposePath = join(runner.workRoot, "purpose-model.json");
-				const modelRun = await stagedProbe({
-					command: launchCommand([PROVIDER_EXTENSION, launch.extensionPath]),
-					cwd: runner.workRoot,
-					env: { ...baseEnv, [PROBE_RESULT_ENV]: modelPurposePath, ...noRealCredentials, [FAKE_PROVIDER_ENV]: "http://127.0.0.1:9" },
-					stages: [
-						{ requests: [{ id: "mp-model", type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID }] },
-						{
-							requests: [promptCommand("mp-run", `/spirits-model ${COMPAT_PROVIDER}/${FAKE_MODEL_ID} medium strong`)],
-							waitFor: () => false,
-							timeoutMs: PURPOSE_SETTLE_MS,
-						},
-						{
-							requests: [promptCommand("mp-read", "/compat-purpose-readback")],
-							waitFor: (records, since) => records.slice(since).some((record) => record.type === "response" && record.id === "mp-read"),
-							timeoutMs: RPC_TIMEOUT_MS,
-						},
-					],
-					timeoutMs: RPC_TIMEOUT_MS,
-				});
-				const modelReadback = await readProbeResult(modelPurposePath);
-				const savedDefaults = modelReadback?.defaults ?? {};
-				const defaultsSaved =
-					savedDefaults.defaultProvider === COMPAT_PROVIDER &&
-					savedDefaults.defaultModel === FAKE_MODEL_ID &&
-					savedDefaults.defaultThinkingLevel === "medium" &&
-					savedDefaults.role === "strong";
-				purposes.push(
-					...modelPurposeObservations({
-						attempted: modelReadback !== undefined,
-						reason: modelReadback === undefined ? `the readback reported nothing (${modelRun.stderr.trim().slice(0, 160)})` : undefined,
-						levelChanged: modelReadback?.level === "medium",
-						setModelResult: modelReadback?.model?.id === FAKE_MODEL_ID,
-						defaultsChanged: defaultsSaved,
-						// The role is the third slot of the same line, so the `models.role` the reloaded runtime
-						// reads back is the observation of the role vocabulary on this surface.
-						roleVocabulary: {
-							observed: modelReadback !== undefined,
-							state: savedDefaults.role === "strong" ? "available" : "unavailable",
-							detail:
-								savedDefaults.role === "strong"
-									? "/spirits-model <ref> <level> <role> left models.role strong, read back by the reloaded runtime"
-									: `the reloaded runtime read models.role back as ${String(savedDefaults.role)}`,
-						},
-					}),
+				const levelProvider = startFakeProvider(
+					{ name: "tsrepl", arguments: { code: "return 1" } },
+					{ reply: () => ({ kind: "text", text: "ok" }) },
 				);
-
-				// /spirits-clear: the session state is recorded around the command, and the conversation
+				try {
+					const modelRun = await stagedProbe({
+						command: launchCommand([PROVIDER_EXTENSION, launch.extensionPath]),
+						cwd: runner.workRoot,
+						env: { ...baseEnv, [PROBE_RESULT_ENV]: modelPurposePath, ...noRealCredentials, [FAKE_PROVIDER_ENV]: levelProvider.baseUrl },
+						stages: [
+							// Both settings first: a request can only carry what the reloaded runtime can read, and each
+							// of these lines reloads the extension on its own.
+							{
+								requests: [promptCommand("mp-target", `/spirits-role normal model ${COMPAT_PROVIDER}/${FAKE_MODEL_ID}`)],
+								waitFor: () => false,
+								timeoutMs: PURPOSE_SETTLE_MS,
+							},
+							{
+								requests: [promptCommand("mp-level", `/spirits-role normal thinking ${MODEL_PURPOSE_LEVEL}`)],
+								waitFor: () => false,
+								timeoutMs: PURPOSE_SETTLE_MS,
+							},
+							// The routing model is what applies them. A physical selection would leave the level to pi.
+							{
+								requests: [{ id: "mp-auto", type: "set_model", provider: ROUTING_PROVIDER, modelId: ROUTING_MODEL }],
+							},
+							{
+								requests: [promptCommand("mp-run", MODEL_PURPOSE_PROMPT)],
+								waitFor: (records, since) => modelEvents(records.slice(since), "agent_settled").length > 0,
+								timeoutMs: RPC_TIMEOUT_MS,
+							},
+							// The session's own model, read after the routed run settled rather than in the same
+							// breath as the selection: `set_model` answers with the model it resolved, and reading the
+							// state before the reload that selection ends reports the model the session started on.
+							// This is a different row from the role's target the readback reports beside it.
+							{
+								requests: [
+									{ id: "mp-state", type: "get_state" },
+									promptCommand("mp-read", "/compat-purpose-readback"),
+								],
+								waitFor: (records, since) => records.slice(since).some((record) => record.type === "response" && record.id === "mp-read"),
+								timeoutMs: RPC_TIMEOUT_MS,
+							},
+						],
+						timeoutMs: RPC_TIMEOUT_MS,
+					});
+					const modelReadback = await readProbeResult(modelPurposePath);
+					const savedTarget = `${COMPAT_PROVIDER}/${FAKE_MODEL_ID}`;
+					// The session's own model. `set_model` answers with the model it selected and `get_state`
+					// reports what the session is holding afterwards, and the two are the selection and its readback.
+					// Which model it is does not matter to this row — that the session moved and says so does — and
+					// it is not the role's target either, which the readback below reports separately.
+					const modelName = (value: unknown): string | undefined => {
+						const model = value as { provider?: string; id?: string } | undefined;
+						return model?.provider && model.id ? `${model.provider}/${model.id}` : undefined;
+					};
+					const stateResponse = findResponse(modelRun.records, "get_state");
+					purposes.push(
+						...modelPurposeObservations({
+							attempted: modelReadback !== undefined,
+							reason:
+								modelReadback === undefined ? `the readback reported nothing (${modelRun.stderr.trim().slice(0, 160)})` : undefined,
+							requestedLevel: MODEL_PURPOSE_LEVEL,
+							observedLevel: reasoningEffortFor(levelProvider, MODEL_PURPOSE_PROMPT),
+							roleModelSaved: modelReadback?.defaults?.normal === savedTarget,
+							sessionSelection: {
+								requested: modelName(findResponse(modelRun.records, "set_model")?.data),
+								readBack: modelName((stateResponse?.data as { model?: unknown } | undefined)?.model),
+							},
+						}),
+					);
+				} finally {
+					levelProvider.stop();
+				}
+// /spirits-clear: the session state is recorded around the command, and the conversation
 				// purpose is decided from the request the provider received — the session file keeps every
 				// message on purpose, so only the request can show what left the model's context.
 				const todoToolCall: FakeToolCall = {
@@ -1744,6 +1829,7 @@ async function main(): Promise<number> {
 						}),
 						hostRuntime: state?.hostRuntime,
 						requiredApis: state?.apis,
+						extension: measuredExtension,
 					}),
 				});
 			} catch (error) {

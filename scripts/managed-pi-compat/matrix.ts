@@ -55,6 +55,22 @@ export const ROLE_PURPOSES: readonly PurposeDefinition[] = [
 		alternative: "ui.setStatus() on the extension status line, updated by the route",
 		difference: "Renders on the footer's extension status line, not beside the model name",
 	},
+	{
+		id: "step-role-settings",
+		feature: "role",
+		purpose: "Set the role and thinking level of one workflow step",
+		currentMechanism: "none",
+		alternative: "/spirits-role <step> role <role> and /spirits-role <step> thinking <level>, writing models.steps.<name>",
+		difference: "The step list decides which names exist; an unknown name is ignored and reported by /spirits-role status",
+	},
+	{
+		id: "role-status-report",
+		feature: "role",
+		purpose: "Read how the routing is running: the lock, the step, and both roles' targets",
+		currentMechanism: "none",
+		alternative: "/spirits-role status: one report listing the routing state, the lock, the running step, the last request, and what each role resolves to",
+		difference: "pi shows a selection, never a routing: this report is the only surface that names the target a role answered with",
+	},
 ];
 
 /** `/clear` purposes observed separately. */
@@ -91,25 +107,47 @@ export const MODEL_PURPOSES: readonly PurposeDefinition[] = [
 		id: "thinking-level",
 		feature: "model",
 		purpose: "Choose the thinking level",
-		currentMechanism: "Core /model parser",
-		alternative: "/spirits-model <ref> <level>: pi's own setThinkingLevel plus defaultThinkingLevel",
-		difference: "A separate command with no completion menu; pi's /model is untouched",
+		currentMechanism: "Core /model parser and /thinking",
+		alternative:
+			"/spirits-role <role> thinking <level>: a per-role setting the route puts on the request, measured in the fake provider's request body",
+		difference:
+			"The setting belongs to the role, not to the session; pi's own set_thinking_level still owns the session selection and spirits never calls it",
 	},
 	{
-		id: "role-selection",
+		id: "role-model",
 		feature: "model",
-		purpose: "Combine model, thinking level, and role selection in one line",
-		currentMechanism: "Core parser, role vocabulary, settings save",
-		alternative: "/spirits-model <ref> [level] [role], parsed from the right",
-		difference: "No completion or fuzzy search over provider/id/name/description",
+		purpose: "Give one role its own model and save it",
+		currentMechanism: "Core /model parser and default save keys",
+		alternative:
+			"/spirits-role <role> model <ref>: a merge-write of models.<role> into pi's global settings.json, under pi's file lock, read back after the reload",
+		difference: "The selection is the target of a role, not the session's model; pi's own selection stays where /model put it",
+	},
+	{
+		id: "session-model-selection",
+		feature: "model",
+		purpose: "Choose the session's model and read the choice back",
+		currentMechanism: "Core /model selector and the session model it saves",
+		alternative: "pi's own set_model RPC read back with the session state; spirits routes requests and never selects the session's model",
+		difference:
+			"The routing model is one of the choices: selecting it puts every request through the routing, and selecting a physical model takes them out of it",
 	},
 	{
 		id: "default-save",
 		feature: "model",
 		purpose: "Save the chosen model and level as defaults",
-		currentMechanism: "Core /model save keys",
-		alternative: "Merge-write of pi's own keys into pi's global settings.json, under pi's file lock",
-		difference: "Same keys and same file; no project-file write, so no trust prompt",
+		currentMechanism: "Core /model selector save keys",
+		alternative: "None over RPC",
+		difference:
+			"The selector's default save is a terminal surface with no RPC command, so this row is not-run; the session's model selection itself is observable with set_model",
+	},
+	{
+		id: "settings-list",
+		feature: "model",
+		purpose: "Edit the role settings from an interactive list",
+		currentMechanism: "Core /settings and /model selectors",
+		alternative: "/spirits-role with no arguments opens the list, which exists only in the interactive TUI",
+		difference:
+			"The RPC path cannot open a terminal widget, so this row is not-run; every setting the list edits is reachable as a /spirits-role command line",
 	},
 ];
 
@@ -295,12 +333,23 @@ export function clearPurposeObservations(attempt: ClearAttempt): PurposeObservat
 export interface ModelPurposeAttempt {
 	attempted: boolean;
 	reason?: string;
-	/** Thinking level changed and was read back. */
-	levelChanged?: boolean;
-	/** The runtime accepted a model selection. */
-	setModelResult?: boolean;
-	/** The default settings keys changed after the selection. */
-	defaultsChanged?: boolean;
+	/** The thinking level the run asked the role to carry. */
+	requestedLevel?: string;
+	/** The thinking level the fake provider read off the request body it received. */
+	observedLevel?: string;
+	/**
+	 * What `set_model` reported as the session's model, and what the session state read back afterwards.
+	 *
+	 * This is a different thing from {@link roleModelSaved}: one is the model the session is sitting on,
+	 * the other is the target a role points at. The routing makes them differ on purpose, so a row that
+	 * conflated them would report the same measurement twice under two names.
+	 *
+	 * Both spellings are carried because a row that only said "not observed" would not tell a missing
+	 * readback apart from a readback of a different model, and those are different defects.
+	 */
+	sessionSelection?: { requested?: string; readBack?: string };
+	/** `models.<role>` was written and read back through the reloaded runtime. */
+	roleModelSaved?: boolean;
 	/** Whether the harness reached a surface that takes a role argument. */
 	roleVocabulary?: OptionalObservation;
 }
@@ -308,53 +357,82 @@ export interface ModelPurposeAttempt {
 /**
  * Judge the `/model` purposes from the attempt.
  *
- * Level and model selection are observed through the session runtime, which is not the one-line
- * `/model` surface the default route uses, so a working selection is `limited` and the difference
- * stays visible. A default save needs the saved settings key to change; reading the key back
- * unchanged means no save path was exercised, which is `not-run`, not `unavailable`.
+ * A thinking level counts only when the level the run asked for is the level the provider received.
+ * Reading a level back through an extension call would measure that call and not the request, which is
+ * the thing the user actually pays for. Two rows are fixed at `not-run` before the attempt is looked at,
+ * because the surfaces they need — pi's own `/model` selector and the interactive settings list — have
+ * no RPC command at all. `unavailable` would say the feature is missing when only the measurement path
+ * is missing (spec `managed-pi-compatibility`).
  */
 export function modelPurposeObservations(attempt: ModelPurposeAttempt): PurposeObservation[] {
-	const definitions = purposesFor("model");
 	if (!attempt.attempted) {
-		return definitions.map((definition) => purposeNotRun(definition, attempt.reason ?? "no model-purpose attempt was made"));
+		return purposesFor("model").map((definition) => purposeNotRun(definition, attempt.reason ?? "no model-purpose attempt was made"));
 	}
-	return [
-		attempt.levelChanged === true
+	const level = definitionFor("model", "thinking-level");
+	const asked = attempt.requestedLevel;
+	const saw = attempt.observedLevel;
+	const levelObservation =
+		asked === undefined || saw === undefined
+			? purposeNotRun(level, attempt.reason ?? "no request was observed that could carry a thinking level")
+			: asked === saw
+				? observePurposeState(
+						level,
+						"available",
+						`the run asked for ${asked} and the provider received ${saw}, which is the role's own setting rather than pi's /thinking selection`,
+					)
+					: observePurposeState(
+						level,
+						"unavailable",
+						`the run asked for ${asked} and the provider received ${String(saw)}, so the role's setting did not reach the request`,
+					);
+
+	const roleModel = definitionFor("model", "role-model");
+	const roleModelObservation =
+		attempt.roleModelSaved === true
 			? observePurposeState(
-					definitionFor("model", "thinking-level"),
-					"limited",
-					[
-						"the thinking level changed through the session runtime instead of the one-line /model,",
-						"so the completion menu is missing; the RPC read-back answers only for the model,",
-						"which is why the level is confirmed by the following request rather than by a reply",
-					].join(" "),
-				)
-			: purposeNotRun(definitionFor("model", "thinking-level"), attempt.reason ?? "the thinking level was not read back changed"),
-		attempt.roleVocabulary?.observed === true
-			? observePurposeState(
-					definitionFor("model", "role-selection"),
-					attempt.roleVocabulary.state ?? "available",
-					attempt.roleVocabulary.detail ?? "a role selection was observed on the dedicated Pi",
-				)
-			: purposeNotRun(
-					definitionFor("model", "role-selection"),
-					attempt.roleVocabulary?.detail ??
-						"no drivable surface took a role argument, so the role vocabulary was not observed",
-				),
-		attempt.defaultsChanged === true
-			? observePurposeState(
-					definitionFor("model", "default-save"),
+					roleModel,
 					"available",
-					"the default settings keys changed after the selection",
+					"the role's model was written and read back through the reloaded runtime, which selects a role's target and not the session's model",
 				)
-			: purposeNotRun(
-					definitionFor("model", "default-save"),
-					attempt.reason ??
-						"the default settings keys were read back unchanged, so no default-saving path was exercised",
-				),
+				: purposeNotRun(roleModel, attempt.reason ?? "the role's model was not read back, so no role target was saved");
+
+	// The session's own selection, which the routing model shares a surface with but does not own: pi's
+	// `set_model` is what moves it, and reading it back is the only way to tell a selection from a request
+	// that happened to run elsewhere (spec `managed-pi-compatibility` / model の記録).
+	const session = definitionFor("model", "session-model-selection");
+	const chosen = attempt.sessionSelection;
+	const sessionObservation =
+		chosen?.readBack === undefined
+			? purposeNotRun(
+					session,
+					`${attempt.reason ?? "the run selected a model over RPC"}; the session state reported no model to read the selection back from`,
+				)
+				: chosen.requested !== undefined && chosen.requested !== chosen.readBack
+					? observePurposeState(
+							session,
+							"unavailable",
+							`set_model reported ${chosen.requested} and the session state reported ${chosen.readBack}, so the selection did not stick`,
+						)
+					: observePurposeState(
+							session,
+							"available",
+							`set_model selected ${chosen.readBack} and the session state read it back, which is the session's own choice and not the target of a role`,
+						);
+
+	return [
+		levelObservation,
+		roleModelObservation,
+		sessionObservation,
+		purposeNotRun(
+			definitionFor("model", "default-save"),
+			"pi's own default save is a key of the interactive /model selector and has no RPC command; the session's model selection itself is observable with set_model",
+		),
+		purposeNotRun(
+			definitionFor("model", "settings-list"),
+			"the settings list is a terminal widget the RPC path cannot open; every setting it edits is reachable as a /spirits-role command line",
+		),
 	];
 }
-
 /** Models the fake provider saw for the plain and the strong-phase requests. */
 export interface StrongPhaseAttempt {
 	attempted: boolean;
@@ -367,6 +445,36 @@ export interface StrongPhaseAttempt {
 	roleVocabulary?: OptionalObservation;
 	/** Whether the harness could read the role badge surface. */
 	roleBadge?: OptionalObservation;
+	/** Whether a `/spirits-role <step> role` line changed the model that served the step's request. */
+	stepSettingsApplied?: boolean;
+	/** The text `/spirits-role status` asked the host to show, or undefined when it showed nothing. */
+	statusReport?: string;
+}
+
+/**
+ * The parts of a status report that make it a routing report.
+ *
+ * A report that only restated the session's model would answer the purpose of pi's own footer, not this
+ * one, so the row is decided by these names appearing in the text rather than by the notice existing.
+ */
+export const STATUS_REPORT_MARKERS = ["routing:", "lock:", "step:", "normal:", "strong:"] as const;
+
+/**
+ * Judge the status purpose from the report text the dedicated Pi was asked to show.
+ *
+ * No report at all is `not-run`: the harness could not drive the surface, which says nothing about the
+ * command. A report that leaves a part out is `unavailable`, because the command ran and did not answer.
+ */
+export function roleStatusObservation(report: string | undefined): PurposeObservation {
+	const definition = definitionFor("role", "role-status-report");
+	if (report === undefined || report.trim() === "") {
+		return purposeNotRun(definition, "the dedicated Pi showed no status report, so the report was never observed");
+	}
+	const missing = STATUS_REPORT_MARKERS.filter((marker) => !report.includes(marker));
+	if (missing.length > 0) {
+		return observePurposeState(definition, "unavailable", `the report left out ${missing.join(", ")}: ${report.replace(/\s+/g, " ")}`);
+	}
+	return observePurposeState(definition, "available", report.replace(/\s+/g, " ").slice(0, 240));
 }
 
 /**
@@ -423,6 +531,17 @@ export function rolePurposeObservations(attempt: StrongPhaseAttempt): PurposeObs
 					attempt.roleVocabulary?.detail ??
 						"no drivable surface took a role argument, so the role pin was not observed",
 				),
+		attempt.stepSettingsApplied === true
+			? observePurposeState(
+					definitionFor("role", "step-role-settings"),
+					"available",
+					"a /spirits-role <step> role line moved the model that served the step's request, which is the setting taking effect over the lock",
+				)
+			: purposeNotRun(
+					definitionFor("role", "step-role-settings"),
+					attempt.reason ??
+						"no step request reached the provider after a /spirits-role <step> role line, so the step setting was not observed",
+				),
 		attempt.roleBadge?.observed === true
 			? observePurposeState(
 					badge,
@@ -433,6 +552,9 @@ export function rolePurposeObservations(attempt: StrongPhaseAttempt): PurposeObs
 					badge,
 					attempt.roleBadge?.detail ?? "the role badge is a terminal surface the RPC harness cannot read",
 				),
+		// The status report is driven on the same dedicated Pi as the routing, and its row is decided by
+		// the text: a notice that exists but names no target answers nothing (d-verify2 C-5).
+		roleStatusObservation(attempt.statusReport),
 	];
 }
 

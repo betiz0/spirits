@@ -1,0 +1,11 @@
+{
+  "compilerOptions": {
+    "paths": {
+      "@earendil-works/pi-core": ["./packages/pi-core/src/index.ts"],
+      "@earendil-works/pi-core/*": ["./packages/pi-core/src/*"],
+      "@earendil-works/pi-coding-agent": ["./packages/coding-agent/src/index.ts"],
+      "@earendil-works/pi-tui": ["./packages/tui/src/index.ts"]
+    }
+  },
+  "include": ["packages/*/src/**/*", "packages/*/test/**/*"]
+}

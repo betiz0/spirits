@@ -10,7 +10,7 @@
  * validation, serialization, abort, and usage logic here runs without a provider.
  */
 
-import type { ExtensionAPI, ExtensionToolContext, PiModel } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionToolContext, PiModel, ThinkingLevel } from "@earendil-works/pi-coding-agent";
 import { MODEL_SPEC_SEPARATOR } from "../constants.ts";
 import { isRecord } from "../repl/guards.ts";
 import type { HostFnCallable, HostFnEntry, HostFnScope } from "../repl/registry.ts";
@@ -22,6 +22,16 @@ import type { RlmOutcome, RlmRunResult, RlmTokens, SpawnParams } from "./spawn.t
 /** Injected child-session runner. Production passes `spawnChildSession`. */
 export type SpawnFn = (params: SpawnParams) => Promise<RlmRunResult>;
 
+/** What the child session gets: the model, and the thinking level to run it with. */
+export interface ChildTarget {
+	model: PiModel;
+	/**
+	 * Thinking level for the child. Absent means the child keeps the session's own selection, which is
+	 * what a physical parent selection always does: spirits changes nothing it does not route.
+	 */
+	thinkingLevel?: ThinkingLevel;
+}
+
 /**
  * Decide which model the child session gets, from the model the parent session selected.
  *
@@ -30,7 +40,7 @@ export type SpawnFn = (params: SpawnParams) => Promise<RlmRunResult>;
  * resolution, because `rlm` and `routing` are sibling layers. A resolver that finds no usable model
  * throws, and the call then creates no child session.
  */
-export type ChildModelResolver = (parentModel: PiModel, ctx: ExtensionToolContext) => PiModel;
+export type ChildModelResolver = (parentModel: PiModel, ctx: ExtensionToolContext) => ChildTarget;
 
 /** One `rlm_usage` write: the model handed to the child, with the usage it produced. */
 interface UsageRecord {
@@ -66,7 +76,7 @@ export const RLM_ABORTED_NOTICE = "rlm: 呼び出しは中断されました。"
 const ZERO_TOKENS: RlmTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 
 /** No resolver injected: the child inherits the parent selection, which is a physical model by contract. */
-const inheritParentModel: ChildModelResolver = (parentModel) => parentModel;
+const inheritParentModel: ChildModelResolver = (parentModel) => ({ model: parentModel });
 
 interface ParsedArgs {
 	prompt: string;
@@ -149,9 +159,9 @@ export function createRlmHostFn(options: CreateRlmHostFnOptions): HostFnEntry {
 				try {
 					// The resolution belongs after the queue wait: the phase, the settings, and the latest
 					// successful response are read at the moment the child starts, not when the cell asked.
-					let childModel: PiModel;
+					let child: ChildTarget;
 					try {
-						childModel = resolveChildModel(model, scope.toolContext);
+						child = resolveChildModel(model, scope.toolContext);
 					} catch (error) {
 						appendUsage("error", null);
 						throw error;
@@ -165,6 +175,7 @@ export function createRlmHostFn(options: CreateRlmHostFnOptions): HostFnEntry {
 						// A child has no bash, so the tool-selection rules do not apply to it.
 						promptGuidelines: [],
 					});
+					const childModel = child.model;
 					const params: SpawnParams = {
 						prompt: parsed.prompt,
 						cwd: scope.toolContext.cwd,
@@ -172,8 +183,11 @@ export function createRlmHostFn(options: CreateRlmHostFnOptions): HostFnEntry {
 						signal: limit.signal,
 						childTool,
 					};
-					if (scope.toolContext.thinkingLevel !== undefined) {
-						params.thinkingLevel = scope.toolContext.thinkingLevel;
+					// The level the routing resolved for the parent's run wins; without one the child runs at
+					// the level the parent session selected, as it did before routing knew about levels.
+					const childThinkingLevel = child.thinkingLevel ?? scope.toolContext.thinkingLevel;
+					if (childThinkingLevel !== undefined) {
+						params.thinkingLevel = childThinkingLevel;
 					}
 
 					let result: RlmRunResult;

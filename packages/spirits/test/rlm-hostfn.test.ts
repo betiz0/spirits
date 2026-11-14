@@ -873,9 +873,13 @@ const RESOLVED: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5" };
 const NO_TOKENS = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 
 /** Resolver stub that records every selection it was asked about. */
+/**
+ * A resolver double. It records the parent model it was asked about and hands back a target with no
+ * thinking level of its own, which is what a resolution that leaves the session's selection alone does.
+ */
 function makeResolver(resolve: (parent: PiModel) => PiModel): { resolver: ChildModelResolver; seen: PiModel[] } {
 	const seen: PiModel[] = [];
-	return { resolver: (parent) => { seen.push(parent); return resolve(parent); }, seen };
+	return { resolver: (parent) => { seen.push(parent); return { model: resolve(parent) }; }, seen };
 }
 
 // spec "rlm / 解決できない親では子を生成しない" と "解決失敗の記録"
@@ -940,7 +944,7 @@ test("a resolution failure releases the queue for the next call", async () => {
 			if (!resolvable) {
 				throw new Error("no child model: set defaultProvider and defaultModel");
 			}
-			return RESOLVED;
+			return { model: RESOLVED };
 		},
 	});
 
@@ -1062,7 +1066,7 @@ test("child creation failure names the attempted model", async () => {
 			tokens: NO_TOKENS,
 			cost: 0,
 		}),
-		resolveChildModel: () => RESOLVED,
+		resolveChildModel: () => ({ model: RESOLVED }),
 	});
 
 	let message = "";

@@ -5,7 +5,12 @@
 
 import { expect, test } from "bun:test";
 import type { ModelRoute, PiModel } from "@earendil-works/pi-coding-agent";
-import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, SKILL_COMMAND_PREFIX } from "../src/constants.ts";
+import {
+	MODEL_ROLE_NORMAL,
+	MODEL_ROLE_STRONG,
+	ROLE_STATUS_KEY,
+	SKILL_COMMAND_PREFIX,
+} from "../src/constants.ts";
 import spiritsExtension from "../src/index.ts";
 import { fakeCatalog, FakePi, makeInputEvent, makeRequest, makeSettledEvent } from "./routing/fake-pi.ts";
 
@@ -14,6 +19,11 @@ const OPUS: PiModel = { provider: "anthropic", id: "claude-opus-4-7" };
 
 function harness() {
 	const pi = new FakePi();
+	// The skills these runs start with, as pi would report them.
+	pi.slashCommands = [
+		{ name: "skill:sprt-opsx-verify-deep", source: "skill" },
+		{ name: "skill:sprt-opsx-review-change", source: "skill" },
+	];
 	pi.settings = {
 		defaultProvider: "anthropic",
 		defaultModel: "claude-sonnet-4-5",
@@ -45,6 +55,31 @@ test("runs normal, then strong during the skill, then normal after settle", asyn
 		"normal:claude-sonnet-4-5",
 	]);
 	expect(notices).toEqual([]);
+});
+
+// spec "managed-commands / role badge は拡張の status 行に出す": strong で走ったあとは strong を出す。The
+// badge is drawn by the route, on the role that answered, so a strong request is what puts `[strong]` on
+// the status line — not the lock the session happens to hold.
+test("the badge shows the role that answered the request", async () => {
+	const pi = new FakePi();
+	pi.slashCommands = [{ name: "skill:sprt-opsx-verify-deep", source: "skill" }];
+	pi.settings = {
+		defaultProvider: "anthropic",
+		defaultModel: "claude-sonnet-4-5",
+		models: { strong: "anthropic/claude-opus-4-7" },
+	};
+	spiritsExtension(pi);
+	const { ctx, statuses } = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"] });
+
+	expect(statuses.get(ROLE_STATUS_KEY)).toBeUndefined();
+
+	await pi.fire("input", makeInputEvent(`${SKILL_COMMAND_PREFIX}sprt-opsx-verify-deep add-dual-model-routing`), ctx);
+	expect(pi.route()(makeRequest(), ctx)).toMatchObject({ role: MODEL_ROLE_STRONG });
+	expect(statuses.get(ROLE_STATUS_KEY)).toBe("[strong]");
+
+	await pi.fire("agent_settled", makeSettledEvent(), ctx);
+	expect(pi.route()(makeRequest(), ctx)).toMatchObject({ role: MODEL_ROLE_NORMAL });
+	expect(statuses.get(ROLE_STATUS_KEY)).toBe("[normal]");
 });
 
 // spec "dual-model-routing / strong フェーズからの復帰": ロックしたロールへ戻る

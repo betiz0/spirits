@@ -35,6 +35,7 @@ import { spawnChildSession } from "./rlm/spawn.ts";
 import { createChildModelResolver } from "./routing/child.ts";
 import type { RoutingPhase } from "./routing/phase.ts";
 import { registerDualModelRouting } from "./routing/register.ts";
+import type { RoutedRequest } from "./routing/register.ts";
 import { registerManageTodos } from "./todo/tool.ts";
 import { createTodoPanelState, registerTodoPanel } from "./todo/widget.ts";
 import { createShHostFn } from "./repl/hostfns.ts";
@@ -51,12 +52,25 @@ const DEGRADED_NOTICE = "spirits: {feature} is unavailable in this runtime. tsre
  * per child, and a parent on a physical model never reads it at all: the child gets the parent's
  * model either way.
  */
-export function fallbackRoutingPhase(readDefaultRole: () => string | undefined): Pick<RoutingPhase, "current" | "setRole"> {
+export function fallbackRoutingPhase(readDefaultRole: () => string | undefined): Pick<RoutingPhase, "current" | "lock" | "setRole" | "restoreLock" | "restoreStep" | "step" | "endStep" | "snapshot" | "restore"> {
 	let lock: string | undefined;
 	return {
 		current: () => lock ?? readDefaultRole() ?? MODEL_ROLE_NORMAL,
+		lock: () => lock ?? readDefaultRole() ?? MODEL_ROLE_NORMAL,
 		setRole: (role: string) => {
 			lock = role;
+		},
+		restoreLock: (role: string) => {
+			lock = role;
+		},
+		// No routing layer means no step machine: a restore and an end are both no-ops, and `step()`
+		// stays empty so the route and the child resolver see a session that runs on the lock alone.
+		restoreStep: () => {},
+		endStep: () => {},
+		step: () => undefined,
+		snapshot: () => ({ lock: lock ?? readDefaultRole() ?? MODEL_ROLE_NORMAL }),
+		restore: (snapshot) => {
+			lock = snapshot.lock;
 		},
 	};
 }
@@ -127,9 +141,18 @@ export default function spiritsExtension(pi: ExtensionAPI): void {
 	// A badge that cannot draw is contained inside the routing layer: the hook runs on the way to the
 	// user's answer, and a host that refuses a status write loses the footer line and nothing else.
 	const badge = createRoleBadge();
+	// The last request the routing answered. The routing layer decides it and the command surface reports
+	// it, and the two are sibling layers, so this file is the only place that can carry it across.
+	let lastRequest: RoutedRequest | undefined;
 	const routing = optional(
 		"model routing",
-		() => registerDualModelRouting(pi, { onRole: (role, ctx) => badge.update(role, ctx) }),
+		() =>
+			registerDualModelRouting(pi, {
+				onRole: (role, ctx) => badge.update(role, ctx),
+				onRequest: (request) => {
+					lastRequest = request;
+				},
+		}),
 		() => ({
 			roleApi: false,
 			phase: fallbackRoutingPhase(() => readRoutingSettings(pi.getSettings()).defaultRole),
@@ -138,11 +161,11 @@ export default function spiritsExtension(pi: ExtensionAPI): void {
 
 	// One bundle, two routes. `registerModelRoles` is the fork's role patch: where it is missing the
 	// host is an official Pi, and the commands that reach the same state through documented API —
-	// `/spirits-model`, `/spirits-role`, `/spirits-clear` — are what fills the gap. Where it exists,
-	// pi's `/model` already takes a role and these commands would only compete with it.
+	// `/spirits-role` and `/spirits-clear` — are what fills the gap. Where it exists, pi's `/model`
+	// already takes a role and these commands would only compete with it.
 	if (!routing.roleApi) {
-		attempt("/spirits-model, /spirits-role, and /spirits-clear", () =>
-			registerManagedCommands(pi, { phase: routing.phase, badge }),
+		attempt("/spirits-role and /spirits-clear", () =>
+			registerManagedCommands(pi, { phase: routing.phase, badge, lastRequest: () => lastRequest }),
 		);
 	}
 

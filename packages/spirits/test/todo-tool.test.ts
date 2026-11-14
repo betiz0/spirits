@@ -15,6 +15,7 @@ import type {
 	SessionStartEvent,
 	ThinkingLevel,
 	SessionTreeEvent,
+	SlashCommandInfo,
 	ToolCallEvent,
 	ToolCallEventResult,
 	SessionBeforeCompactEvent,
@@ -56,6 +57,10 @@ class FakePi implements ExtensionAPI {
 	registerModelRoles(): void {}
 
 	registerCommand(): void {}
+
+	getCommands(): SlashCommandInfo[] {
+		return [];
+	}
 
 	registerShortcut(shortcut: string, options: RecordedShortcut): void {
 		this.shortcuts.set(shortcut, options);

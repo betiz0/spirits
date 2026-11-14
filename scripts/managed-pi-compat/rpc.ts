@@ -12,6 +12,18 @@ export interface RpcRequest {
 	[key: string]: unknown;
 }
 
+/**
+ * A `set_thinking_level` request.
+ *
+ * This is pi's own way of moving a session's thinking level, and the only one an outside driver has. The
+ * runner needs it because a thinking level is now a thing spirits sets per role and per step, so the
+ * measurement has to be the level that reaches the provider rather than a value read back from an
+ * extension call spirits no longer makes.
+ */
+export function thinkingLevelRequest(id: string, level: string): RpcRequest {
+	return { id, type: "set_thinking_level", level };
+}
+
 /** One RPC record. */
 export interface RpcRecord {
 	type?: string;

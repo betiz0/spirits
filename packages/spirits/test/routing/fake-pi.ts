@@ -16,6 +16,7 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 	ExtensionHandler,
+	ExtensionMode,
 	ExtensionToolContext,
 	ExtensionVirtualModel,
 	InputEvent,
@@ -31,6 +32,7 @@ import type {
 	SessionEntry,
 	SessionStartEvent,
 	SessionTreeEvent,
+	SlashCommandInfo,
 	ThinkingLevel,
 	ToolCallEvent,
 	ToolCallEventResult,
@@ -69,6 +71,20 @@ export class FakePi implements ExtensionAPI {
 
 	registerCommand(name: string, options: RegisteredCommandOptions): void {
 		this.commands.set(name, options);
+	}
+
+	/**
+	 * Prompt templates and skills the session has, in pi's `getCommands()` shape. A test that drives a
+	 * step's starter command puts that starter here.
+	 */
+	slashCommands: SlashCommandInfo[] = [];
+
+	/** pi's command list: this host's registered commands first, then what the test installed. */
+	getCommands(): SlashCommandInfo[] {
+		return [
+			...[...this.commands.keys()].map((name) => ({ name, source: "extension" as const })),
+			...this.slashCommands,
+		];
 	}
 
 	registerShortcut(shortcut: string, options: RecordedShortcut): void {
@@ -213,25 +229,64 @@ export function makeStateChangeEntry(type: "model_change" | "thinking_level_chan
  * Extension context backed by a catalog, capturing the notices the route emits. `model` is the
  * session selection and `branch` the entries `ctx.sessionManager.getBranch()` reports.
  */
+/** What a fake host is asked to show through `ctx.ui.custom()`. */
+export interface FakeCustomUi {
+	/** The components the factories returned, in call order. */
+	readonly components: unknown[];
+}
+
 export function fakeCatalog(options: {
 	available?: readonly PiModel[];
 	authedProviders?: readonly string[];
 	model?: PiModel;
 	branch?: readonly SessionEntry[];
-} = {}): { ctx: ExtensionContext; notices: string[]; statuses: Map<string, string | undefined> } {
+	/** Run mode pi reports. Defaults to `tui`, the mode a custom screen may open in. */
+	mode?: ExtensionMode;
+	/** Thinking level the session selected, which is what a role or step level overrides. */
+	thinkingLevel?: ThinkingLevel;
+	/** The value `custom()` hands back, standing for the result a closed screen reports. */
+	customResult?: unknown;
+	/**
+	 * Runs after the custom screen is built, standing for the edits the user makes in it. It is handed the
+	 * component the factory returned, so a test can drive a screen with keys rather than calling its
+	 * callbacks directly — which is the only way to test the wiring of a pi-tui component.
+	 */
+	onCustom?: (component: unknown) => void;
+} = {}): {
+	ctx: ExtensionContext;
+	notices: string[];
+	statuses: Map<string, string | undefined>;
+	custom: FakeCustomUi;
+} {
 	const authed = new Set(options.authedProviders ?? []);
 	const notices: string[] = [];
 	const statuses = new Map<string, string | undefined>();
+	const components: unknown[] = [];
+	const custom: FakeCustomUi = { components };
 	return {
 		notices,
 		statuses,
+		custom,
 		ctx: {
 			ui: {
 				setHeader: () => {},
 				setWidget: () => {},
 				notify: (message: string) => notices.push(message),
 				setStatus: (key: string, text: string | undefined) => statuses.set(key, text),
+				// pi's `custom()` builds the component through the factory and resolves with what `done()`
+				// carries. The fake runs the factory with a `done` that closes at once, so a test sees the
+				// component the screen built without a terminal in front of it.
+				custom: (factory: (tui: unknown, theme: unknown, keybindings: unknown, done: (result: unknown) => void) => unknown) => {
+					// A theme that adds no escape sequences, so a test can read the row text back as written.
+					components.push(factory({}, { fg: (_color: string, text: string) => text }, {}, () => {}));
+					// What a user does while the screen is open, so a test can drive a custom screen without a
+					// terminal in front of it.
+					options.onCustom?.(components.at(-1));
+					return Promise.resolve(options.customResult);
+				},
 			},
+			mode: options.mode ?? "tui",
+			thinkingLevel: options.thinkingLevel,
 			model: options.model,
 			// pi's projection contributes one model-visible message per conversation entry and none
 			// for state-only entries, which is what a clear boundary counts.
@@ -264,6 +319,8 @@ export function fakeToolContext(
 		available?: readonly PiModel[];
 		authedProviders?: readonly string[];
 		branch?: readonly SessionEntry[];
+		/** Thinking level the session selected, which the child's resolution reads. */
+		thinkingLevel?: ThinkingLevel;
 	} = {},
 ): { ctx: ExtensionToolContext; notices: string[] } {
 	const { ctx, notices } = fakeCatalog(options);
@@ -313,12 +370,19 @@ export function withoutRoleApi<T extends FakePi>(pi: T): T {
  */
 export function fakeCommandContext(
 	options: Parameters<typeof fakeCatalog>[0] = {},
-): { ctx: ExtensionCommandContext; notices: string[]; statuses: Map<string, string | undefined>; reloads: () => number } {
-	const { ctx, notices, statuses } = fakeCatalog(options);
+): {
+	ctx: ExtensionCommandContext;
+	notices: string[];
+	statuses: Map<string, string | undefined>;
+	custom: FakeCustomUi;
+	reloads: () => number;
+} {
+	const { ctx, notices, statuses, custom } = fakeCatalog(options);
 	let reloadCount = 0;
 	return {
 		notices,
 		statuses,
+		custom,
 		reloads: () => reloadCount,
 		ctx: { ...ctx, reload: async () => { reloadCount += 1; } } as ExtensionCommandContext,
 	};

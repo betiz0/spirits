@@ -16,8 +16,10 @@ import {
 	fakeCatalog,
 	FakePi,
 	makeCustomEntry,
+	makeInputEvent,
 	makeMessageEntry,
 	makeRequest,
+	makeSettledEvent,
 	makeStateChangeEntry,
 } from "./routing/fake-pi.ts";
 
@@ -181,10 +183,64 @@ test("keeps the lock across a branch move", async () => {
 	await start("startup");
 	pi.modelRoles?.onSelect(MODEL_ROLE_STRONG, ctx);
 
-	// pi fires `session_tree` for a branch move. Spirits handles neither the lock nor the default role
-	// there, so the branch it moves to keeps asking for the locked role.
-	expect(pi.handlersFor("session_tree")).toBe(0);
+	// pi fires `session_tree` for a branch move. The step follows the branch's record on the managed route
+	// only (design Decision 12); the lock is the session's and is never read from the branch, so the move
+	// changes nothing here and the request still asks for strong.
 	await pi.fire("session_tree", { type: "session_tree", newLeafId: "leaf-b", oldLeafId: "leaf-a" }, ctx);
+	expect(decision()).toBe("strong:claude-opus-4-7");
+});
+
+// spec scenario "振り分け用のモデルの選択解除ではロックが消えない": moving to a physical model carries no
+// role, so nothing here may clear a lock on the way. The session keeps asking for strong, and a session
+// that comes back to the routing model is strong again.
+test("keeps the lock across a physical model selection", async () => {
+	const pi = new FakePi();
+	pi.settings = routingSettings();
+	registerDualModelRouting(pi);
+	const auto = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"], model: AUTO_SELECTION });
+	const physical = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"], model: SONNET });
+	const routed = (catalog: ReturnType<typeof fakeCatalog>) =>
+		(pi.route()(makeRequest(), catalog.ctx) as ModelRoute).model.id;
+
+	await pi.fire("session_start", { type: "session_start", reason: "startup" }, auto.ctx);
+	pi.modelRoles?.onSelect(MODEL_ROLE_STRONG, auto.ctx);
+	expect(routed(auto)).toBe("claude-opus-4-7");
+
+	// The session selects a physical model, then the routing model again. The lock was never written off.
+	expect(routed(physical)).toBe("claude-opus-4-7");
+	expect(routed(auto)).toBe("claude-opus-4-7");
+});
+
+// spec scenario "フォーク経路の移動ではステップが続く": the fork route writes no `spirits_step` record, so a
+// move that read the branch would find "no record" everywhere and drop a step that is still running.
+test("a fork-route tree move keeps the step", async () => {
+	const pi = new FakePi(); // the role API is present: this is the fork route
+	pi.settings = {
+		defaultProvider: "anthropic",
+		defaultModel: "claude-sonnet-4-5",
+		models: { strong: "anthropic/claude-opus-4-7", steps: { "opsx-propose": { role: "strong" } } },
+	};
+	pi.slashCommands = [{ name: "skill:openspec-propose", source: "skill" }];
+	const routing = registerDualModelRouting(pi);
+	const { ctx } = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"], model: AUTO_SELECTION });
+	/** `"<role>:<routed model id>"` for one request. */
+	const decision = () => {
+		const route = pi.route()(makeRequest(), ctx) as ModelRoute;
+		return `${route.role}:${route.model.id}`;
+	};
+
+	await pi.fire("session_start", { type: "session_start", reason: "startup" }, ctx);
+	await pi.fire("input", makeInputEvent("/skill:openspec-propose add-a-feature"), ctx);
+	// The run resolves one request and settles, which is what makes `opsx-propose` a continuing step.
+	expect(decision()).toBe("strong:claude-opus-4-7");
+	await pi.fire("agent_settled", makeSettledEvent(), ctx);
+	expect(routing.phase.step()?.name).toBe("opsx-propose");
+	expect(decision()).toBe("strong:claude-opus-4-7");
+
+	await pi.fire("session_tree", { type: "session_tree", newLeafId: "leaf-b", oldLeafId: "leaf-a" }, ctx);
+
+	// The step survives the move, and the next request still runs the step's role rather than the lock.
+	expect(routing.phase.step()?.name).toBe("opsx-propose");
 	expect(decision()).toBe("strong:claude-opus-4-7");
 });
 
@@ -211,6 +267,23 @@ test("carries the router state into the record it writes", async () => {
 		},
 	]);
 	expect(decision()).toBe("strong:claude-opus-4-7");
+});
+
+// spec scenario "振り分けの失敗では記録を更新しない": the role reaches a session record only through a request
+// that resolved. A route that ends in an error reports nothing, so the recorded role and the badge behind
+// it stay whatever the last answered request left them.
+test("reports no role when the routing itself fails", () => {
+	const pi = new FakePi();
+	// No default provider or model, and no previous response: the normal target cannot be resolved at all.
+	pi.settings = { models: { strong: "anthropic/claude-opus-4-7" } };
+	const reported: string[] = [];
+	registerDualModelRouting(pi, { onRole: (role) => reported.push(role) });
+	const { ctx } = fakeCatalog({ available: [OPUS], authedProviders: ["anthropic"], model: AUTO_SELECTION });
+
+	expect(() => pi.route()(makeRequest(), ctx)).toThrow(/no normal model/);
+
+	expect(reported).toEqual([]);
+	expect(pi.entries).toEqual([]);
 });
 
 test("leaves a branch that already records a role alone", async () => {

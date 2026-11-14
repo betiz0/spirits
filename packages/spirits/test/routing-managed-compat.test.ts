@@ -9,6 +9,9 @@ const OPUS: PiModel = { provider: "anthropic", id: "claude-opus-4-7" };
 function withoutRoleApi(): FakePi {
 	const pi = new FakePi();
 	Object.defineProperty(pi, "registerModelRoles", { value: undefined, configurable: true });
+	// The review skill is the starter of the step the compat case drives, and a step only opens where
+	// pi reports the command.
+	pi.slashCommands = [{ name: "skill:sprt-opsx-review-change", source: "skill" }];
 	pi.settings = {
 		defaultProvider: "anthropic",
 		defaultModel: "claude-sonnet-4-5",

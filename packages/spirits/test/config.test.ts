@@ -84,8 +84,12 @@ test("todo max lines falls back on 0, abc, -1", () => {
 });
 
 // spec "session-todo / 開閉キーは設定ファイル、環境変数、既定値の順に決まる"
-test("開閉キーの既定値", () => {
-	expect(DEFAULT_TODO_TOGGLE_KEY).toBe("ctrl+shift+l");
+test("the default todo toggle key", () => {
+	// The default has to work where spirits runs, and that includes tmux, which leaves kitty key
+	// reporting off. `ctrl+shift+l` therefore arrives as `0x0c`, the byte pi binds to clearing the model.
+	// `ctrl+alt+p` arrives as `ESC` + `0x10`, which no pi keybinding claims and no other no-protocol
+	// key produces.
+	expect(DEFAULT_TODO_TOGGLE_KEY).toBe("ctrl+alt+p");
 	expect(resolveTodoConfig({}, {})).toEqual({
 		maxLines: DEFAULT_TODO_MAX_LINES,
 		toggleKey: DEFAULT_TODO_TOGGLE_KEY,
@@ -225,6 +229,46 @@ test("carries the default role into the routing settings", () => {
 		defaultRole: "strong",
 	});
 	expect(readRoutingSettings({ models: { role: "banana" } })).toEqual({});
+});
+
+// spec "dual-model-routing / normal ロールの対象設定" and "ステップ設定の読み取り": a value spirits cannot
+// read is unset, never a partial value and never a rewrite of the file.
+test("unreadable routing settings fall back to unset", () => {
+	// Normal target: type mismatch, empty, and a half spec are all unset.
+	for (const value of [42, true, null, [], "", "   ", "local/", "/qwen3.8-flash"]) {
+		expect(readRoutingSettings({ models: { normal: value } }).normal).toBeUndefined();
+	}
+	expect(readRoutingSettings({ models: { normal: "local/qwen3.8-flash" } }).normal).toEqual({
+		provider: "local",
+		modelId: "qwen3.8-flash",
+	});
+	expect(readRoutingSettings({ models: { normal: "qwen3.8-flash" } }).normal).toEqual({ modelId: "qwen3.8-flash" });
+
+	// Role thinking levels: only a word of the vocabulary survives, in either casing.
+	expect(readRoutingSettings({ models: { thinking: { normal: "HIGH", strong: "max" } } })).toEqual({
+		thinking: { normal: "high", strong: "max" },
+	});
+	for (const value of ["banana", "", 4, null, true, ["high"]]) {
+		expect(readRoutingSettings({ models: { thinking: { normal: value } } }).thinking).toBeUndefined();
+	}
+	expect(readRoutingSettings({ models: { thinking: "high" } }).thinking).toBeUndefined();
+
+	// Step settings: an unlisted name, a non-object entry, and a value outside either vocabulary drop
+	// out, while the readable part of the same step survives.
+	expect(
+		readRoutingSettings({
+			models: {
+				steps: {
+					"opsx-teleport": { role: "strong" },
+					"opsx-propose": { role: "STRONG", thinking: "banana" },
+					"opsx-sync": { role: true },
+					"opsx-new": "strong",
+					steps: { role: "strong" },
+				},
+			},
+		}),
+	).toEqual({ steps: { "opsx-propose": { role: "strong" } } });
+	expect(readRoutingSettings({ models: { steps: ["opsx-new"] } }).steps).toBeUndefined();
 });
 
 // spec "action-surface-guard / 動作モードの切り替え": 既定 enforce、3 つの完全一致、それ以外は enforce。

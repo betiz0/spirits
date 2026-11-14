@@ -15,6 +15,7 @@ import type {
 	ResourcesDiscoverResult,
 	SessionStartEvent,
 	SessionTreeEvent,
+	SlashCommandInfo,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
@@ -52,6 +53,10 @@ class FakePi implements ExtensionAPI {
 	registerModelRoles(): void {}
 
 	registerCommand(): void {}
+
+	getCommands(): SlashCommandInfo[] {
+		return [];
+	}
 
 	registerShortcut(shortcut: string, options: RecordedShortcut): void {
 		this.shortcuts.set(shortcut, options);

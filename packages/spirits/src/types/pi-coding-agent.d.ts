@@ -16,7 +16,7 @@
  */
 
 import type { Static, TSchema } from "typebox";
-import type { KeyId } from "@earendil-works/pi-tui";
+import type { KeyId, SelectListTheme, SettingsListTheme } from "@earendil-works/pi-tui";
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
@@ -88,6 +88,13 @@ export interface ExecuteToolOptions {
 /** Run mode of the current pi process. */
 export type ExtensionMode = "tui" | "rpc" | "json" | "print";
 
+/**
+ * The settings-list theme pi itself uses, and a submenu's. Both read the live theme, so a panel that
+ * colors itself is the thing that looks wrong after a theme change; the role list takes these instead.
+ */
+export function getSettingsListTheme(): SettingsListTheme;
+export function getSelectListTheme(): SelectListTheme;
+
 /** Theme colors used by the spirits header. */
 export type ThemeColor = "accent" | "dim" | "muted";
 
@@ -108,17 +115,23 @@ export type TUI = unknown;
 /** Effective settings subset the spirits extension reads and writes. */
 export interface ExtensionSettings {
 	quietStartup?: boolean | "header";
-	/** Provider of pi's default model. pi owns this key; `/spirits-model` writes it. */
+	/** Provider of pi's default model. pi owns and writes this key; spirits only reads it. */
 	defaultProvider?: string;
-	/** Model id of pi's default model. pi owns this key; `/spirits-model` writes it. */
+	/** Model id of pi's default model. pi owns and writes this key; spirits only reads it. */
 	defaultModel?: string;
-	/** pi's default thinking level, written by `/spirits-model <ref> <level>`. */
+	/** pi's default thinking level, written by pi's own `/thinking`. */
 	defaultThinkingLevel?: ThinkingLevel;
 	/**
 	 * spirits-owned settings keys. pi's `Settings` type does not declare them; pi keeps unknown
 	 * keys in the settings file when it saves a known setting, so no core change is needed.
 	 */
-	models?: { strong?: string; role?: string };
+	models?: {
+		strong?: string;
+		role?: string;
+		normal?: string;
+		thinking?: { normal?: string; strong?: string };
+		steps?: Record<string, { role?: string; thinking?: string }>;
+	};
 }
 
 /** Placement for extension widgets. */
@@ -145,6 +158,22 @@ export interface ExtensionUIContext {
 	notify(message: string, type?: "info" | "warning" | "error"): void;
 	/** Set status text in the footer/status bar. `undefined` clears it. */
 	setStatus(key: string, text: string | undefined): void;
+	/**
+	 * Show a component with keyboard focus and resolve with what the component reports through `done`.
+	 *
+	 * TUI only: pi's RPC mode returns `undefined` here, so a caller must guard with
+	 * `ctx.mode === "tui"` and not treat `hasUI` as proof (the panel in `commands/role-panel.ts` does).
+	 * The factory may resolve late, and the returned component's `dispose` runs when it closes.
+	 */
+	custom<T>(
+		factory: (
+			tui: TUI,
+			theme: Theme,
+			keybindings: unknown,
+			done: (result: T) => void,
+		) => (Component & { dispose?(): void }) | Promise<Component & { dispose?(): void }>,
+		options?: { overlay?: boolean },
+	): Promise<T>;
 }
 
 /** Fired when a session is started, loaded, or reloaded. */
@@ -332,9 +361,32 @@ export interface ExtensionCommandContext extends ExtensionContext {
 	reload(): Promise<void>;
 }
 
-/** A command registered with `pi.registerCommand()`. */
+/** One completion candidate pi's editor accepts. `label` is what pi renders and re-reads. */
+export interface AutocompleteItem {
+	value: string;
+	label: string;
+	description?: string;
+}
+
+/** One command `pi.getCommands()` reports. Only the fields spirits reads are mirrored. */
+export interface SlashCommandInfo {
+	/** Invokable name without the leading slash; a skill is `skill:<name>`. */
+	name: string;
+	description?: string;
+	source: "extension" | "prompt" | "skill";
+}
+
+/**
+ * A command registered with `pi.registerCommand()`.
+ *
+ * `getArgumentCompletions` receives only the argument prefix: pi passes no `ExtensionContext`, so a
+ * completion cannot reach the model catalog or any other context service (design Decision 8).
+ */
 export interface RegisteredCommandOptions {
 	description?: string;
+	getArgumentCompletions?: (
+		argumentPrefix: string,
+	) => AutocompleteItem[] | null | Promise<AutocompleteItem[] | null>;
 	handler: (args: string, ctx: ExtensionCommandContext) => Promise<void> | void;
 }
 
@@ -509,6 +561,15 @@ export interface ExtensionAPI {
 			handler: (ctx: ExtensionContext) => Promise<void> | void;
 		},
 	): void;
+	/**
+	 * The slash commands a prompt can invoke in this session: extension commands, prompt templates, and
+	 * skill commands. `name` is the invokable name without the leading slash, so a skill reads
+	 * `skill:<name>` while a template and an extension command read their own name. Built-in
+	 * interactive commands (`/model`, `/settings`) are not listed, and nothing from an untrusted project
+	 * is listed either — which is why a step's starter is matched against this list rather than a
+	 * directory scan (design Decision 9).
+	 */
+	getCommands(): SlashCommandInfo[];
 	/** Select a model for this session without changing the configured default. */
 	setModel(model: PiModel): Promise<boolean>;
 	/** Current thinking level of the session. */

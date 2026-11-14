@@ -28,7 +28,52 @@ test("resolves the default model as normal", () => {
 		defaultModelId: "claude-sonnet-4-5",
 	});
 
-	expect(target).toEqual({ model: SONNET, viaPrevious: false });
+	expect(target).toEqual({ model: SONNET, source: "default", fellFromSpec: false });
+});
+
+// spec "dual-model-routing / normal の対象": `models.normal` が既定モデルより先に来る。`provider/id` と
+// 素の id の Both 形、および設定済みだが使えない場合の落ち方をここで pins する。
+test("resolves the configured normal target", () => {
+	expect(
+		resolveNormalTarget({
+			lookup: CATALOG,
+			spec: { provider: "openai", modelId: "gpt-5.6-luna" },
+			defaultProvider: "anthropic",
+			defaultModelId: "claude-sonnet-4-5",
+		}),
+	).toEqual({ model: LUNA, source: "spec", fellFromSpec: false });
+
+	// A bare id resolves against the default provider, the same way a strong target does.
+	expect(
+		resolveNormalTarget({
+			lookup: CATALOG,
+			spec: { modelId: "gpt-5.6-luna" },
+			defaultProvider: "openai",
+			defaultModelId: "claude-sonnet-4-5",
+		}),
+	).toEqual({ model: LUNA, source: "spec", fellFromSpec: false });
+
+	// A configured target pi cannot answer with is unusable rather than absent: the default model takes
+	// the request and reports that it did not come from the setting.
+	expect(
+		resolveNormalTarget({
+			lookup: CATALOG,
+			spec: { provider: "google", modelId: "gemini" },
+			defaultProvider: "anthropic",
+			defaultModelId: "claude-sonnet-4-5",
+		}),
+	).toEqual({ model: SONNET, source: "default", fellFromSpec: true });
+
+	// The routing entry itself is never a target, so a setting that names it falls through.
+	const withAuto = fakeLookup({ available: [AUTO, SONNET], authedProviders: ["anthropic", "spirits"] });
+	expect(
+		resolveNormalTarget({
+			lookup: withAuto,
+			spec: { provider: "spirits", modelId: "auto" },
+			defaultProvider: "anthropic",
+			defaultModelId: "claude-sonnet-4-5",
+		}),
+	).toEqual({ model: SONNET, source: "default", fellFromSpec: true });
 });
 
 test("falls back to the previous model when the default is unresolvable", () => {
@@ -39,7 +84,7 @@ test("falls back to the previous model when the default is unresolvable", () => 
 		previous: { model: LUNA },
 	});
 
-	expect(target).toEqual({ model: LUNA, viaPrevious: true });
+	expect(target).toEqual({ model: LUNA, source: "previous", fellFromSpec: false });
 });
 
 test("skips a virtual default and falls back to the previous model", () => {
@@ -52,7 +97,7 @@ test("skips a virtual default and falls back to the previous model", () => {
 		previous: { model: SONNET },
 	});
 
-	expect(target).toEqual({ model: SONNET, viaPrevious: true });
+	expect(target).toEqual({ model: SONNET, source: "previous", fellFromSpec: false });
 	// Without a previous response there is nothing physical left to route to.
 	expect(
 		resolveNormalTarget({ lookup: catalog, defaultProvider: "spirits", defaultModelId: "auto" }),

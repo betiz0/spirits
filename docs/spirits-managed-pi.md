@@ -103,22 +103,24 @@ session dir を環境で固定するのは、継承値やプロジェクトの `
 
 ## 設定の永続書き込み
 
-Pi の拡張 API は settings を読むが返さないため、`/spirits-model` と `/spirits-role` の永続化は Pi が書くファイルそのものへ寄せる。書き方は Pi の `FileSettingsStorage.withLock` と同じ手順に一致させる (`core/settings-manager.ts`)。
+Pi の拡張 API は settings を読むが返さないため、`/spirits-role` の永続化は Pi が書くファイルそのものへ寄せる。書き方は Pi の `FileSettingsStorage.withLock` と同じ手順に一致させる (`core/settings-manager.ts`)。
 
 - 対象は Pi の global settings (`<agent dir>/settings.json`)。project file は trust 判定を伴うので書かない。
 - `proper-lockfile` の `lockSync(path, { realpath: false })` を取り、`ELOCKED` を再試行する。
-- 取得後にファイルを読み、**変更するフィールドだけ**をマージして書き、解く。未知のキーは現内容からのマージで残る (`models.strong` と `models.role` が Pi のキーと同じ object に並べる)。
+- 取得後にファイルを読み、**変更するフィールドだけ**をマージして書き、解く。未知のキーは現内容からのマージで残る (`models.strong` と `models.role` が Pi のキーと同じ object に並べる)。`models.normal`、`models.thinking.<role>`、`models.steps.<name>.<item>` も同じ object の中の spirits のキーで、`unset` はそのキーだけを削除する。
+- 階層のキーは path で書く (`models` → `thinking` → `normal` など)。中間の object が無いときは作り、既にあるものは置き換えない。`models.steps` は兄弟のステップ名を消さない。
 - `withFileMutationQueue` は使わない。これは 1 プロセス内の直列化であり、競合する書き手は別のプロセス (fork 版 `spirits` や同じ agent dir を使う別の managed Pi) なので、効くのは file lock だけである。
 - 書いてから `ctx.reload()` を呼ぶ。reload はその拡張 runtime を置き換えるので、コマンドの `pi` ハンドルと context は reload 後に触らない。
 
-Pi 本体が読むのは `~/.spirits/agent/settings.json` (managed では隔離 agent dir) で、`enabledModels` など spirits が知らないキーは Pi の editor 側が保持する。spirits 側は `models.strong` / `models.role` / `defaultProvider` / `defaultModel` / `defaultThinkingLevel` を、fork 経路と同じキー名で使う。
+Pi 本体が読むのは `~/.spirits/agent/settings.json` (managed では隔離 agent dir) で、`enabledModels` など spirits が知らないキーは Pi の editor 側が保持する。spirits 側は `models.normal` / `models.strong` / `models.role` / `models.thinking.normal` / `models.thinking.strong` / `models.steps.<name>.role` / `models.steps.<name>.thinking` / `defaultProvider` / `defaultModel` を、fork 経路と同じキー名で使う。`defaultThinkingLevel` はこの中に無い。spirits はこのキーを読まず、pi の `/thinking` が書き、pi がそこからセッションの thinking level を決める。spirits の thinking の解決順は `models.steps.<name>.thinking` → `models.thinking.<role>` → そのセッションの選択であり、既定のキーそのものは引かない。
 
 ## 已知の制約
 
 - **role badge の位置**: managed 経路の role 表示は `ui.setStatus()` の拡張 status line に出る。fork 経路の footer 右側・モデル名の隣の badge とは別の場所であり、あれと同じ配置・同じ永続化ではない。描くのは role を選んだときと、拡張の再読み込み後に session が始まったときの 2 箇所であり、reload で置き換わった runtime でも前の role が表示され続ける。
 - **`rlm` の子と第三者 provider**: 子セッションは拡張を読まない。managed 経路で provider をプログラム登録している拡張 (テストの fake provider など) がある場合、その provider は子から見える形にならない。実 provider は `auth.json` / `models.json` を通すため通常は影響がないが、拡張登録に依存する provider を `rlm` の子に使うことはできない。この制限は change `add-managed-spirits-commands` で受け入れ済みとして記録する。
 - **公式 Pi の帰属ヘッダー**: managed 経路の起動ヘッダーは公式 Pi のものになる。spirits 独自の branding ヘッダーに置き換える patch は入れない。
-- **`/spirits-model` の補完**: 公式 `/model` の補完メニュー・曖昧検索 (name/description を跨ぐ検索) は無い。参照は `provider/id` と its substring に限られる。
+- **`/spirits-role` の補完と一覧**: 公式 `/model` の補完メニュー・曖昧検索 (name/description を跨ぐ検索) は無い。コマンド行の参照は `provider/id` と its substring に限られ、モデル名や description からは引けない。対話一覧は `provider/id` を選べるだけで、やはり name/description の検索はしない。一覧は対話 TUI 専用で、print / RPC モードでは開かない（`status` 相当の報告になる）。
+- **直近のリクエストは再読み込み以降消える**: `status` と一覧が出す「直近のリクエストが選んだ role・物理モデル・thinking level」は拡張の実行環境の位相にしか無く、session 記録には書かない。設定の書き込みは `ctx.reload()` で実行環境を置き換えるので、設定を変えた**再読み込み以降**は 0 件になり、「No request since the last reload.」が出る。欠落ではなく、位相が reload のまたぎ方で失われるものの一部である。
 
 ## 既存データの書き込み互換
 
@@ -142,8 +144,32 @@ host の実体を bundle に含めないのは、rlm の子セッションが親
 
 公式 Pi 1.5.0 には `registerModelRoles` がない。spirits 拡張は API の有無を起動時に判定し、ある場合は既存の role 登録を使う。ない場合は仮想モデル `spirits/auto`、skill に基づく strong フェーズ、設定からの既定 role 読み取りを残したうえで、同じ状態に届く別コマンドを登録する。起動時に一度だけ制限内容を通知する。
 
-- `/spirits-model <ref> [level] [role]` … モデル、thinking level、role を 1 行で選ぶ。token は右から順に role、level を取り、残りを参照とする（`anthropic/claude-sonnet-4-5 high strong`、`sonnet strong`、`sonnet high`）。モデルは `pi.setModel()`、level は `pi.setThinkingLevel()`、role は phase lock で適用し、永続化は下の「設定の永続書き込み」に従う。role を選んだときはその role を badge に出す。最後に `ctx.reload()` を呼ぶので、そのコマンドの `pi` ハンドルと context はそれ以降使わない。設定の書き込みだけが失敗したときは、session の変更を取り消さず、保存に失敗した旨を分けて伝え、reload はしない（読み直す既定値が変わっていないため）。
-- `/spirits-role normal|strong` … モデルを変えずに session の role を固定し、badge をその role に更新する。設定の書き込みが失敗しても session の固定は残り、保存失敗だけを別途伝える。
+`/spirits-role` は「対象 項目 値」の 1 行でロールとステップの設定をする。引数なしは対話端末なら設定一覧、それ以外なら `status` と同じ実行報告を出す。語の照合は大文字小文字を問わない。解釈できない行・項目の省略・空の参照では何も変えず、理由だけを出す。設定を書いたあとは `ctx.reload()` を呼ぶので、そのコマンドの `pi` ハンドルと context はそれ以降使わない。設定の書き込みだけが失敗したときは、session の変更を取り消さず、保存に失敗した旨を分けて伝え、reload はしない（読み直す既定値が変わっていないため）。
+
+- `/spirits-role normal|strong` … モデルを変えずに session の role をロックし、badge をその role に更新する。ロックは進行中の step を終える。設定の書き込みが失敗しても session のロックは残り、保存失敗だけを別途伝える。
+- `/spirits-role status` … 有効・無効、ロック、現在の step と継続指定、直近のリクエストが選んだ role・物理モデル・thinking level、両ロールの解決結果とその出どころ、既定 role と違う step、読み捨てた設定値を 1 件に出す。
+- `/spirits-role <role> model <ref>` … その role のモデルを global settings に保存する。`<ref>` は行末までが参照なので空白を含む。`provider/id` の完全一致を先に試し、部分一致が 1 件ならそれを使う。0 件と複数件は変更せず理由を伝える。振り分け用の `spirits/auto` は候補から除く。
+- `/spirits-role <role> thinking <level>` … その role の thinking level を保存する。`<level>` は pi の語彙（`off` `minimal` `low` `medium` `high` `xhigh` `max`）のみ。pi 自身の選択は `set_thinking_level` で、spirits は触らない。
+- `/spirits-role <step> role <role>` と `/spirits-role <step> thinking <level>` … そのステップが走るときの role と thinking level を設定する。進行中のステップに限らず、そのステップが走るたびに効く。`<step>` は step 一覧の名前のみ。`unset` はそのキーだけを削除する。
+
+ステップは、継続するものなら run が落ち着いた後も有効なままで、別の開始コマンド、一覧に無いスキル・テンプレートの起動、`/spirits-clear`、ロールのロック、セッションの開始で終わる。分岐間の移動（`/tree`）では、ステップは移動先の分岐の最新の記録に合わせて変わり、移動そのものは記録を追加しない。
+
+一覧（`SettingsList`）は対話 TUI 専用で、ロック・2 ロールの model と thinking・step 設定を行に並べる。ステップは 1 ステップ 1 行で、値は `<role> / <thinking>` の組として出す。選択行の説明には解決結果（実際に応答する物理モデル、実際に応答するロールで解決した thinking level（strong が normal へ落ちれば normal のレベル）、ステップが走るロールと継続するかどうか、直近のリクエスト）が出る。使えない対象は「設定されているが使えない」旨・理由・代わりに応答するモデルを同じ行に出し、通知には出さない。model 行の候補は `ctx.modelRegistry.getAvailable()` から api が `pi-virtual` のモデルを除いたもので、候補が 0 件なら書き込まない。ステップの行は Enter でロールの候補を開き、確定すると同じ行で thinking の候補を続けて開く。候補の一覧も 0 件の案内部品も `Esc` で値を変えずに閉じ、一覧へ戻る。書き込みが失敗したときは理由をその行の説明に出し、一覧の内側で読める（通知ではない）。ステップのロールの書き込みが失敗したときは 2 段目を開かない。一覧でロックを変えたときは書き込みの成否にかかわらず badge をそのロールで描く。編集はコマンドと同じ書き込み経路を通り、一覧を閉じるときに 1 回だけ reload する（何も書かなかったときは reload しない）。対話 TUI 以外では一覧を開かない。
+
+**セッションのモデル選択とその既定保存、thinking レベルの既定保存は、公式の `/model` と `/thinking` で満たせる**。`/spirits-role` が設定するのはロールの対象であり、セッションのモデル選択ではない。`/spirits-role strong model a/b` は strong の要求を `a/b` に流すだけで、session が選んでいるモデルは `spirits/auto` のままで、変わらない。両者を混ぜないため、旧コマンドの移行先も「セッションの選択」と「ロールの対象」に分けて書く。
+
+消した旧コマンド（`spirits-model`）からの対応は次のとおり。1 行で 3 つを指定する形はやめ、対象を名前で書く形に集約した。
+
+| 旧 `spirits-model` | 移行先 | 違い |
+|---|---|---|
+| `spirits-model <ref>` | 公式 `/model` | 旧 1 行が変えていたのはセッションのモデルである。それを今やるのは公式 `/model` で、`/spirits-role` はセッションの選択を変えない |
+| `spirits-model <ref> <level>` | 公式 `/model` と公式 `/thinking` | セッションのモデル選択とその既定保存は公式の 2 コマンドが担う。spirits は `set_thinking_level` を呼ばない |
+| ロールの対象モデルを設定する | `/spirits-role <role> model <ref>` | 設定するのはその role の要求が何を応答するかで、session が何を選んでいるかではない |
+| ロールの thinking level を設定する | `/spirits-role <role> thinking <level>` | 同上。pi のセッション選択とは別に、ロールの要求に載る level を決める |
+| `spirits-model <ref> <level> <role>` | ロックなら `/spirits-role <role>`、続けて `/spirits-role <role> model <ref>` と `/spirits-role <role> thinking <level>` | 保存と lock は別の行になる。ロックのみが session を変える |
+| 補完なしの 1 行指定 | `/spirits-role`（対話一覧） | 一覧は `getArgumentCompletions` とは別に、選べる値を出す。公式 `/model` の曖昧検索は依然として無い |
+| ステップ 1 件の指定 | `/spirits-role <step> <role\|thinking> <値>`、または一覧のステップの行 | 一覧のステップは 1 行で、Enter からロール → thinking の 2 段を選ぶ |
+| `/spirits-role <role>`（従来） | `/spirits-role <role>` | 変更なし。badge と `spirits_role` エントリも同じ |
 - `/spirits-clear` … 直前までの会話を LLM context から除く。`spirits_clear` の境界エントリを 1 件追加し、`context` イベントで境界より前の投影メッセージを落とす。session ID・chat 表示・TODO・goal・memory はそのまま。消した会話が要約に載って戻ってくることはない。
 
 ### `/spirits-clear` の境界が及ばない範囲
@@ -165,13 +191,17 @@ role の所在は経路で違う。fork 経路では role は Pi の `pi.virtual
 | review などを strong へ自動振り分け | `spirits/auto`、skill フェーズ、`models.strong` | 利用可 | 同じ拡張側のルーティング。route が選んだ role は拡張の status line に出る |
 | normal / strong の固定 | `/model` role suffix と role 登録 | 利用可 | `/spirits-role <role>`。別コマンドで、phase lock・`spirits_role` エントリ・`models.role` を書く |
 | 最後の role を表示 | core footer badge | 利用可 | `ui.setStatus()` の拡張 status line。モデル名の隣ではなく footer の別の行に出る |
+| 稼働状況を読む | 該当なし | 利用可 | `/spirits-role status`。有効・無効、ロック、現在の step、直近のリクエスト、両ロールの解決結果を 1 件に出す。pi は「選んでいるモデル」しか出さず、ロールが何に解決されたかを出す面はない |
 | 会話だけを消す `/clear` | core `clearConversation()` | 利用可 | `/spirits-clear`。境界より前を LLM context から除く。chat 表示は残る（core の `/clear` は表示からも消す） |
-| model と thinking level | core `/model` parser と保存キー | 利用可 | `/spirits-model <ref> <level>`。補完メニューと曖昧検索はない。保存キーは Pi と同一 |
-| model + level + role | core parser と role 語彙 | 利用可 | `/spirits-model <ref> [level] [role]`。右から順に取る。Pi の `/model` はそのまま残る |
+| role と step の model / thinking | core `/model` parser と保存キー | 利用可 | `/spirits-role <対象> <項目> <値>`。対象は role か step。補完メニューと曖昧検索はない。保存キーは Pi と同一 |
+| 設定の一覧編集 | `/model` の selector と `/settings` | 制限付き | 対話 TUI の `SettingsList`。RPC では駆動できず、互換ランナーは `not-run` にする。公式 `/model` はそのまま残る |
+| step 別の role と thinking | 該当なし | 利用可 | `models.steps.<name>.<item>`。step 一覧の名前だけを読み、それ以外は `status` が無視した値として出す |
 
 「利用可」は専用経路で同等に動作、「制限付き」は一部の目的だけ維持、「利用不可」は同等の機能がない状態を指す。この change は既定経路の機能を削除しない。既存の `openspec/specs/` の要件は変更しない。
 
 互換性ランナーはこの表を専用 Pi での目的別観測で上書きする。コマンド一覧にコマンドが掲載されていないことだけで組み込み機能の不存在を判定せず、観測できない目的は `not-run` にする。各目的の状態は結果 JSON の `role/clear/model matrix` 項目に記録する。
+
+互換表の各行はランナーの目的定義と 1 対 1 で対応し、目的の定義は `scripts/managed-pi-compat/matrix.ts` にある（role 5 目的、`/clear` 3 目的、model 5 目的）。表の「専用経路」は観測前の見込みで、結果 JSON の各行は専用の目的観測から導出される。
 
 `role/clear/model matrix` 項目の `confirmed` は「専用 Pi で目的の動作を観測した」ことを意味し、「全目的が利用可」を意味しない。観測の結果が `unavailable` であっても観測には変わりないため、行も項目も `confirmed` になる。行と目的の対応、および `unavailable` の件数は同じ項目の `data`(`confirmedMeans`、`rows`、`purposes`)に出るので、読み手は `confirmed` を利用可能性の宣言として扱わない。
 
@@ -180,6 +210,10 @@ role の所在は経路で違う。fork 経路では role は Pi の `pi.virtual
 ```sh
 # fixture モード(既定): 隔離した managed root の fixture set を測る
 bun scripts/managed-pi-compat/run.ts --mode fixture --artifact-root /tmp/managed-pi-fixture
+
+# fixture でも、作業ツリーからビルドした拡張を測れる(インストール済みの release を測らない)
+bun scripts/build-managed-pi-inputs.ts --version 0.0.0-0 --out /tmp/spirits-compat-bundle
+bun scripts/managed-pi-compat/run.ts --mode fixture --bundle /tmp/spirits-compat-bundle/spirits-managed-pi-extension.js
 
 # official モード: 公式 artifact を検証し、対象 commit の bundle で測る
 bun scripts/managed-pi-compat/run.ts --mode official \
@@ -191,6 +225,7 @@ bun scripts/managed-pi-compat/run.ts --mode official \
 ```
 
 - `--mode` は `fixture`(既定)か `official`。全結果に `mode` が付き、fixture の結果は `fixture-only` として記録される。fixture の成功を公式 Pi の互換性成立の根拠にしない。
+- `fixture` でも `--bundle` を受け付ける。指定すると、インストール済み set の Pi をそのままで、拡張だけを入れ替えた set を作業ルートの中に作って測る(既定はインストール済み set そのままなので、作業ツリーの変更は測らない)。set は製品の `verifyManagedSet` を通すため、起動できない set は項目の実行前に落ちる。Pi 側はコピーであって link ではない。`verifyManagedSet` は Pi ディレクトリの overlay package.json を見て、無ければ作るため、link にするとユーザーのインストール済み set まで書き換えうる。公式 tarball はコピーしない(fixture 経路は展開済みツリーを起動するだけ)。
 - `official` では `--artifact-root`(`manifest.json` と公式 tarball を置いたステージング領域)、`--bundle`(対象 commit からビルドした拡張 bundle)、`--commit`(対象 commit)が必須。manifest の `pi.artifact.sha256` が製品の信頼基準 `MANAGED_PI_FIRST_ARTIFACT_SHA256` と一致しない場合、結果を書かず非ゼロで終了する。
 - ランナーは一時 HOME、一時 agent dir、一時作業ディレクトリを用意し、製品の `resolveManagedAgentPaths` / `ensureManagedAgentDir` で隔離 agent dir を解決する。実 `~/.spirits/agent` などのユーザーデータは読み書きせず、PATH 上の `pi` も使わない。
 - 結果は JSON と、その隣に `managed-pi-compat-result.md` の要約を出力する。通常実行でリポジトリの `docs/` を書き換えない。
@@ -212,7 +247,7 @@ bun scripts/managed-pi-compat/run.ts --mode official \
 
 内訳は `- Results: confirmed=<n> limited=<n> unavailable=<n> not-run=<n> failed=<n>` で、5 つのラベルを常に並べて出す。標準出力の 1 行も同じ形式で、0 件の状態を省略しない。省略されたラベルが「0」なのか「測らなかった」なのかを読み手に推測させないためである。
 
-要約 `managed-pi-compat-result.md` は先頭に `Runner completed` と `Compatibility met` を定義文つきで掲げ、続けて `Note:` 行として、`confirmed` を読み違えやすい 2 項目但し書きを出す。`rlm child abort` の `confirmed` は条件付きで、`rlm_usage` は親のターンが終わってから追記されるため、記録が読めるのは子が止まった後の読みであり `agent_settled` の読みではない。`role/clear/model matrix` の `confirmed` は「いずれかの目的を専用 Pi で観測した」意味で、同じ行に観測した目的数(`2 of 9` など)を添える。`compatibilityMet` はどちらの意味も持たない。さらに `## Required observations not confirmed` と `## Outside the required list, not confirmed` の 2 節を置く。後者は必須観測以外の `failed` / `limited` / `unavailable` / `not-run` を並べるので、判定を左右しない項目の欠落も冒頭で分かる。全項目の一覧はその後ろにある。
+要約 `managed-pi-compat-result.md` は先頭に `Runner completed` と `Compatibility met` を定義文つきで掲げ、続けて `Note:` 行として、`confirmed` を読み違えやすい 2 項目但し書きを出す。`rlm child abort` の `confirmed` は条件付きで、`rlm_usage` は親のターンが終わってから追記されるため、記録が読めるのは子が止まった後の読みであり `agent_settled` の読みではない。`role/clear/model matrix` の `confirmed` は「いずれかの目的を専用 Pi で観測した」意味で、同じ行に観測した目的数(`2 of 13` など)を添える。`compatibilityMet` はどちらの意味も持たない。さらに `## Required observations not confirmed` と `## Outside the required list, not confirmed` の 2 節を置く。後者は必須観測以外の `failed` / `limited` / `unavailable` / `not-run` を並べるので、判定を左右しない項目の欠落も冒頭で分かる。全項目の一覧はその後ろにある。
 
 ### 詳細ログ・JSON の保管と再実行
 
@@ -251,7 +286,7 @@ bun scripts/managed-pi-compat/run.ts --mode official --artifact-root <artifact-r
 
 物理モデルを選ぶ親と `spirits/auto` を選ぶ親を別項目にする。親が `spirits/auto` を選んでいる場合、製品は親の側で、子の起動前に子の物理モデルを決め、それを子に渡す。いずれの場合も子は親と同じ agent dir の設定を読むため、`settings.json`(`models.strong`、`models.role`、`defaultProvider`、`defaultModel`)、`auth.json`(fake provider の認証)、`models.json`(fake provider の registry)を書く。書き先は隔離 agent dir だけでよい。子セッションは拡張を読まないが、親と同じプロセス内で作られ、agent dir を host 自身の `getAgentDir()` で引く。managed の起動はそれを隔離 agent dir に固定しているため、子も同じ dir を読む。実測でも、fixture を隔離 agent dir だけに置いた子は応答し、`<home>/.pi/agent` にだけを置いた子は `No API key found for compat-fake` で失敗した。親と違い、子には fake provider をプログラム登録する拡張がないため、認証とプロバイダ表はファイルからしか届かない。子の生成・最終回答・`rlm_usage`・中断を個別に記録する。
 
-中断は 5 段階に分けて判定する。abort を送れたか(`abortSent`)、専用 Pi が受理したか(`abortAccepted`)、セルが中断として返ったか(`cellAborted`)、子が止まったか(`childStopped`)、`rlm_usage` が残ったか(`usageAfterStop`)。子は親のリクエストと区別するため子の応答だけを遅延させ、その遅延 reply を持ったリクエストが閉じたことをもって子の停止とみなす。`agent_settled` は親の run が落ち着いた時点であり、切られたツール呼び出しはその後も走り続ける。したがって abort 後は `agent_settled` 時点で 1 回読むだけでは足りず、子が止まるか poll 窓が切れるまで `get_entries` を読み続ける。`rlm_usage` は `pi.appendEntry("rlm_usage", data)` で入るので、`outcome` は `entry.data.outcome` にある(`entry.outcome` ではない)。実測では `agent_settled` 時点の読みでは 0 件、子の要求が閉じた後の読みで 1 件(`outcome` は `aborted`)で、5 段階すべてが揃ったとして `confirmed` になる。かつて「子の最中に呼び出し元が中断されたとき `rlm_usage` の記録が残らない」と書いたのは、`agent_settled` の 1 回読みだけで判定した測定漏れであり、製品欠落ではなかった。訂正と再測定の記録は [product-defect-rlm-usage-abort.md](../openspec/changes/archive/2026-11-06-repair-managed-pi-compat-harness/product-defect-rlm-usage-abort.md)(訂正付き)と [verify2-rerun.md](../openspec/changes/archive/2026-11-06-repair-managed-pi-compat-harness/verify2-rerun.md) に残す。観測できない場合は `not-run` にし、他の項目の判定を変えない。fixture は親のリクエストにはツール呼び出し、子のリクエストにはテキストで応じ、子が `rlm` を再帰的に呼び出さないようにする。`spirits/auto` を選ぶ親は別項目として記録する。子セッションは拡張を読まないため仮想モデルの route はそこで再現できず、解決は親の側で、子の起動前に起こる。したがって判定は子自身のリクエストが何を要求したかで決める。fake provider は受信した各リクエストの `model` を記録し、それを `providerRequests` として result.json に残す。子のリクエストが物理モデル名として届き、最終回答と `rlm_usage` が得られたときだけ `confirmed` にする。子のリクエストが `auto` のまま届いた場合は `failed` とする。`not-run` は次の 2 場合に限る。1 つ目は子の対象にできる物理モデルが fixture に無い場合で、解決を試みた役割と不足していた設定を理由に残す。2 つ目は provider へリクエストを送らない固定イベントの host（fixture 実行）で、何を解決したかを読む手掛かりが無いため `not-run` にする。ランナーは auto の実行の前に必ず子の対象（既定 provider、既定モデル、認証、モデル定義）を fixture へ書くため、専用 Pi の実行で `has no child model` のような解決エラーが出た場合は fixture 不足ではなく、fixture が揃っているのに子が完了しなかったものとして `failed` にする。判定に使う最終回答は、エラーになったセルの文を数えない(`answerOf`)。子を起動していない失敗の文を最終回答に数えて `confirmed` にしないためで、物理モデルを選ぶ項目にも同じ扱いをする。この項目は必須観測に入れないので、状態が `compatibilityMet` を変えることはない。fake provider の成功は実 provider の互換性確認ではなく、実 provider を使うテストはこの change の対象外である。
+中断は 5 段階に分けて判定する。abort を送れたか(`abortSent`)、専用 Pi が受理したか(`abortAccepted`)、セルが中断として返ったか(`cellAborted`)、子が止まったか(`childStopped`)、`rlm_usage` が残ったか(`usageAfterStop`)。子は親のリクエストと区別するため子の応答だけを遅延させ、その遅延 reply を持ったリクエストが閉じたことをもって子の停止とみなす。`agent_settled` は親の run が落ち着いた時点であり、切られたツール呼び出しはその後も走り続ける。したがって abort 後は `agent_settled` 時点で 1 回読むだけでは足りず、子が止まるか poll 窓が切れるまで `get_entries` を読み続ける。`rlm_usage` は `pi.appendEntry("rlm_usage", data)` で入るので、`outcome` は `entry.data.outcome` にある(`entry.outcome` ではない)。実測では `agent_settled` 時点の読みでは 0 件、子の要求が閉じた後の読みで 1 件(`outcome` は `aborted`)で、5 段階すべてが揃ったとして `confirmed` になる。かつて「子の最中に呼び出し元が中断されたとき `rlm_usage` の記録が残らない」と書いたのは、`agent_settled` の 1 回読みだけで判定した測定漏れであり、製品欠落ではなかった。訂正と再測定の記録は [product-defect-rlm-usage-abort.md](../openspec/changes/archive/2026-11-06-repair-managed-pi-compat-harness/product-defect-rlm-usage-abort.md)(訂正付き)と [verify2-rerun.md](../openspec/changes/archive/2026-11-06-repair-managed-pi-compat-harness/verify2-rerun.md) に残す。**いまの fixture では 5 段階は揃わない**(`abort sent=true`、`abort accepted=unknown`、`child seen=true`、`cell aborted=false`、`child stopped=true`)。切り分けは `--bundle` で測った。作業ツリーからビルドした bundle と、変更前の commit `f71b6746b` からビルドした bundle を同じ runner で測って同じ出方になり、差は無かった(測った拡張の sha256 は毎回 `runtime.extension` に残る)。したがってこれはこの変更が生んだものではなく、fixture 実行側の既存の問題として記録する。観測できない場合は `not-run` にし、他の項目の判定を変えない。fixture は親のリクエストにはツール呼び出し、子のリクエストにはテキストで応じ、子が `rlm` を再帰的に呼び出さないようにする。`spirits/auto` を選ぶ親は別項目として記録する。子セッションは拡張を読まないため仮想モデルの route はそこで再現できず、解決は親の側で、子の起動前に起こる。したがって判定は子自身のリクエストが何を要求したかで決める。fake provider は受信した各リクエストの `model` を記録し、それを `providerRequests` として result.json に残す。子のリクエストが物理モデル名として届き、最終回答と `rlm_usage` が得られたときだけ `confirmed` にする。子のリクエストが `auto` のまま届いた場合は `failed` とする。`not-run` は次の 2 場合に限る。1 つ目は子の対象にできる物理モデルが fixture に無い場合で、解決を試みた役割と不足していた設定を理由に残す。2 つ目は provider へリクエストを送らない固定イベントの host（fixture 実行）で、何を解決したかを読む手掛かりが無いため `not-run` にする。ランナーは auto の実行の前に必ず子の対象（既定 provider、既定モデル、認証、モデル定義）を fixture へ書くため、専用 Pi の実行で `has no child model` のような解決エラーが出た場合は fixture 不足ではなく、fixture が揃っているのに子が完了しなかったものとして `failed` にする。判定に使う最終回答は、エラーになったセルの文を数えない(`answerOf`)。子を起動していない失敗の文を最終回答に数えて `confirmed` にしないためで、物理モデルを選ぶ項目にも同じ扱いをする。この項目は必須観測に入れないので、状態が `compatibilityMet` を変えることはない。fake provider の成功は実 provider の互換性確認ではなく、実 provider を使うテストはこの change の対象外である。
 
 ### 既存データ
 
@@ -269,9 +304,11 @@ redact した既存 agent dir の fixture(`scripts/managed-pi-compat/fixtures/re
 
 role、`/clear`、`/model` の目的を専用 Pi で個別に観測する。判定はすべて RPC と fake provider が受けたリクエスト本体から取り、Node による session ファイルの読み取りは行わない。
 
-- role … skill コマンドで strong フェーズに入ったリクエストがどの物理モデルで流れたかを fake provider の受信リクエストから読む。role 語彙は `/spirits-role <role>` が次に流すリクエストのモデルとして観測する。badge はターミナル上の表示そのものは読めないが、描画は `ui.setStatus()` の RPC なので、host が受けた `setStatus` の本数と文言が観測になる。モデル名の隣ではなく拡張 status line に出るという差異を残して `limited` にする。
+- role … skill コマンドで strong フェーズに入ったリクエストがどの物理モデルで流れたかを fake provider の受信リクエストから読む。稼働状況の行は `/spirits-role status` を RPC で駆動し、host が受けた `notify` の文言そのもので判定する（`routing:` / `lock:` / `step:` / `normal:` / `strong:` のいずれかが欠ければ `unavailable`、通知が無ければ `not-run`）。ランナーが発話した最後のリクエストが status の報告なので、`step:` と `last request:` も読める状態になる。role 語彙は `/spirits-role <role>` が次に流すリクエストのモデルとして観測する。badge はターミナル上の表示そのものは読めないが、描画は `ui.setStatus()` の RPC なので、host が受けた `setStatus` の本数と文言が観測になる。モデル名の隣ではなく拡張 status line に出るという差異を残して `limited` にする。
 - `/clear` … 実行前に `/spirits-clear` のない session でマーカー入りの発話を 1 つ、コマンド実行後にもう 1 つ発話し、コマンド後のリクエスト本体が後マーカーを含み前マーカーを含まないかを fake provider から読む。session ID・会話エントリ数・TODO エントリ数は probe 拡張の `/compat-purpose-state` に RPC で読み取らせ、実行前後で比較する。session ファイルは意図的に全メッセージを残すので、エントリ数だけを持って会話が消えたと判定しない。
-- `/model` … `/spirits-model <ref> <level> [role]` を実行し、fake provider が受けた model、thinking level の読み戻し(`ctx.getThinkingLevel()`)、保存済みの `defaultModel` / `defaultThinkingLevel` / `models.role` から判定する。保存の成否は、コマンドの `ctx.reload()` のあとに再生成された runtime が `pi.getSettings()` で読み返した値で判定する。Node によるファイル読み取りは、Pi が実際に読み込んだ既定値の代用にしない。
+- `/model` … 1 本の launch を stage で駆動する。`/spirits-role normal model <ref>` → `/spirits-role normal thinking <level>`（各行が `ctx.reload()` を呼ぶ）→ `set_model` で `spirits/auto` を選ぶ → 発話、という順序のあと、fake provider が受けた要求本文の `model` と reasoning level を読むのが thinking level の判定で、`pi.setThinkingLevel()` は使わない（fake provider の 2 モデルは `reasoning: true` なので level が本文に出る）。保存の成否は、コマンドの `ctx.reload()` のあとに再生成された runtime が `pi.getSettings()` で読み返した値で判定する。Node によるファイル読み取りは、Pi が実際に読み込んだ既定値の代用にしない。
+- セッションのモデル選択 … `set_model` の応答が返したモデルと、`get_state` が返した session のモデルを比較する。読むのは振り分け用モデルの要求が落ち着いた後で、`set_model` と同じ stage で即 `get_state` を読むと session が開始時に選んでいたモデルが返る（選んだ値そのものは `set_model` の応答に出る）。ロールの対象の行とは別の行で、`spirits/auto` が選ばれていれば十分で、どの物理モデルに解決されたかは問わない。
+- 設定一覧と公式 `/model` の既定保存は RPC で駆動できないので、その目的は理由を添えて `not-run` にする。`unavailable` は機能の欠落、`not-run` は計測経路の欠落であり、混ぜない。
 
 コマンド一覧に掲載されていないことだけで組み込み機能の不存在を判定せず、観測できない目的は `not-run` にする。各目的の状態は `available` / `limited` / `unavailable` / `not-run` で記録し、代替案と差異は目的定義に一度だけ持ち、行と観測の両方へ写す。
 

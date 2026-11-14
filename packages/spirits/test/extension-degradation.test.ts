@@ -14,7 +14,7 @@ import { join } from "node:path";
 import type { ExtensionContext, PiModel, SessionEntry } from "@earendil-works/pi-coding-agent";
 import {
 	COMMAND_SPIRITS_CLEAR,
-	COMMAND_SPIRITS_MODEL,
+	COMMAND_SPIRITS_ROLE,
 	DEFAULT_TODO_TOGGLE_KEY,
 	ENV_ACTION_GUARD,
 	ENV_AGENT_DIR,
@@ -119,7 +119,7 @@ test("a host that cannot take a virtual model keeps the core and says so once", 
 	expect(() => spiritsExtension(pi)).not.toThrow();
 	expectCoreRegistered(pi);
 	// The commands cover the gap the missing routing leaves, so they are registered here.
-	expect([...pi.commands.keys()]).toContain(COMMAND_SPIRITS_MODEL);
+	expect([...pi.commands.keys()]).toContain(COMMAND_SPIRITS_ROLE);
 
 	const first = fakeCatalog();
 	await pi.fire("session_start", { reason: "startup" }, first.ctx);
@@ -195,6 +195,26 @@ test("a footer that refuses a status write does not stop the request", () => {
 	expect(pi.route()(makeRequest(), ctx)).toMatchObject({ model: SONNET });
 });
 
+// The badge and the request record are two reports, and only the first one is drawn on the terminal. A
+// footer that refuses a write may cost the badge; `status` still has to be able to say what ran (spec
+// `managed-commands` / `/spirits-role status`).
+test("a throwing role reporter still records the request", () => {
+	const pi = new FakePi();
+	pi.settings = { defaultProvider: "anthropic", defaultModel: "claude-sonnet-4-5" };
+	const seen: string[] = [];
+	registerDualModelRouting(pi, {
+		onRole: () => {
+			throw new Error("setStatus is gone");
+		},
+		onRequest: (request) => seen.push(`${request.role} ${request.model}`),
+	});
+
+	const { ctx } = fakeCatalog({ available: [SONNET], authedProviders: ["anthropic"], model: AUTO_SELECTION });
+
+	expect(pi.route()(makeRequest(), ctx)).toMatchObject({ model: SONNET });
+	expect(seen).toEqual(["normal anthropic/claude-sonnet-4-5"]);
+});
+
 /**
  * The phase the child resolver gets when the routing layer never registered. `rlm` reads it once per
  * child, so the strong/normal choice survives; a parent on a physical model never reads it.
@@ -215,7 +235,7 @@ test("a physical parent model still hands its own model to the child", () => {
 	});
 	const { ctx } = fakeToolContext({ available: [SONNET] });
 
-	expect(resolve(SONNET, ctx)).toEqual(SONNET);
+	expect(resolve(SONNET, ctx)).toEqual({ model: SONNET });
 });
 
 // The guard is the last registration and sits on the way to every bash call, so the two things worth

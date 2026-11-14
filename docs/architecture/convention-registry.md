@@ -37,7 +37,7 @@
   "spirits:todo": ["spirits:repl", "spirits:shared", "packages/coding-agent", "packages/tui"],
   "spirits:update": ["spirits:shared", "packages/coding-agent", "packages/tui"],
   "spirits:routing": ["spirits:shared", "packages/coding-agent"],
-  "spirits:commands": ["spirits:shared", "spirits:routing", "packages/coding-agent"],
+  "spirits:commands": ["spirits:shared", "spirits:routing", "packages/coding-agent", "packages/tui"],
   "spirits:managed-pi": ["spirits:shared", "spirits:update", "packages/coding-agent", "packages/tui"],
   "spirits:guard": ["spirits:shared", "packages/coding-agent", "packages/tui"],
   "spirits:entry": ["spirits:repl", "spirits:shared", "spirits:rlm", "spirits:harness", "spirits:todo", "spirits:routing", "spirits:commands", "spirits:guard", "packages/coding-agent", "packages/tui"],
@@ -160,7 +160,7 @@
 
 - **強度**: SHALL
 - **内容**: `packages/spirits/src/` は `@earendil-works/pi-*` をサブパスを持たない bare specifier でのみ import する。`packages/spirits/bin/` の deep import(サブパスを持つ specifier)は `registry:bin-deep-imports` の 3 件に限定し、使われていない要素があっても失敗する。
-- **例外**: `packages/spirits/src/` の全層が `packages/coding-agent` と `packages/tui` へ依存すること(bare specifier)は許可する。
+- **例外**: `packages/spirits/src/` の層のうち `routing` を除く全層が `packages/coding-agent` と `packages/tui` へ依存すること(bare specifier)は許可する。`routing` の許可は `packages/coding-agent` だけとし、層ごとの許可は `registry:layers` が正であるため、この例外文はそれと食い違わないように同じ変更で更新する。
 - **判定方法**: spirits の src と bin の import を調べ、src の deep import・許可リスト外の bin の deep import・未使用の許可リスト要素を規約 ID とパスを付けて報告する。
 - **根拠**: Pi への deep import は上流パッケージの内部構成に依存するため。design decision 8。
 

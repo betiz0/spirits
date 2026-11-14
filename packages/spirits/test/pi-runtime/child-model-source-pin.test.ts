@@ -44,7 +44,8 @@ function childModel(branch: readonly SessionEntry[]): string {
 		phase: createRoutingPhase(),
 		readSettings: () => NO_DEFAULT,
 	});
-	const model = resolve(AUTO_SELECTION, ctx);
+	// The resolver hands back a target; the pin is about which model it names, not the level.
+	const { model } = resolve(AUTO_SELECTION, ctx);
 	return `${model.provider}/${model.id}`;
 }
 

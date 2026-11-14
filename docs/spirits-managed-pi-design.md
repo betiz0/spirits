@@ -8,7 +8,7 @@
 | change | 状態 | この文書の提案との差 |
 |---|---|---|
 | `fix-managed-rlm-child-model` | archive 済み (`35595d326`) | §4 の方式どおり。子のモデルは親側で決め、`rlm_usage` に実際に渡したモデルを記録した |
-| `add-managed-spirits-commands` | archive 済み (`2b307337e`) | §2 の 9 目的を拡張側で実装 (`5d1b0a09d`)。設定は Pi の `settings.json` へ key lock で書く (§3 案 A 相当)。`/spirits-clear` は compaction 乗っ取り単独では成立しない (Nothing to compact / Already compacted で hook が発火しない) ため、`spirits_clear` 境界 entry + `context` handler + `session_before_compact` の併用にした。代替扱いの目的は `unavailable` ではなく `alternative` / `difference` を持つ行として残した |
+| `add-managed-spirits-commands` | archive 済み (`2b307337e`) | §2 の目的（開始時は 9、現 13）を拡張側で実装 (`5d1b0a09d`)。設定は Pi の `settings.json` へ key lock で書く (§3 案 A 相当)。`/spirits-clear` は compaction 乗っ取り単独では成立しない (Nothing to compact / Already compacted で hook が発火しない) ため、`spirits_clear` 境界 entry + `context` handler + `session_before_compact` の併用にした。代替扱いの目的は `unavailable` ではなく `alternative` / `difference` を持つ行として残した |
 | `harden-managed-commands` | archive 済み (`openspec/changes/archive/2026-11-10-harden-managed-commands`) | 代替手段で満たした行の記載、`limited` の意味、`/spirits-clear` の境界の後を追う観測項目を締めた |
 
 ---
@@ -87,9 +87,11 @@ managed 経路で「そのパッチが要るか」で分類する。
 
 ---
 
-## 2. 9 目的ごとの方式
+## 2. 13 目的ごとの方式（role 5 / `/clear` 3 / `/model` 5）
 
 方式は 3 種: **拡張**（パッチ不要）/ **限定パッチ** / **目的変更（要承認）**。
+
+目的の定義は `scripts/managed-pi-compat/matrix.ts` にあり、この表は行と 1 対 1 で対応する。`add-managed-spirits-commands` は 9 目的で開始し、`unify-spirits-role-command` が role に `step-role-settings` と `role-status-report`、`/model` に `session-model-selection` と `settings-list` を足して 13 になった。role とモデルを 1 行で扱った `role-selection` は、ロールの対象を保存する `role-model` とセッションの選択を見る `session-model-selection` の 2 目的に割れた。
 
 ### role
 
@@ -98,6 +100,8 @@ managed 経路で「そのパッチが要るか」で分類する。
 | `skill-strong-phase` 1 選択のまま review/deep を strong へ | **拡張**（実装済み・実測 available） | `pi.registerVirtualModel()`（`types.ts:2150`）+ `input` で skill phase、`agent_settled` で settle。clean 実行の official で `available`。パッチ不要 |
 | `model-role-vocabulary` モデルを変えずに role を固定 | **拡張**（`/spirits-role normal\|strong` + `models.role` 既定） | `pi.setModel()` を呼ばずに位相だけ変える。操作系が変わる（`/model ... strong` は使えない）。上流提案（`registerModelRoles`）が LAND すれば統合可能 |
 | `role-badge` 最後の要求を扱う role の表示 | **拡張**（`ui.setStatus("spirits", "[strong]")`） | 公式 footer が拡張 status を描画（footer.ts:289-292）。**表示位置は「拡張 status 行」で、フォークのモデル名隣のバッジではない**。永続化が要るなら `appendEntry()` でセッションに残す |
+| `step-role-settings` 1 つのワークフローステップの role と thinking level を決める | **拡張**（`/spirits-role <step> role\|thinking <値>` と `models.steps.<name>`） | フォーク経路にも無かった新しい目的。ステップ名は一覧（`STEP_DEFINITIONS`）が決めるので、一覧に無い名前は書かず、`/spirits-role status` が無視した値として出す |
+| `role-status-report` ロック・実行中のステップ・両ロールの対象を読む | **拡張**（`/spirits-role status`） | pi は選択を出すだけでルーティングを出さない。どのモデルが応答したかを出す面は、この報告しかない |
 
 ### /clear
 
@@ -116,9 +120,13 @@ managed 経路で「そのパッチが要るか」で分類する。
 
 | 目的 | 方式 | 根拠 |
 |---|---|---|
-| `thinking-level` thinking level を選ぶ | **拡張** | `pi.setThinkingLevel()` が公式 API（`types.ts:1804`）。既定保存は設定書込みで covers。差は「`/model` 行ではなく `/spirits-model` 行」 |
-| `role-selection` 1 行で モデル+level+role | **拡張**（`/spirits-model <provider/id> [level] [role]`） | 同じ行で 3 つ出来る。ただし公式 `/model` とは別コマンド。公式 `/model` は selector として残る |
+| `thinking-level` thinking level を選ぶ | **拡張** | ロール別・ステップ別の level を `models.thinking.*` と `models.steps.<name>.thinking` に保存し、route が要求本文へ載せる。pi 自身の選択（`set_thinking_level`）は変更しない。差は「`/model` 行ではなく `/spirits-role` 行」 |
+| `role-model` 1 つのロールに固有のモデルを割り当てて保存する | **拡張**（`/spirits-role <role> model <ref>`） | 保存するのはロールの対象でありセッションのモデルではない。pi 自身の選択は `/model` のまま。`unify-spirits-role-command` まで `role-selection` という id だった |
+| `session-model-selection` セッションのモデルを選んで読み戻す | **pi 本体**（`set_model`） | spirits はセッションのモデルを選ばない。ルーティング用モデルを選ぶと全リクエストがルーティングを通り、物理モデルを選ぶと外れる。この差を観測する行として残す |
 | `default-save` 選んだ モデル/level を既定として保存 | **拡張** | 下記 §3 |
+| `settings-list` 対話一覧でロールの設定を編集する | **拡張**（`/spirits-role` 無引数） | 一覧は対話 TUI にしか無い。ランナーは RPC で駆動するのでこの行は `not-run` で、一覧が編集できる設定はすべてコマンド 1 行で届く |
+
+`spirits-model`（削除した旧コマンド）からの上の表の目的の移行先は [docs/spirits-managed-pi.md](./spirits-managed-pi.md) の「role / `/clear` / `/model` の限定互換モード」節の移行表に置く。セッションのモデル選択とその既定保存は公式 `/model` と公式 `/thinking` が担い、`/spirits-role` が設定するのはロールの対象（とステップの設定）だけであり、セッションの選択は変えない。同じ表をここに写すと 2 箇所で食い違うので、参照だけ持つ。
 
 ---
 
@@ -239,7 +247,7 @@ resolveChildModel(ctx, phase):
 
 | 追加 | 規模 |
 |---|---|
-| `/spirits-model`（モデル+level+role、既定保存） | 約 200〜300 行 |
+| `/spirits-role`（ロールのロック、ロールとステップの model / thinking、status、対話一覧） | 約 700〜900 行 |
 | 設定書込み（`withFileMutationQueue` + `ctx.reload()`） | 約 120 行 |
 | `/spirits-clear`（compaction 方式） | 約 100〜150 行 |
 | rlm 子の物理モデル解決 | 約 80 行 |
@@ -252,7 +260,7 @@ resolveChildModel(ctx, phase):
 |---|---|---|
 | 上流追従 | 4 リリースごとに 63 箇所の突き合わせ＋16 行の登録簿確認。 hottest file は interactive-mode（上流 12 / 手当て 229 行） | manifest 更新 + 再検証のみ |
 | UI/操作 | `/clear`（表示も消す）、`/model <ref> <level> <role>`、footer の `[role]` バッジを**そのまま**保てる | `/clear` の表示消去は失う。`/model` 行は公式のまま。role 語彙と level 引数は `/spirits-*`。badge は footer の拡張 status 行 |
-| 9 目的 | 9/9 | 7/9 を拡張で達成。`conversation-clear`（表示半分）と `role-selection`（公式 `/model` 行との統合）は代替扱い |
+| 目的（13。開始時は 9） | 開始時の 9 目的は 9/9。`step-role-settings` と `role-status-report` は spirits が足した新しい面で、フォーク経路にも無い | 12/13 を拡張で達成。`conversation-clear`（表示半分）は目的変更。`session-model-selection` は pi 本体の面そのもので、spirits はセッションのモデルを選ばない。`role-selection` は `role-model` と `session-model-selection` に割れた |
 | 第三者拡張 | 拡張は pi 内部に自由に触れる（フォークなので） | 公式拡張 API の範囲。`ModelRuntime` 非公開が唯一の実質的制約 |
 | P-SOURCE を増やすと | n/a | 1 件ごとに「公式タグ + patch 再適用 + 再ビルド + 再検証」。PA（6 行）はほぼ無料、PB（60〜130 行）は許容範囲、PC/PD（数百行）は**事実上フォーク化**するので採らない |
 
@@ -262,7 +270,7 @@ resolveChildModel(ctx, phase):
 
 1. **`/clear` のチャット表示**。3 択: (i) compaction 方式で表示は残す（= 目的の一部を捨てる。**要承認**） / (ii) `/new`（別セッション・新 ID）に読み替える（`same-session-id` を捨てる。**要承認**） / (iii) P-SOURCE(PB) で再ビルドした Pi を配布する。
 2. **P-SOURCE（公式 artifact の再ビルド配布）を受け入れるか**。これ自体が「公式 Pi を優先する」の解釈を決める。PA 6 行だけのための再ビルド_pipeline を維持するか否か。
-3. **`/spirits-model` / `/spirits-role` という新コマンド体系を認めるか**。公式 `/model` は selector として残り、 Spirits の 1 行指定は別名になる。
+3. **`/spirits-role` という単一のコマンド体系を認めるか**。公式 `/model` は selector として残り、spirits の設定は「対象 項目 値」の 1 行と対話一覧に集約する。
 4. **role badge を footer の「拡張 status 行」に出す**ことで足りるか（モデル名の隣の `[strong]` は再現しない）。
 5. **設定の保存先**。Pi の `settings.json`（推奨）でよいか。project settings にも書くことを認めるか（信頼ダイアログを伴う。推奨は global のみ）。
 6. **第三者拡張の provider を rlm 子で使えない**ことを文書化して受け入れるか（PA の LAND 待ち）。
@@ -286,7 +294,7 @@ resolveChildModel(ctx, phase):
 
 ### その次（判断事項 1〜5 の確定後）: `add-managed-spirits-commands`
 
-`/spirits-role`・`/spirits-model`・`/spirits-clear`・設定書込み・`ui.setStatus` badge、および 9 目的マトリクスの再定義（`currentMechanism` に managed 経路の方式を書き、代替扱いの 2 目的を `unavailable` + `alternative`/`difference` として明示的に行に残す）。
+`/spirits-role`・`/spirits-clear`・設定書込み・`ui.setStatus` badge、および目的マトリクスの再定義（`currentMechanism` に managed 経路の方式を書き、代替扱いの目的を `alternative`/`difference` として明示的に行に残す）。この時点では 9 目的の数で書いており、実装されたマトリクスは role 5・`/clear` 3・model 5 の 13 目的である。
 
 ### 並行（実装 change にしない）
 

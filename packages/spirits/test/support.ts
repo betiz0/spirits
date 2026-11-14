@@ -32,7 +32,15 @@ export function makeToolContext(
 	} = {},
 ): ExtensionToolContext {
 	return {
-		ui: { setHeader: () => {}, setWidget: () => {}, setStatus: () => {}, notify: () => {} },
+		ui: {
+			setHeader: () => {},
+			setWidget: () => {},
+			setStatus: () => {},
+			notify: () => {},
+			// A tool context never opens a custom screen, so the one method the mirror requires is a no-op
+			// that resolves with nothing, which is what a closed screen reports.
+			custom: <T>(): Promise<T> => Promise.resolve(undefined as T),
+		},
 		mode: "tui",
 		cwd: options.cwd ?? process.cwd(),
 		signal: options.signal,

@@ -33,6 +33,31 @@ test("build inputs include manifest and bundle checksums", async () => {
 	}
 }, 30_000);
 
+// The panel imports `SettingsList` and `SelectList` from pi-tui. The managed Pi already loaded both,
+// and a bundle that carried its own copy would draw a list whose theme and key handling belong to a
+// different module instance than the host's. Externalizing is what keeps them the same instance, and a
+// bundler quietly succeeding at inlining is the failure this guards.
+test("keeps pi-tui external", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "spirits-managed-build-tui-"));
+	try {
+		const result = await buildManagedInputs({ version: "9.9.9", outDir: dir });
+		const bundle = await readFile(result.bundlePath, "utf8");
+
+		// The host package is named as an import rather than a bundled module.
+		expect(bundle).toContain('"@earendil-works/pi-tui"');
+		// pi-tui's own implementation is not inlined: its widget classes are the host's, not ours.
+		expect(bundle).not.toContain("class SettingsList");
+		expect(bundle).not.toContain("class SelectList");
+		// The names the bundle pulls in are the ones the panel calls.
+		expect(bundle).toContain("SettingsList");
+		expect(bundle).toContain("SelectList");
+		// The same holds for the host package that owns the list themes.
+		expect(bundle).not.toContain("getSettingsListTheme() {");
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+}, 60_000);
+
 test("the bundle embeds the version the manifest records", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "spirits-managed-build-version-"));
 	try {

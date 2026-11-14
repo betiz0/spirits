@@ -11,7 +11,7 @@
  * child session that never had a chance to route.
  */
 
-import type { ExtensionToolContext, PiModel } from "@earendil-works/pi-coding-agent";
+import type { ExtensionModelRegistry, ExtensionToolContext, PiModel, ThinkingLevel } from "@earendil-works/pi-coding-agent";
 import {
 	MODEL_ROLE_NORMAL,
 	MODEL_ROLE_STRONG,
@@ -26,25 +26,32 @@ import {
 } from "../constants.ts";
 import type { RoutingSettings } from "../config.ts";
 import type { RoutingPhase } from "./phase.ts";
-import { type ModelLookup, modelKey, resolveNormalTarget, resolveStrongTarget } from "./resolve.ts";
+import { resolveRequestPlan } from "./plan.ts";
+import { latestSuccessfulModel, type ModelLookup, modelKey } from "./resolve.ts";
+
+/**
+ * What the child session gets: the physical model, and the thinking level to run it with.
+ *
+ * This mirrors `ChildTarget` in `rlm/hostfn.ts`, which is the sibling layer that consumes the resolver.
+ * The two layers cannot import each other, so the entry point is what joins them, and the shapes stay
+ * compatible by being written the same way.
+ */
+export interface ChildTarget {
+	model: PiModel;
+	/** Absent means the child keeps the session's own selection. */
+	thinkingLevel?: ThinkingLevel;
+}
 
 /** What the resolution reads per child: the phase and the settings, both read at the child's start. */
 export interface ChildModelDeps {
-	/** Role phase of the parent session. Only `current()` is read. */
-	phase: Pick<RoutingPhase, "current">;
+	/** Role phase of the parent session: the step it runs and the role that step settled on. */
+	phase: Pick<RoutingPhase, "current" | "step">;
 	/** Effective settings, read per child and never cached. */
 	readSettings: () => RoutingSettings;
 }
 
 /** Catalog view the resolution needs. `ctx.modelRegistry` satisfies it. */
 type ChildModelLookup = ModelLookup & Pick<ExtensionToolContext["modelRegistry"], "find">;
-
-/** Latest successful response, or why it cannot be the child's model. */
-interface PreviousModel {
-	model?: PiModel;
-	/** Why there is nothing usable, for the resolution error. Empty when `model` is set. */
-	reason: string;
-}
 
 /**
  * Build the child-model resolver the entry layer injects into `rlm`.
@@ -56,9 +63,11 @@ interface PreviousModel {
  */
 export function createChildModelResolver(
 	deps: ChildModelDeps,
-): (parentModel: PiModel, ctx: ExtensionToolContext) => PiModel {
+): (parentModel: PiModel, ctx: ExtensionToolContext) => ChildTarget {
 	return (parentModel, ctx) => {
-		if (parentModel.api !== PI_VIRTUAL_MODEL_API) return parentModel;
+		// A physical parent selection passes through with no thinking level of its own, so the child
+		// keeps the session's level: spirits changes nothing about a session it does not route.
+		if (parentModel.api !== PI_VIRTUAL_MODEL_API) return { model: parentModel };
 		if (parentModel.provider !== ROUTING_PROVIDER_ID || parentModel.id !== ROUTING_MODEL_ID) {
 			throw new Error(
 				`${modelKey(parentModel)} is a virtual model spirits does not route, so it cannot start a child session: select ${ROUTING_PROVIDER_ID}${MODEL_SPEC_SEPARATOR}${ROUTING_MODEL_ID} or a physical model`,
@@ -67,36 +76,36 @@ export function createChildModelResolver(
 
 		const settings = deps.readSettings();
 		const lookup = ctx.modelRegistry as ChildModelLookup;
+		const step = deps.phase.step();
+		// The same resolution the route uses, so the child cannot run a model or a level the parent's
+		// request would not (design Decision 15). The level the parent's session selected is the last
+		// candidate for the child too.
+		const previous = latestSuccessfulModel(ctx.sessionManager.getBranch(), lookup as ExtensionModelRegistry);
+		const plan = resolveRequestPlan({
+			...(step ? { step } : {}),
+			settings,
+			phaseRole: deps.phase.current(),
+			lookup,
+			...(ctx.thinkingLevel ? { sessionThinkingLevel: ctx.thinkingLevel } : {}),
+			...(previous.model ? { previous: { model: previous.model } } : {}),
+		});
+
+		// A strong phase that cannot reach its target falls back in silence: the notice the route sends
+		// belongs to a request, and the child's target is not the user's selection.
+		if (plan.model) return { model: plan.model, thinkingLevel: plan.thinkingLevel };
+
 		const tried: string[] = [];
 		const missing: string[] = [];
-
-		// A strong phase that cannot reach its target falls back in silence: the notice the route
-		// sends belongs to a request, and the child's target is not the user's selection.
-		if (deps.phase.current() === MODEL_ROLE_STRONG) {
+		if (plan.role === MODEL_ROLE_STRONG) {
 			tried.push(MODEL_ROLE_STRONG);
 			if (!settings.strong) {
 				missing.push(`${SETTINGS_KEY_MODELS}.${SETTINGS_KEY_STRONG_MODEL} is not set`);
 			} else {
-				const strong = resolveStrongTarget({
-					lookup,
-					spec: settings.strong,
-					defaultProvider: settings.defaultProvider,
-				});
-				if (strong) return strong;
 				missing.push(`${SETTINGS_KEY_MODELS}.${SETTINGS_KEY_STRONG_MODEL} ${modelKey(settings.strong)} is unusable`);
 			}
 		}
 
 		tried.push(MODEL_ROLE_NORMAL);
-		const previous = latestSuccessfulModel(ctx, lookup);
-		const normal = resolveNormalTarget({
-			lookup,
-			defaultProvider: settings.defaultProvider,
-			defaultModelId: settings.defaultModelId,
-			...(previous.model ? { previous: { model: previous.model } } : {}),
-		});
-		if (normal) return normal.model;
-
 		if (settings.defaultProvider && settings.defaultModelId) {
 			missing.push(
 				`the default model ${settings.defaultProvider}${MODEL_SPEC_SEPARATOR}${settings.defaultModelId} is not available`,
@@ -113,34 +122,3 @@ export function createChildModelResolver(
 	};
 }
 
-/**
- * The physical model of the latest successful response, the way pi derives a route request's
- * `previous`: the last assistant message that did not end in `error` or `aborted`, mapped through
- * the catalog, and dropped when it names a virtual entry. pi checks the target's credentials after
- * the route; the child path has no such step, so the check happens here instead (design Decision 3).
- *
- * The scan stops at that one message. An older successful response is not pi's `previous`, and
- * reaching back for it would invent a rule the router does not have.
- */
-function latestSuccessfulModel(ctx: ExtensionToolContext, lookup: ChildModelLookup): PreviousModel {
-	const branch = ctx.sessionManager.getBranch();
-	for (let index = branch.length - 1; index >= 0; index--) {
-		const entry = branch[index];
-		if (entry.type !== "message" || entry.message.role !== "assistant") continue;
-		// A failed or aborted response is not a success: pi keeps walking back past it, and so does this.
-		if (entry.message.stopReason === "error" || entry.message.stopReason === "aborted") continue;
-		const provider = entry.message.provider ?? "";
-		const modelId = entry.message.model ?? "";
-		const found = lookup.find(provider, modelId);
-		if (found === undefined || found.api === PI_VIRTUAL_MODEL_API) {
-			return {
-				reason: `the latest response model ${provider}${MODEL_SPEC_SEPARATOR}${modelId} is not a physical model in the catalog`,
-			};
-		}
-		if (!lookup.hasConfiguredAuth(found)) {
-			return { reason: `the latest response model ${modelKey(found)} has no credentials` };
-		}
-		return { model: found, reason: "" };
-	}
-	return { reason: "the session has no successful response" };
-}

@@ -110,11 +110,17 @@ function readDefaultKeys(pi: ExtensionAPI): Record<string, string | undefined> {
 	const settings = pi.getSettings() as Record<string, unknown>;
 	const models = settings.models as Record<string, unknown> | undefined;
 	const value = (entry: unknown) => (typeof entry === "string" ? entry : undefined);
+	const thinking = models?.thinking as Record<string, unknown> | undefined;
 	return {
 		defaultProvider: value(settings.defaultProvider),
 		defaultModel: value(settings.defaultModel),
 		defaultThinkingLevel: value(settings.defaultThinkingLevel),
 		role: value(models?.role),
+		// The role's own target and level, which is what `/spirits-role` writes. Both are strings when the
+		// command wrote them and absent when nothing was set, so a read-back is a direct comparison.
+		normal: value(models?.normal),
+		strong: value(models?.strong),
+		thinkingNormal: value(thinking?.normal),
 	};
 }
 

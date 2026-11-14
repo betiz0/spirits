@@ -103,8 +103,23 @@ export const DEFAULT_TODO_MAX_LINES = 5;
 /** Environment variable overriding DEFAULT_TODO_MAX_LINES. */
 export const ENV_TODO_MAX_LINES = "SPIRITS_TODO_MAX_LINES";
 
-/** Default key that collapses and expands the panel. Last candidate after the settings key and ENV_TODO_TOGGLE_KEY. */
-export const DEFAULT_TODO_TOGGLE_KEY = "ctrl+shift+l";
+/**
+ * Default key that collapses and expands the panel. Last candidate after the settings key and
+ * ENV_TODO_TOGGLE_KEY.
+ *
+ * `ctrl+alt+<letter>` reaches a terminal as `ESC` plus a control character, which pi-tui matches
+ * without any terminal protocol. `ctrl+shift+<letter>` needs kitty key reporting or xterm's
+ * modifyOtherKeys, and tmux leaves both off by default; there the old default arrived as `0x0c`, the
+ * same byte as `ctrl+l`, which pi binds to opening the model selector. A shortcut can bind a key pi
+ * owns in its own config and lose silently, so this default stays inside the no-protocol forms.
+ *
+ * Of those forms, pi binds `ctrl+alt+]` (`tui.editor.jumpBackward`), and `h`, `i`, `j`, `m`, `[`
+ * collide with another no-protocol key because their control byte is the base key itself: `ESC+0x08`
+ * reads as alt+Backspace, `ESC+0x0d` as alt+Enter, `ESC+0x09` as alt+Tab, `ESC+0x0a` as a line feed,
+ * and `ESC+ESC` as two escapes. `p` is inside the remaining letters, and its plain form `ctrl+p`
+ * (pi's model cycle) is a different byte sequence, so the two never shadow each other.
+ */
+export const DEFAULT_TODO_TOGGLE_KEY = "ctrl+alt+p";
 
 /** Environment variable holding the panel toggle key, beaten by SETTINGS_KEY_TODO_TOGGLE_KEY. */
 export const ENV_TODO_TOGGLE_KEY = "SPIRITS_TODO_TOGGLE_KEY";
@@ -263,14 +278,29 @@ export const SETTINGS_KEY_STRONG_MODEL = "strong";
 /** Settings key under SETTINGS_KEY_MODELS holding the default role pi's `/model` save key writes. */
 export const SETTINGS_KEY_ROLE = "role";
 
+/**
+ * Settings key under SETTINGS_KEY_MODELS holding the normal role's model, a single `provider/id` or
+ * model id. Unset means pi's own default model, which is why the key stays optional.
+ */
+export const SETTINGS_KEY_NORMAL_MODEL = "normal";
+
+/**
+ * Settings key under SETTINGS_KEY_MODELS holding the per-role thinking levels, keyed by role name.
+ * The same key name reads the per-step thinking level under {@link SETTINGS_KEY_STEPS}.
+ */
+export const SETTINGS_KEY_THINKING = "thinking";
+
+/**
+ * Settings key under SETTINGS_KEY_MODELS holding the per-step settings, keyed by step name. Each
+ * entry holds `role` and `thinking`, both optional.
+ */
+export const SETTINGS_KEY_STEPS = "steps";
+
 /** Settings key of pi's default model provider, the normal target when it is set. */
 export const SETTINGS_KEY_DEFAULT_PROVIDER = "defaultProvider";
 
 /** Settings key of pi's default model id, the normal target when it is set. */
 export const SETTINGS_KEY_DEFAULT_MODEL = "defaultModel";
-
-/** Settings key of pi's default thinking level, written by `/spirits-model <ref> <level>`. */
-export const SETTINGS_KEY_THINKING_LEVEL = "defaultThinkingLevel";
 
 /** Separates the provider from the model id in a model key. Shared with pi's model references. */
 export const MODEL_SPEC_SEPARATOR = "/";
@@ -294,6 +324,18 @@ export const MODEL_ROLE_STRONG = "strong";
 export const MODEL_ROLES: readonly string[] = [MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG];
 
 /**
+ * The thinking level words spirits accepts, in pi's spelling. Declared as a union so a settings value
+ * that survived the vocabulary check carries it, and `routing` can hand the same list to pi.
+ */
+export type ThinkingLevelName = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+/**
+ * The thinking levels spirits accepts as a setting value, lowest to highest. `routing/register.ts`
+ * offers the same list to pi for `spirits/auto`; pi clamps a level the routed model cannot take.
+ */
+export const THINKING_LEVELS: readonly ThinkingLevelName[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/**
  * pi's custom entry type that stores the router state and the routed role on a session branch. pi
  * keeps the constant inside its package, so spirits reads and writes the entry through this name.
  * On the managed route this entry belongs to the official core: spirits reads it (to inherit a role
@@ -302,13 +344,14 @@ export const MODEL_ROLES: readonly string[] = [MODEL_ROLE_NORMAL, MODEL_ROLE_STR
 export const ROUTING_STATE_ENTRY_TYPE = "pi.virtual-model-state";
 
 // ---------------------------------------------------------------------------
-// Managed-route command surface (`/spirits-model`, `/spirits-role`, `/spirits-clear`)
+// Managed-route command surface (`/spirits-role`, `/spirits-clear`)
 // ---------------------------------------------------------------------------
 
-/** Command that selects the model, thinking level, and role in one line where the host has no `/model` role vocabulary. */
-export const COMMAND_SPIRITS_MODEL = "spirits-model";
-
-/** Command that pins the session role without changing the model. */
+/**
+ * Command that locks the session role, sets a role's or step's target and thinking level, and reports
+ * how the routing is running. The model itself is pi's to select: `/spirits-role` names what a role
+ * routes to, never what the session is set to.
+ */
 export const COMMAND_SPIRITS_ROLE = "spirits-role";
 
 /**
@@ -317,6 +360,14 @@ export const COMMAND_SPIRITS_ROLE = "spirits-role";
  * route never writes an entry the official core owns. Data: `{ role }`.
  */
 export const ROLE_ENTRY_TYPE = "spirits_role";
+
+/**
+ * spirits-owned session entry carrying the workflow step in effect on the managed route. Only the
+ * step name is stored; its role and thinking level are resolved from the settings on every request,
+ * so an edit takes effect on the next request (design Decision 12). A step that has ended appends a
+ * record with `step: null`, which is what stops a reload from restoring it. Data: `{ step }`.
+ */
+export const STEP_ENTRY_TYPE = "spirits_step";
 
 /** Command that removes the conversation before it from the LLM context. */
 export const COMMAND_SPIRITS_CLEAR = "spirits-clear";
@@ -333,8 +384,44 @@ export const ROLE_STATUS_KEY = "spirits";
 /** Prefix of the skill commands the `input` event reports before pi expands them. */
 export const SKILL_COMMAND_PREFIX = "/skill:";
 
-/** Skills whose agent run goes to the strong role. */
-export const STRONG_PHASE_SKILL_NAMES: readonly string[] = ["sprt-opsx-review-change", "sprt-opsx-verify-deep"];
+/**
+ * One workflow step: the work interval a starter slash command opens, with the role and the run it
+ * keeps. `defaultRole` is absent when the step follows the session lock, which is the case for every
+ * step but the two report skills. `continuing` keeps the step in effect after its run settles, so an
+ * answer to the step's question runs on the same role (design Decision 2).
+ *
+ * The list is the single source, mirrored by `test/constants-steps.test.ts` against the table in the
+ * `dual-model-routing` spec.
+ */
+export interface StepDefinition {
+	/** Step name, the key of `models.steps.<name>` and the word `/spirits-role <step> …` takes. */
+	name: string;
+	/** Slash commands that start the step, in the spelling the user types. */
+	starters: readonly string[];
+	/** Role the step takes when `models.steps.<name>.role` is unset. Absent means "follow the lock". */
+	defaultRole?: string;
+	/** True when the step outlives its run and takes the following idle inputs too. */
+	continuing: boolean;
+}
+
+/** The workflow steps spirits routes, in the order the settings list shows them. */
+export const STEP_DEFINITIONS: readonly StepDefinition[] = [
+	{ name: "opsx-propose", starters: ["/opsx-propose", "/skill:openspec-propose"], continuing: true },
+	{ name: "opsx-new", starters: ["/opsx-new", "/skill:openspec-new-change"], continuing: true },
+	{ name: "opsx-continue", starters: ["/opsx-continue", "/skill:openspec-continue-change"], continuing: true },
+	{ name: "opsx-ff", starters: ["/opsx-ff", "/skill:openspec-ff-change"], continuing: true },
+	{ name: "opsx-apply", starters: ["/opsx-apply", "/skill:openspec-apply-change"], continuing: true },
+	{ name: "opsx-verify", starters: ["/opsx-verify", "/skill:openspec-verify-change"], continuing: true },
+	{ name: "opsx-archive", starters: ["/opsx-archive", "/skill:openspec-archive-change"], continuing: true },
+	{ name: "opsx-bulk-archive", starters: ["/opsx-bulk-archive", "/skill:openspec-bulk-archive-change"], continuing: true },
+	{ name: "opsx-sync", starters: ["/opsx-sync", "/skill:openspec-sync-specs"], continuing: true },
+	{ name: "opsx-update", starters: ["/opsx-update", "/skill:openspec-update-change"], continuing: true },
+	{ name: "opsx-explore", starters: ["/opsx-explore", "/skill:openspec-explore"], continuing: true },
+	{ name: "opsx-onboard", starters: ["/opsx-onboard", "/skill:openspec-onboard"], continuing: true },
+	{ name: "sprt-opsx-review-change", starters: ["/skill:sprt-opsx-review-change"], defaultRole: MODEL_ROLE_STRONG, continuing: false },
+	{ name: "sprt-opsx-verify-deep", starters: ["/skill:sprt-opsx-verify-deep"], defaultRole: MODEL_ROLE_STRONG, continuing: false },
+	{ name: "sprt-architecture-guards", starters: ["/skill:sprt-architecture-guards"], continuing: true },
+];
 
 /**
  * pi's api id for virtual catalog entries. pi keeps `isVirtualModel` inside the package, so spirits
@@ -345,6 +432,9 @@ export const PI_VIRTUAL_MODEL_API = "pi-virtual";
 
 /** Notification suppressed after the first one in a run: a configured strong model cannot be used. */
 export const NOTIFY_KEY_STRONG_UNUSABLE = "routing-strong-unusable";
+
+/** Notification suppressed after the first one in a run: the configured normal model cannot be used. */
+export const NOTIFY_KEY_NORMAL_UNUSABLE = "routing-normal-unusable";
 
 /** Notification suppressed after the first one in a run: normal fell back to the previous model. */
 export const NOTIFY_KEY_PREVIOUS_FALLBACK = "routing-previous-fallback";

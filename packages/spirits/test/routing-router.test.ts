@@ -27,7 +27,7 @@ function createHarness(options: {
 	available?: PiModel[];
 	authedProviders?: string[];
 	/** A real phase to route against, in place of the role the harness sets by hand. */
-	phase?: { current(): string };
+	phase?: { current(): string; step?(): { name: string; defaultRole?: string; continuing: boolean; starters: readonly string[] } | undefined };
 }) {
 	const catalog = options.available ?? [];
 	const authed = new Set(options.authedProviders ?? []);
@@ -166,4 +166,75 @@ test("ends the request with an error when there is no normal target", () => {
 	const harness = createHarness({ settings: {}, available: [SONNET], authedProviders: ["anthropic"] });
 
 	expect(() => harness.route()).toThrow(/no normal model/);
+});
+
+// spec "dual-model-routing / ロールとステップの thinking レベルの解決": the level the route hands back is
+// the one the settings resolve to, and a request that fell back to normal takes normal's level rather
+// than the strong level it asked for.
+test("carries the resolved thinking level", () => {
+	const harness = createHarness({
+		settings: { ...DEFAULTS, strong: STRONG_SPEC, thinking: { normal: "low", strong: "max" } },
+		available: [SONNET, OPUS],
+		authedProviders: ["anthropic"],
+	});
+
+	// The session asked for `high`; the role's own setting is what goes out.
+	expect(harness.route().thinkingLevel).toBe("low");
+	harness.setRole(MODEL_ROLE_STRONG);
+	expect(harness.route().thinkingLevel).toBe("max");
+	// The strong target cannot be used, so the request runs normal — and takes normal's level with it.
+	const fallen = createHarness({
+		settings: { ...DEFAULTS, strong: { provider: "google", modelId: "gemini" }, thinking: { normal: "low", strong: "max" } },
+		available: [SONNET],
+		authedProviders: ["anthropic"],
+	});
+	fallen.setRole(MODEL_ROLE_STRONG);
+
+	expect(fallen.route()).toEqual({ model: SONNET, thinkingLevel: "low", role: MODEL_ROLE_NORMAL });
+});
+
+// A step's own level is the narrowest claim, so it wins over both role settings.
+test("carries the step thinking level", () => {
+	const phase = createRoutingPhase({ listCommands: () => [{ name: "skill:openspec-apply-change", source: "skill" }] });
+	const harness = createHarness({
+		settings: { ...DEFAULTS, thinking: { normal: "low" }, steps: { "opsx-apply": { thinking: "xhigh" } } },
+		available: [SONNET],
+		authedProviders: ["anthropic"],
+		phase,
+	});
+	phase.handleInput("/skill:openspec-apply-change add-dual-model-routing");
+
+	expect(harness.route().thinkingLevel).toBe("xhigh");
+});
+
+// spec "normal の対象が設定済みで使えない": the user's own setting failing is worth one notice per run,
+// and the continuations of that run must not repeat it.
+test("notifies once per run when the configured normal target is unusable", () => {
+	const harness = createHarness({
+		settings: { ...DEFAULTS, normal: { provider: "google", modelId: "gemini" } },
+		available: [SONNET],
+		authedProviders: ["anthropic"],
+	});
+
+	expect(harness.route()).toEqual({ model: SONNET, thinkingLevel: "high", role: MODEL_ROLE_NORMAL });
+	harness.route();
+	harness.route();
+
+	expect(harness.notices.length).toBe(1);
+	expect(harness.notices[0]).toContain("google/gemini");
+	expect(harness.notices[0]).toContain("anthropic/claude-sonnet-4-5");
+	// The next run reports again, because the reason may have been fixed.
+	harness.settle();
+	harness.route();
+	expect(harness.notices.length).toBe(2);
+});
+
+// Nothing configured is the ordinary case: pi's default model answers and no notice is warranted.
+test("stays quiet when normal is unset", () => {
+	const harness = createHarness({ settings: DEFAULTS, available: [SONNET], authedProviders: ["anthropic"] });
+
+	expect(harness.route()).toEqual({ model: SONNET, thinkingLevel: "high", role: MODEL_ROLE_NORMAL });
+	harness.route();
+
+	expect(harness.notices).toEqual([]);
 });

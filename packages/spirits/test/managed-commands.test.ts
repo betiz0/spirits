@@ -17,7 +17,6 @@ import type { AgentMessage, PiModel, SessionEntry } from "@earendil-works/pi-cod
 import {
 	CLEAR_ENTRY_TYPE,
 	COMMAND_SPIRITS_CLEAR,
-	COMMAND_SPIRITS_MODEL,
 	COMMAND_SPIRITS_ROLE,
 	ROLE_ENTRY_TYPE,
 	ROLE_STATUS_KEY,
@@ -29,11 +28,11 @@ import {
 	clearBoundaryIndex,
 	clearedMessageCount,
 } from "../src/commands/clear.ts";
-import { modelCommandSettings, parseModelCommandArgs, resolveModelTarget } from "../src/commands/model.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
 import { inheritedRole, roleBadgeText } from "../src/commands/role.ts";
-import { patchSettingsFile } from "../src/commands/settings-store.ts";
+import { patchSettingsFile, patchSettingsPath } from "../src/commands/settings-store.ts";
 import type { SettingsPatch } from "../src/commands/settings-store.ts";
+import { readRoutingSettings } from "../src/config.ts";
 import spiritsExtension from "../src/index.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
 import { FakePi, fakeCatalog, fakeCommandContext, withoutRoleApi } from "./routing/fake-pi.ts";
@@ -73,207 +72,6 @@ function wire(branch: readonly SessionEntry[] = []) {
 	return { pi, phase, patches };
 }
 
-// --------------------------------------------------------------- argument grammar
-
-test("/spirits-model takes the role off the right end, then the thinking level", () => {
-	expect(parseModelCommandArgs("anthropic/claude-sonnet-4-5 high strong")).toEqual({
-		ref: "anthropic/claude-sonnet-4-5",
-		level: "high",
-		role: "strong",
-	});
-	expect(parseModelCommandArgs("sonnet strong")).toEqual({ ref: "sonnet", level: undefined, role: "strong" });
-	expect(parseModelCommandArgs("sonnet high")).toEqual({ ref: "sonnet", level: "high", role: undefined });
-	expect(parseModelCommandArgs("strong")).toEqual({ ref: undefined, level: undefined, role: "strong" });
-	expect(parseModelCommandArgs("")).toEqual({ ref: undefined, level: undefined, role: undefined });
-});
-
-test("a reference keeps its spaces once the trailing role and level are taken", () => {
-	expect(parseModelCommandArgs("my company gpt high strong")).toEqual({
-		ref: "my company gpt",
-		level: "high",
-		role: "strong",
-	});
-});
-
-// --------------------------------------------------------------- model resolution
-
-test("a reference resolves by exact provider/id, then by a unique substring", () => {
-	const models = [MODEL_A, MODEL_B];
-	expect(resolveModelTarget(models, "anthropic/claude-sonnet-4-5")).toEqual({ model: MODEL_A });
-	expect(resolveModelTarget(models, "sonnet")).toEqual({ model: MODEL_A });
-	expect(resolveModelTarget(models, "gpt-5")).toEqual({ model: MODEL_B });
-});
-
-test("an unmatched or ambiguous reference resolves to nothing, with a message naming what was found", () => {
-	const models = [MODEL_A, MODEL_B];
-	const missing = resolveModelTarget(models, "mistral");
-	expect("model" in missing).toBe(false);
-	expect(missing).toHaveProperty("error", 'no model matches "mistral"');
-
-	const ambiguous = resolveModelTarget([MODEL_A, { ...MODEL_A, id: "claude-sonnet-4-6" }], "claude-sonnet");
-	expect("model" in ambiguous).toBe(false);
-	expect((ambiguous as { error: string }).error).toContain("matches 2 models");
-});
-
-test("the routing pseudo-model is never a target of /spirits-model", () => {
-	const virtual: PiModel = { provider: "spirits", id: "auto", name: "Auto", api: "pi-virtual" };
-	expect(resolveModelTarget([virtual, MODEL_A], "spirits/auto")).toHaveProperty("error", 'no model matches "spirits/auto"');
-	// The bare word still reaches a physical model that happens to be called `auto`.
-	expect(resolveModelTarget([virtual, { ...MODEL_A, id: "auto" }], "auto")).toEqual({
-		model: { ...MODEL_A, id: "auto" },
-	});
-});
-
-// The exclusion reads the api, so a routing entry named anything else is still excluded, and a
-// physical model that happens to be called `auto` is still a target.
-test("a virtual model is excluded by its api, not by its name", () => {
-	const virtual: PiModel = { provider: "other", id: "router", name: "Router", api: "pi-virtual" };
-	expect(resolveModelTarget([virtual, MODEL_A], "router")).toHaveProperty("error", 'no model matches "router"');
-	expect(resolveModelTarget([virtual, MODEL_A], "other/router")).toHaveProperty("error", 'no model matches "other/router"');
-	expect(resolveModelTarget([virtual, MODEL_A], "sonnet")).toEqual({ model: MODEL_A });
-});
-
-// --------------------------------------------------------------- persistence
-
-test("a model line persists only what the user named", () => {
-	expect(modelCommandSettings({ ref: "sonnet" }, MODEL_A)).toEqual({
-		defaultProvider: "anthropic",
-		defaultModel: "claude-sonnet-4-5",
-	});
-	expect(modelCommandSettings({ ref: "sonnet", level: "high", role: "strong" }, MODEL_A)).toEqual({
-		defaultProvider: "anthropic",
-		defaultModel: "claude-sonnet-4-5",
-		defaultThinkingLevel: "high",
-		models: { role: "strong" },
-	});
-});
-
-test("/spirits-model writes the model, level, role, and settings, then reloads last", async () => {
-	const { pi, phase, patches } = wire();
-	const { ctx, notices, reloads } = fakeCommandContext({ available: [MODEL_A] });
-	phase.setRole("normal");
-
-	await pi.commands.get(COMMAND_SPIRITS_MODEL)!.handler("anthropic/claude-sonnet-4-5 high strong", ctx);
-
-	expect(pi.modelChanges).toEqual([MODEL_A]);
-	expect(pi.thinkingChanges).toEqual(["high"]);
-	expect(phase.current()).toBe("strong");
-	expect(pi.entries).toEqual([{ customType: ROLE_ENTRY_TYPE, data: { role: "strong" } }]);
-	expect(patches).toEqual([
-		{
-			defaultProvider: "anthropic",
-			defaultModel: "claude-sonnet-4-5",
-			defaultThinkingLevel: "high",
-			models: { role: "strong" },
-		},
-	]);
-	expect(notices.at(-1)).toBe("using anthropic/claude-sonnet-4-5 high strong");
-	expect(reloads()).toBe(1);
-});
-
-test("a model line shows the role it locked on the badge", async () => {
-	const { pi, phase } = wire();
-	const { ctx, statuses, reloads } = fakeCommandContext({ available: [MODEL_A] });
-	phase.setRole("normal");
-
-	await pi.commands.get(COMMAND_SPIRITS_MODEL)!.handler("anthropic/claude-sonnet-4-5 strong", ctx);
-
-	expect(statuses.get(ROLE_STATUS_KEY)).toBe("[strong]");
-	expect(reloads()).toBe(1);
-});
-
-// The session change is pi's already; a settings file that will not take the write is reported on its
-// own, and the reload that would read the unchanged defaults back is skipped.
-test("a settings write that fails is reported apart from the session change", async () => {
-	const pi = new FakePi();
-	const phase = createRoutingPhase();
-	registerManagedCommands(pi, {
-		phase,
-		patchSettings: () => {
-			throw new Error("EACCES: permission denied");
-		},
-	});
-	const { ctx, notices, reloads, statuses } = fakeCommandContext({ available: [MODEL_A] });
-
-	await pi.commands.get(COMMAND_SPIRITS_MODEL)!.handler("anthropic/claude-sonnet-4-5 strong", ctx);
-
-	expect(pi.modelChanges).toEqual([MODEL_A]);
-	expect(phase.current()).toBe("strong");
-	expect(statuses.get(ROLE_STATUS_KEY)).toBe("[strong]");
-	expect(notices.at(-1)).toContain("the session changed but the default was not saved");
-	expect(notices.at(-1)).toContain("EACCES");
-	expect(reloads()).toBe(0);
-});
-
-test("a line with no model reference names what it needs instead of changing anything", async () => {
-	const { pi, phase, patches } = wire();
-	const { ctx, notices } = fakeCommandContext({ available: [MODEL_A] });
-	phase.setRole("normal");
-
-	await pi.commands.get(COMMAND_SPIRITS_MODEL)!.handler("strong", ctx);
-
-	expect(pi.modelChanges).toEqual([]);
-	expect(phase.current()).toBe("normal");
-	expect(patches).toEqual([]);
-	expect(notices.at(-1)).toContain("use /spirits-model <model> [level] [role]");
-});
-
-test("/spirits-role locks the role, records it on the branch, and persists the default", async () => {
-	const { pi, phase, patches } = wire();
-	const { ctx, reloads } = fakeCommandContext();
-
-	await pi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("strong", ctx);
-
-	expect(phase.current()).toBe("strong");
-	expect(pi.entries).toEqual([{ customType: ROLE_ENTRY_TYPE, data: { role: "strong" } }]);
-	expect(patches).toEqual([{ models: { role: "strong" } }]);
-	expect(reloads()).toBe(1);
-});
-
-test("a role lock shows on the badge before the reload it asks for", async () => {
-	const { pi } = wire();
-	const { ctx, statuses, reloads } = fakeCommandContext();
-
-	await pi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("strong", ctx);
-
-	expect(statuses.get(ROLE_STATUS_KEY)).toBe("[strong]");
-	expect(reloads()).toBe(1);
-});
-
-test("a role lock whose settings write fails keeps the session lock", async () => {
-	const pi = new FakePi();
-	const phase = createRoutingPhase();
-	registerManagedCommands(pi, {
-		phase,
-		patchSettings: () => {
-			throw new Error("the file is locked");
-		},
-	});
-	const { ctx, notices, reloads } = fakeCommandContext();
-
-	await pi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("strong", ctx);
-
-	expect(phase.current()).toBe("strong");
-	expect(pi.entries).toEqual([{ customType: ROLE_ENTRY_TYPE, data: { role: "strong" } }]);
-	expect(notices.at(-1)).toContain("role locked to strong for this session");
-	expect(notices.at(-1)).toContain("the default was not saved");
-	expect(reloads()).toBe(0);
-});
-
-test("an unknown role leaves the lock, the entries, and the settings alone", async () => {
-	const { pi, phase, patches } = wire();
-	const { ctx, notices, reloads } = fakeCommandContext();
-	phase.setRole("normal");
-
-	await pi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("gpt-5", ctx);
-
-	expect(phase.current()).toBe("normal");
-	expect(pi.entries).toEqual([]);
-	expect(patches).toEqual([]);
-	expect(reloads()).toBe(0);
-	expect(notices.at(-1)).toContain("use /spirits-role normal or strong");
-});
-
 // --------------------------------------------------------------- role record and badge
 
 test("a resumed session takes its role from the spirits record, then from a fork's record", () => {
@@ -293,6 +91,34 @@ test("a resumed session takes its role from the spirits record, then from a fork
 
 test("a fork record without a role inherits nothing, so the configured default stands", () => {
 	expect(inheritedRole([entry("1", ROUTING_STATE_ENTRY_TYPE, { provider: "spirits", modelId: "auto" })])).toBeUndefined();
+});
+
+// spec scenario "分岐ごとにロールを持つ": the role is read off the branch that was loaded, not off a
+// session-wide value. Two branches with different records decide differently, and the same branch read
+// again decides the same way — which is what a move between them shows.
+test("each branch answers with the role it recorded", () => {
+	const strongBranch = [entry("1", ROLE_ENTRY_TYPE, { role: "strong" })];
+	const normalBranch = [entry("1", ROLE_ENTRY_TYPE, { role: "normal" })];
+
+	expect(inheritedRole(strongBranch)).toBe("strong");
+	expect(inheritedRole(normalBranch)).toBe("normal");
+	expect(inheritedRole(strongBranch)).toBe("strong");
+});
+
+// spec scenario "読み取れない記録はロール未決定": a record whose role is not a word the vocabulary carries —
+// a number, say — decides nothing, and reading the branch that holds one still finishes.
+test("a record with a role that is not a word decides nothing", async () => {
+	const unreadable = [entry("1", ROLE_ENTRY_TYPE, { role: 5 })];
+	const { pi, phase } = wire(unreadable);
+	const started = fakeCommandContext({ branch: unreadable });
+
+	await pi.fire("session_start", { type: "session_start", reason: "resume" }, started.ctx);
+
+	expect(inheritedRole(unreadable)).toBeUndefined();
+	// Nothing was inherited, so the start settles on the unset default and the draw completes: pi would
+	// show no badge here because no role was ever decided.
+	expect(phase.lock()).toBe("normal");
+	expect(pi.errors).toEqual([]);
 });
 
 test("the badge prints the role on one line, and a role that leaves nothing prints nothing", () => {
@@ -320,7 +146,7 @@ test("the session start shows the lock the phase carries", async () => {
 });
 
 // Reloading extensions replaces the runtime that drew the badge, so the redraw is what keeps the role
-// visible after `/spirits-model` or `/spirits-role` reloaded the extension.
+// visible after a `/spirits-role` setting line reloaded the extension.
 test("a reload draws the badge again", async () => {
 	const { pi, phase } = wire();
 	phase.setRole("strong");
@@ -378,6 +204,80 @@ test("a settings write keeps the keys it was not told about, including pi's own"
 	});
 });
 
+// spec "managed-commands / 設定の書き込みは Pi と同じロック手順で行う": 「ステップ 1 件の変更でほかのステップが残る」
+test("a step write keeps the sibling steps", () => {
+	const path = join(tempDir("settings-step-path"), "settings.json");
+	writeFileSync(
+		path,
+		JSON.stringify(
+			{
+				enabledModels: ["fake/model-a"],
+				models: {
+					role: "normal",
+					strong: "fake/model-b",
+					steps: { "opsx-propose": { role: "strong" }, "opsx-verify": { thinking: "low" } },
+				},
+			},
+			null,
+			2,
+		),
+	);
+
+	patchSettingsPath({ settingsPath: path, path: ["models", "steps", "opsx-propose", "thinking"], value: "high" });
+
+	expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+		enabledModels: ["fake/model-a"],
+		models: {
+			role: "normal",
+			strong: "fake/model-b",
+			steps: { "opsx-propose": { role: "strong", thinking: "high" }, "opsx-verify": { thinking: "low" } },
+		},
+	});
+});
+
+// spec scenario "保存されたロールの対象が次のセッションで効く": the command's write lands as one string
+// under `models.normal`, and the settings read a reload performs returns that value.
+test("a saved role target is one string a reloaded read returns", async () => {
+	const path = join(tempDir("settings-normal-round-trip"), "settings.json");
+	const pi = new FakePi();
+	const phase = createRoutingPhase();
+	registerManagedCommands(pi, {
+		phase,
+		patchSettingsPath: (settingsPath, value) => patchSettingsPath({ settingsPath: path, path: settingsPath, value }),
+	});
+
+	const context = fakeCommandContext({ available: [MODEL_A] });
+	await pi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("normal model anthropic/claude-sonnet-4-5", context.ctx);
+
+	const saved = JSON.parse(readFileSync(path, "utf8"));
+	expect(saved.models.normal).toBe("anthropic/claude-sonnet-4-5");
+	// The fresh runtime's first read after the reload sees the value the command saved.
+	expect(readRoutingSettings(saved).normal).toEqual({ provider: "anthropic", modelId: "claude-sonnet-4-5" });
+});
+
+// spec scenario "未設定へ戻すとキーが消える": the key is deleted, not written as `"unset"`.
+test("unset deletes only the named key", () => {
+	const path = join(tempDir("settings-unset"), "settings.json");
+	writeFileSync(
+		path,
+		JSON.stringify({ models: { role: "normal", steps: { "opsx-propose": { role: "strong", thinking: "high" } } } }, null, 2),
+	);
+
+	patchSettingsPath({ settingsPath: path, path: ["models", "steps", "opsx-propose", "thinking"], value: undefined });
+
+	expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+		models: { role: "normal", steps: { "opsx-propose": { role: "strong" } } },
+	});
+
+	// Deleting a key that was never there changes nothing but the file's own content, and an unset of a
+	// whole branch leaves its parent object alone.
+	patchSettingsPath({ settingsPath: path, path: ["models", "steps", "opsx-teleport", "role"], value: undefined });
+	patchSettingsPath({ settingsPath: path, path: ["models", "thinking", "normal"], value: "max" });
+	expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+		models: { role: "normal", thinking: { normal: "max" }, steps: { "opsx-propose": { role: "strong" } } },
+	});
+});
+
 test("a settings write creates the file when the agent dir has none", () => {
 	const path = join(tempDir("settings-create"), "settings.json");
 	patchSettingsFile({ settingsPath: path, fields: { defaultModel: "model-a" } });
@@ -407,16 +307,14 @@ test("a settings file with a byte-order mark is merged and written back without 
 
 // spec requirement "managed 限定のコマンド登録": `registerModelRoles` の有無だけで分岐し、fork 経路では
 // 0 件、公式 Pi では 3 コマンド。entry point を通して確認するのは、分岐が登録の側にあるからである。
-test("the commands register on an official host and not on the fork", () => {
+test("registers only spirits-role and spirits-clear on an official host", () => {
 	const fork = new FakePi();
 	spiritsExtension(fork);
 	expect([...fork.commands.keys()]).toEqual([]);
 
 	const official = withoutRoleApi(new FakePi());
 	spiritsExtension(official);
-	expect([...official.commands.keys()].sort()).toEqual(
-		[COMMAND_SPIRITS_CLEAR, COMMAND_SPIRITS_MODEL, COMMAND_SPIRITS_ROLE].sort(),
-	);
+	expect([...official.commands.keys()].sort()).toEqual([COMMAND_SPIRITS_CLEAR, COMMAND_SPIRITS_ROLE].sort());
 });
 
 test("a settings file that is not JSON is reported instead of overwritten", () => {
