@@ -32,4 +32,4 @@
 
 ### Requirement: 取り込み時の登録簿との突き合わせ
 **Reason**: 登録簿が無くなるため。
-**Migration**: `host-upgrade` の「型ミラーの照合」と「公式 artifact での互換性実測」が、ホスト API の変化を検出する。
+**Migration**: `host-upgrade` の「公式型による型検査」と「公式 artifact での互換性実測」が、ホスト API の変化を検出する。

@@ -21,10 +21,9 @@
 ## ADDED Requirements
 
 ### Requirement: spirits とホストの境界を強制する
-システムは、`packages/spirits/src/` がホストを、公開パッケージの package root (`@earendil-works/pi-coding-agent` と `@earendil-works/pi-tui`) でのみ import することを検査しなければならない。(SHALL)
+システムは、`packages/spirits/src/` がホストを、固定したホスト公開パッケージの `exports` に載る specifier だけで import することを検査しなければならない。(SHALL) 許可する subpath は `@earendil-works/pi-coding-agent` の `.` と `./rpc-entry`、`@earendil-works/pi-tui` の `.` に限る。(MUST) `@earendil-works/pi-coding-agent/rpc-entry` は型宣言を持たないため、型位置の import には使ってはならない。(MUST NOT)
 システムは、`packages/spirits/bin/` がホストを import しないことを検査しなければならない。(MUST)
-システムは、`packages/spirits/src/` と `packages/spirits/bin/` の deep import(サブパスを持つ specifier)を違反として報告しなければならない。(MUST)
-システムは、ホストの specifier が固定したホスト公開パッケージの `exports` で解決できないとき、違反として報告しなければならない。(MUST)
+システムは、`exports` に載らない subpath を全面的に違反として報告しなければならない。(MUST)
 
 #### Scenario: src の deep import は失敗する
 - **WHEN** `packages/spirits/src/` 内のファイルが `@earendil-works/pi-coding-agent/core/session` を import している
@@ -38,13 +37,24 @@
 - **WHEN** `packages/spirits/src/repl/cell.ts` が `@earendil-works/pi-coding-agent` を bare specifier で import している
 - **THEN** 検査はその import を違反として報告しない
 
+#### Scenario: exports に載る subpath は違反にしない
+- **WHEN** 検査が `@earendil-works/pi-coding-agent/rpc-entry` の specifier を評価する
+- **THEN** 検査はその import を違反として報告しない (型検査は型宣言が無いため別途失敗する)
+
 #### Scenario: exports に無い subpath は失敗する
 - **WHEN** `packages/spirits/src/` が公開パッケージの `exports` に無い subpath を import している
 - **THEN** 検査は失敗し、その specifier を違反として報告する
 
+### Requirement: ホストの非公開 subpath を再宣言しない
+システムは、`packages/spirits/src/` と `packages/spirits/bin/` で、ホストの非公開 subpath を ambient module として再宣言してはならない。(MUST)
+
+#### Scenario: ambient 宣言は失敗する
+- **WHEN** `packages/spirits` の `.d.ts` が `@earendil-works/pi-coding-agent/core/...` を `declare module` で再宣言している
+- **THEN** 検査は失敗し、その宣言を違反として報告する
+
 ### Requirement: 内部 import は root の tsconfig と固定ホストパッケージで解決し、解決できないものは失敗とする
-システムは、内部 specifier(`@earendil-works/*` と相対 specifier)を、リポジトリルートの `tsconfig.json` と、固定したホスト公開パッケージの公開 export で解決しなければならない。(SHALL)
-システムは、`packages/spirits/src/types/` の型ミラーを、存在しない export を隠すために使ってはならない。(MUST)
+システムは、内部 specifier(`@earendil-works/*` と相対 specifier)を、リポジトリの `tsconfig.json` と、固定したホスト公開パッケージの公開 export で解決しなければならない。(SHALL)
+システムは、`packages/spirits` にホスト型の再宣言 (型ミラー) を置いてはならない。(MUST) ホストの型は固定した devDependency の実型だけを使わなければならない。(MUST)
 システムは、リポジトリ内のファイルにもホスト公開パッケージにも解決できない内部 specifier を、違反として報告しなければならない。(SHALL)
 解決できない import を黙って取り除いてはならない。(MUST)
 
@@ -55,6 +65,21 @@
 #### Scenario: 未解決の import は失敗する
 - **WHEN** `./missing.ts` や `@earendil-works/pi-nonexistent` が、リポジトリ内にもホスト公開パッケージにも解決できない
 - **THEN** 検査は失敗し、その import を規約 ID と場所を付けて報告する
+
+#### Scenario: 型ミラーを置かない
+- **WHEN** `packages/spirits/src/types/` を調べる
+- **THEN** ホスト API の再宣言 (型ミラー) が無い
+
+### Requirement: ツールの prompt 方針は spirits の宣言だけから作る
+システムは、ツールの prompt 方針 (`promptSnippet` / `promptGuidelines`) を、spirits が `ToolDefinition` で宣言した値だけから作らなければならない。(SHALL) ホストの `AgentTool` が同じ名前のフィールドを持つかに依存してはならない。(MUST) ホストの `AgentTool` から prompt 方針を読み取ってはならない。(MUST)
+
+#### Scenario: 宣言から prompt を作る
+- **WHEN** spirits のツールを登録し、システムプロンプトを組み立てる
+- **THEN** snippet と guidelines は spirits の `ToolDefinition` 宣言から使われる
+
+#### Scenario: AgentTool のフィールドに依存しない
+- **WHEN** ホストの `AgentTool` に `promptSnippet` / `promptGuidelines` が無い
+- **THEN** spirits のツール登録とシステムプロンプトは変わらず動く
 
 ### Requirement: 検査と規約正本は spirits のルート構成に置く
 システムは、検査と規約正本を、spirits 単独のルート構成(`package.json`、`tsconfig.json`、`biome.json`、`packages/spirits/test/`、`docs/architecture/convention-registry.md`)に置かなければならない。(SHALL)

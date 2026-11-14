@@ -5,6 +5,7 @@
 ### Requirement: ロールの記録と復元
 システムは、リクエストごとに決定したロールをそのセッション分岐に記録し、その分岐を読み込むとき（セッション復帰、分岐作成、分岐間移動）に記録されたロールを復元しなければならない。(SHALL)
 記録は spirits 専用の role entry に書く。(MUST) ホストが所有する virtual model 用の状態 entry には、拡張から書き込んでならない。(MUST)
+ルート結果の `ModelRoute.role` は設定せず、role の記録・復元・表示は spirits の状態だけを正とする。(MUST) ホストの `ModelRoute.role` は使わない。(MUST)
 記録が無い、または記録された値を読み取れない場合は、ロール未決定として扱わなければならない。(SHALL)
 復元するのは表示に使う記録されたロールだけである。run のロール（strong フェーズ）とロックはセッションに保存しないので、セッション開始後の最初のリクエストは既定ロール（未設定なら normal）から始まる。(SHALL) ただし managed 経路の拡張の再読み込みだけは例外で、ロックと継続中のステップは新しい実行環境へ引き継ぐ。(SHALL) 引き継ぐ範囲と引き継がない範囲は「再読み込みをまたぐロックと継続中のステップ」に従う。
 role の表示は拡張の status 行の badge で行い、ホストのモデル表示の位置や消去の有無を共有しない。(SHALL)
@@ -58,6 +59,10 @@ role の表示は拡張の status 行の badge で行い、ホストのモデル
 #### Scenario: ホストの状態 entry には書かない
 - **WHEN** managed 経路でロールを決定する
 - **THEN** ホストの virtual model 用の状態 entry は追加も変更もされず、role は spirits 専用の entry にだけ記録される
+
+#### Scenario: ModelRoute の role は使わない
+- **WHEN** `spirits/auto` がリクエストをルーティングする
+- **THEN** ルート結果はモデルと thinking level だけを返し、role は spirits の記録と拡張の status 行だけが表す
 
 ## REMOVED Requirements
 

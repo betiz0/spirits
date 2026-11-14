@@ -4,7 +4,7 @@
 
 起動役は現在 `packages/spirits/bin/spirits.ts` で、Pi の CLI を in-process で起動し、spirits 拡張を builtin として登録する。既定経路は既に managed で、`packages/spirits/src/managed-pi/` が公式 Pi の固定 artifact を `~/.spirits/managed-pi` に展開し、`current/pi/pi -e current/spirits-extension.js` を spawn する。フォーク経路は `SPIRITS_ROUTE=fork` と未コンパイル実行のための戻し先として残っている。
 
-フォーク経路が依存しているのは、起動役の in-process 起動 (`bin/spirits.ts`)、ビルド時の Pi ソース (`scripts/build-binaries.ts` の theme / config / worker / tsconfig paths)、型検査と pin テスト (`test/pi-runtime/`)、アーキテクチャ検査の解決先 (`packages/coding-agent` / `packages/tui`)、互換性ランナーの fork ホスト (`packages/coding-agent/src/cli.ts`)、リリースワークフローの model data hydrate と旧版バイナリのビルドである。
+フォーク経路が依存しているのは、起動役の in-process 起動 (`bin/spirits.ts`)、ビルド時の Pi ソース (`scripts/build-binaries.ts` の theme / config / worker / tsconfig paths)、型検査 (root の `paths` と型ミラー) と pin テスト (`test/pi-runtime/`)、アーキテクチャ検査の解決先 (`packages/coding-agent` / `packages/tui`)、互換性ランナーの fork ホスト (`packages/coding-agent/src/cli.ts`)、リリースワークフローの model data hydrate と旧版バイナリのビルドである。
 
 設計の一次根拠は `docs/spirits-design.md`、`docs/spirits-managed-pi-design.md`、`docs/spirits-managed-pi.md`、および `docs/agent-data-compat/summary.md` の実測。特に `docs/spirits-managed-pi-design.md` §1 は、16 件のコア差分のうち 13 件が公式 Pi 1.5.0 の拡張 API と `piConfig.name` overlay で不要になることを示している。
 
@@ -55,23 +55,25 @@
 
 **代替案**: ホストを `manifest.json` の `host` オブジェクトだけから導出する案。manifest の形式を今変えることになり、自己更新経路とリリース資産の互換性を壊すため却下。manifest は `schemaVersion: 1` のまま、記述子はコード側に置く。
 
-### D3. 型ミラーは残し、固定 artifact の `.d.ts` と照合する
+### D3. 型ミラーを廃止し、固定した公式パッケージを devDependency にして tsc に実型で検査させる
 
-**選択肢**: (a) `packages/spirits/src/types/*.d.ts` を残し、`scripts/check-pi-type-mirror.ts` で固定 artifact の `.d.ts` と照合する。(b) 型ミラーを削除し、公開パッケージ `@earendil-works/pi-coding-agent@1.5.0` / `pi-tui@1.5.0` を devDependency にして実型で型検査する。(c) 型ミラーを削除して型検査をやめる。
+**選択肢**: (a) `packages/spirits/src/types/*.d.ts` を残し、`scripts/check-pi-type-mirror.ts` で固定 artifact の `.d.ts` と照合する。(b) 型ミラーを削除し、`@earendil-works/pi-coding-agent@1.5.0` / `@earendil-works/pi-tui@1.5.0` を `packages/spirits` の devDependency として完全固定し、tsc とテストの実行時の両方で実型・実体を使う。(c) 型ミラーを削除して型検査をやめる。
 
-**理由**: (a) は現在の `packages/spirits/tsconfig.json` の isolation を保ち、`@types/bun` とホストの Node 向け型の衝突を避けられる。(b) は衝突を再導入する可能性があり、ホストの `dist/index.d.ts` が `ReadableStream` / `path.PlatformPath` の差で `tsc --noEmit` を壊し得る。(c) は型安全を失う。型ミラーの更新は `docs/spirits-host-upgrade.md` の手順に含める。
+**理由**: 実測で (a) の前提が崩れた。固定した公式 1.5.0 を `packages/spirits` に導入した状態で型検査を通したところ、`@types/bun` とホストの Node 向け型の衝突は 0 件だった (`ReadableStream` / `path.PlatformPath` の衝突は再現しなかった)。ホストを import する箇所は bin が 0 件、src が 38 件 / 14 ファイル、test が 314 件 / 54 ファイルで、型ミラーを手で保守する規模に対して実型はそのまま使える。公式パッケージの公開面は `@earendil-works/pi-coding-agent` が `.` と `./rpc-entry` の 2 つだけで、`pi-tui` は `main` / `types` のみである。したがって「公開面だけを import する」境界は (b) でも検査でき、deep import は tsc とアーキテクチャ検査の両方で失敗させられる。
 
-公開パッケージは pin テストの実行とアーキテクチャ検査の解決用に devDependency として追加する (型検査には使わない)。`bun test` は `src/rlm/spawn.ts` などの host value import を実行時に解決する必要があるため。
+(b) は型ミラーという二重の宣言を無くし、ホストの `.d.ts` を唯一の正にする。版更新時の照合は `tsc --noEmit` と `bun test` が担い、`scripts/check-pi-type-mirror.ts` は不要になる。devDependency は `packages/spirits/package.json` に完全一致で固定し、root の workspace 経由で fork のソースへ解決されないことを `import.meta.resolve` で確認する。(c) は型安全を失う。
 
-`src/types/pi-subpaths.d.ts` は `bin/spirits.ts` の deep import (`@earendil-works/pi-coding-agent/cli/setup`) 専用のミラーで、起動役がホストを import しなくなると参照が無くなる。deep import を禁止する規約とも合わないので削除する。
+`src/types/pi-subpaths.d.ts` は `bin/spirits.ts` の deep import (`@earendil-works/pi-coding-agent/cli/setup`) 専用のミラーで、起動役がホストを import しなくなると参照が無くなる。deep import を禁止する規約とも合わないので削除する (3.1 で削除済み)。
 
-**代替案**: 型ミラーを `dist/index.d.ts` の symlink にする案。ホストの型をそのまま取り込むことになり (b) と同じ衝突が起きるため却下。
+**代替案**: 型ミラーを `dist/index.d.ts` の symlink にする案。ホストの型をそのまま取り込むことになり、mirror の実体が残るため (a) と同じ保守を要し、実測した衝突 0 件の利点を得られないため却下。
 
 ### D4. pin テストは公開 API だけを残し、深い内部の pin は公式モードの互換性ランナーへ移す
 
 **選択肢**: (a) `test/pi-runtime/` の公開 API テストだけを残し、`branding-art-colors` / `child-model-source-pin` / `system-prompt-defaults` を公式モードの互換性ランナーへ移す。`model-roles-api` / `routing-record-pin` は削除する。(b) すべて削除する。(c) すべて残す。
 
 **理由**: (a) はホストの公開 API しか使わないテストを単体で残し、ホスト内部の `.d.ts` や theme ファイルの場所に依存する pin を、固定 artifact を展開する公式モードへ寄せる。(b) は API ドリフトの検出を失う。(c) はホストの内部構造に依存し続け、ホストを差し替えられなくなる。
+
+ファイルごとの判断: `branding-art-colors` / `child-model-source-pin` / `system-prompt-defaults` は公開面に対応する API が無いため、`test/pi-runtime/` では削除し、確認内容を互換性ランナーの公式モードの観測項目として実装する。`routing-record-pin` は spirits がホストの状態 entry を書かなくなるため、代替なしで削除する (`model-roles-api` は 6.1 で削除済み)。`test/pi-runtime/pi-deep-imports.d.ts` は 4 件の読み手が無くなるため削除する。
 
 移した 3 件は、互換性ランナーの公式モードの観測項目として実装し、`test/pi-runtime/` からは削除する。
 
@@ -81,7 +83,7 @@
 
 **選択肢**: (a) `resolveInternalSpecifier` を拡張し、`@earendil-works/*` を `packages/spirits` から Node/Bun 解決 (固定ホスト公開パッケージ) し、root `paths` は相対 specifier にだけ使う。(b) root `tsconfig.json` の `paths` に `node_modules` の実型を書く。(c) ホスト import を検査対象から外す。
 
-**理由**: (a) は「公開パッケージの package root への import」という境界を正しく検査でき、root `paths` を再配置で壊さない。(b) は bun の node_modules 配置 (hoist / nested) に依存して脆い。(c) は境界の検査を失う。
+**理由**: (a) は「公開パッケージの `exports` に載る subpath への import」という境界を正しく検査でき、root `paths` を再配置で壊さない。ambient module で非公開 subpath を再宣言する経路も違反として報告する。(b) は bun の node_modules 配置 (hoist / nested) に依存して脆い。(c) は境界の検査を失う。
 
 `test/fixtures/architecture/resolve` の期待値は `packages/coding-agent` から固定ホスト公開パッケージの解決結果へ更新する。他の fixture は自己完結した合成ツリーなので、そのまま使える。
 
@@ -123,11 +125,11 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 
 ### D10. LICENSE は spirits の著作権を追加し、Pi の表示を残す
 
-**選択肢**: (a) `LICENSE` に spirits の著作権行を追加し、Pi の著作権表示を「Type mirrors and portions derived from Pi」として残す。(b) Pi の表示を削除し、README の謝辞だけにする。(c) 現状の Pi のみの表示を維持する。
+**選択肢**: (a) `LICENSE` に spirits の著作権行を追加し、Pi の著作権表示を「portions derived from Pi」として残す。(b) Pi の表示を削除し、README の謝辞だけにする。(c) 現状の Pi のみの表示を維持する。
 
-**理由**: リポジトリには `packages/spirits/src/types/*.d.ts` の型ミラーと、Pi の設定保存手順を踏襲した `commands/settings-store.ts` など、Pi 由来の派生物が残る。(a) は派生物の帰属を保ちつつ spirits の著作権を明示する。(b) は派生物が残る限り帰属を弱める。(c) は spirits の著作権が不明のままになる。
+**理由**: リポジトリには Pi の設定保存手順を踏襲した `commands/settings-store.ts` など、Pi 由来の派生物が残る。型ミラーは D3 で廃止するため、派生物の根拠には数えない。(a) は派生物の帰属を保ちつつ spirits の著作権を明示する。(b) は派生物が残る限り帰属を弱める。(c) は spirits の著作権が不明のままになる。
 
-**代替案**: 型ミラーを削除して (b) を取る案。D3 の理由で型ミラーを残すため却下。
+**代替案**: 派生物をすべて書き直して (b) を取る案。設定保存手順など Pi 由来の実装が残るため、帰属を弱めるとして却下。
 
 ### D11. `spirits update` は自己更新形だけを受け付ける
 
@@ -146,7 +148,8 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 ## Risks / Trade-offs
 
 - [Risk] 起動役からホストを import しないことで、開発時のソース実行がホスト一式の導入を前提になる。 → Mitigation: `spirits managed-pi install` と `SPIRITS_MANAGED_PI_MANIFEST_URL` を起動時メッセージと `docs/spirits-default-launch.md` に明記し、tmux 検証で未導入→導入→起動を通す。
-- [Risk] 型ミラーが固定 artifact の `.d.ts` とずれる。 → Mitigation: `host-upgrade` の型ミラー照合を必須にし、失敗時は更新を止める。
+- [Risk] 固定した devDependency の版と src の型がずれ、古い型のままコンパイルが通る。 → Mitigation: `host-upgrade` で devDependency の版更新と `tsc --noEmit` / `bun test` を必須にし、失敗時は更新を止める。
+- [Risk] fork 側 `packages/*` と `packages/spirits` の devDependency で `@earendil-works/*` の版が二重管理になり、§12.1 の削除まで解消が混ざる。 → Mitigation: §12.1 まで `packages/spirits` の解決が root workspace の symlink ではなく固定 devDependency の実体であることを `import.meta.resolve` と lockfile で確認する。`packages/spirits/tsconfig.json` は root を継承せず、sub-tsconfig も `packages/spirits/tsconfig.json` を継承する。二重管理の間に root 側の `paths` と fork パッケージを消さない (fork パッケージの削除は §12.1、root の `paths` の削除は §12.4)。
 - [Risk] アーキテクチャ検査の解決先を公開パッケージへ変えると、bun の node_modules 配置に依存する。 → Mitigation: `packages/spirits` から `import.meta.resolve` で解決し、解決できない場合は失敗として理由を出す。
 - [Risk] 既存の `~/.spirits/agent` の `pi.virtual-model-state` を読み取り専用で残すと、将来のホストが同じ entry を書き換える可能性がある。 → Mitigation: 読み取りは role の文字列だけを見て、書き戻しを禁止する。ホストの entry を変更しないことを互換性ランナーの観測項目にする。
 - [Risk] 自己更新経路が旧版バイナリ (v0.7.2) から新形式へ上がらない。旧版の自己更新は置換前にテーマ資産を取得し、無ければ失敗する。 → Mitigation: リリースに互換用テーマ資産を添付し続け (D8)、`host-upgrade` の「自己更新経路の検証」で、一つ前のリリースのバイナリから `spirits update` を実行し、終了コード 0 と managed 一式の導入を確認する。
@@ -177,14 +180,17 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 3. 失敗表示を修復コマンド + 旧版への戻し方に置き換える。
 4. 自己更新を書き換える。引数分類を自己更新形だけにし (D11)、テーマ資産の取得・修復と拡張更新の連携を外す (D8)。
 5. 拡張側のフォーク専用経路を外す。`registerModelRoles` の分岐、`ROUTING_STATE_ENTRY_TYPE` の書き込み、fork 経路の step 記録、`index.ts` の条件付き managed コマンド登録を削除する。`forkRoleRecord` は読み取り専用で残す。
-6. 型ミラーを固定 artifact に照合する `scripts/check-pi-type-mirror.ts` を追加する。
-7. `test/pi-runtime/` を再編する (公開 API だけ残し、深い pin は公式モードへ)。
-8. アーキテクチャ検査と fixture をホスト公開パッケージの解決へ更新する。
-9. 互換性ランナーをホスト差し替え可能にし、fork ホストを外す。
-10. ビルドとリリースを書き換える (`build-binaries.ts` は起動役と互換用テーマ資産だけ、`spirits-ci.yml` / `spirits-release.yml` は hydrate を外す)。
-11. Pi のソースツリーとルート構成を削除し、root を spirits 単独の workspace にする。
-12. ドキュメントと `openspec/config.yaml` を書き換える。
-13. 検証 (型検査、bun test、ビルド、互換性公式モード、tmux、自己更新 smoke) を通す。
+6. 4 種の食い違い (getSettings の `BrandingSettings`、コマンドハンドラの `Promise<void>`、`ToolDefinition` のジェネリクス、`KeyId`) を、型の表記だけの差か managed 上の実行時の挙動差かを実測で分類する。挙動差があるものは修正タスクを起こす。
+7. テスト用 fake の共通ヘルパーを、公式の型に合わせた部分 mock として先に作る。
+8. src を公式型へ張り替える。`packages/spirits` に公式パッケージを完全一致で devDependency として追加し、`tsconfig` の `paths` を外して実型で検査する。この区切りで src の型検査を通す。
+9. test を手直しする。fake を helper に寄せ、非公開 subpath を import するテストを公開面だけで検証する形へ書き換えるか削除する。この区切りの終わりで `tsc` と `bun test` を通す (src の張り替えと test の手直しは連続した 1 区切りとして扱い、7.5 の完了確認で両方を要求する)。
+10. 型ミラーと `scripts/check-pi-type-mirror.ts` / そのテストを削除する。
+11. アーキテクチャ検査と fixture をホスト公開パッケージの解決へ更新する。
+12. 互換性ランナーをホスト差し替え可能にし、fork ホストを外す。
+13. ビルドとリリースを書き換える (`build-binaries.ts` は起動役と互換用テーマ資産だけ、`spirits-ci.yml` / `spirits-release.yml` は hydrate を外す)。
+14. Pi のソースツリーとルート構成を削除し、root を spirits 単独の workspace にする。
+15. ドキュメントと `openspec/config.yaml` を書き換える。
+16. 検証 (型検査、bun test、ビルド、互換性公式モード、tmux、自己更新 smoke) を通す。
 
 ### Rollback
 
@@ -235,9 +241,9 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 | 領域 | 総数 | 残す | 書き換え | 削除 |
 |---|---|---|---|---|
 | `packages/` (spirits 以外) | 1829 | 0 | 0 | 1829 |
-| `packages/spirits/` | 639 | 大半 | 下の「内部の書き換え」を参照 | 下の「内部の書き換え」と「依存と判断」を参照 (theme.ts、pi-subpaths.d.ts、fork 専用の pin テストなど) |
+| `packages/spirits/` | 639 | 大半 | 下の「内部の書き換え」を参照 | 下の「内部の書き換え」と「依存と判断」を参照 (theme.ts、型ミラー、fork 専用の pin テストなど) |
 | `openspec/` | 265 | 264 | 1 | 0 |
-| `scripts/` | 95 (+3 追加) | 4 | 25 | 66 |
+| `scripts/` | 95 (+2 追加) | 4 | 25 | 66 |
 | `docs/` | 79 | 61 | 12 | 6 |
 | `.github/` | 20 | 0 | 2 | 18 |
 | `.pi/` | 39 | 33 | 0 | 6 |
@@ -291,13 +297,12 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 
 ### `scripts/` — 残す / 削除
 
-残す (29 ファイル) と追加 (3 ファイル):
+残す (29 ファイル) と追加 (2 ファイル):
 
 | ファイル | 判断 | 理由 |
 |---|---|---|
 | `build-binaries.ts` | 書き換え | 起動役と互換用テーマ資産だけをビルド。config / worker / Pi の tsconfig 参照を外し、テーマの出力元を `scripts/compat-theme/` に変える (D8) |
 | `compat-theme/dark.json` / `compat-theme/light.json` | 追加 | fork 最終コミットの Pi 組み込みテーマのコピー。旧版の自己更新用の互換資産 (D8) |
-| `check-pi-type-mirror.ts` | 追加 | 型ミラーと固定 artifact の `.d.ts` の照合 (D3) |
 | `build-managed-pi-inputs.ts` | 書き換え | 拡張 bundle と manifest をビルド。host externals を記述子から読む |
 | `check-managed-pi-bundle-version.ts` | 残す | リリースの bundle 版と manifest の一致を確認 |
 | `install.sh` | 書き換え | fork の案内と theme を外し、managed 一式の導入と旧版の戻し方を出す |
@@ -352,7 +357,7 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 | `bin/startup.ts` | 書き換え | fork の戻し先の文言を外す |
 | `bin/env-defaults.ts` / `bin/version.ts` | 残す | 起動役とヘッダの共有再 export |
 | `bin/bun-gate.ts` | 残す | ソース実行の Bun バージョンゲート |
-| `bin/tsconfig.json` | 書き換え | 新しい root 継承に変更 |
+| `bin/tsconfig.json` | 書き換え | `packages/spirits/tsconfig.json` 継承に変更 |
 | `src/managed-pi/*` | 書き換え | ホスト記述子を導入し、fork の文言と定数を外す |
 | `src/routing/register.ts` | 書き換え | `registerModelRoles` 分岐と `ROUTING_STATE_ENTRY_TYPE` 書き込みを外す |
 | `src/index.ts` | 書き換え | managed コマンドを常に登録 |
@@ -363,8 +368,9 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 | `src/update/run.ts` | 書き換え | テーマ資産の取得・修復と `runExtensionUpdate` を外す (D8・D11) |
 | `src/update/theme.ts` | 削除 | テーマ資産を扱わない (D8) |
 | `src/types/pi-subpaths.d.ts` | 削除 | `bin/spirits.ts` の deep import 専用で、参照が無くなる (D3) |
-| `src/types/pi-coding-agent.d.ts` / `pi-tui.d.ts` | 残す | 型ミラー。固定 artifact と照合 |
-| `src/rlm/tsconfig.json` / `src/routing/tsconfig.json` / `src/harness/tsconfig.json` | 書き換え | 新しい root 継承に変更し、host を node_modules から解決 |
+| `src/types/pi-coding-agent.d.ts` / `pi-tui.d.ts` | 削除 | 型ミラーを廃止し、公式パッケージの実型で検査する (D3) |
+| `package.json` / `tsconfig.json` / `src/*/tsconfig.json` / `bin/tsconfig.json` | 書き換え | 公式パッケージを完全一致で devDependency にし、`paths` を外し、sub-tsconfig は `packages/spirits/tsconfig.json` を継承する (D3) |
+| `src/rlm/tsconfig.json` / `src/routing/tsconfig.json` / `src/harness/tsconfig.json` | 書き換え | 新しい `packages/spirits` 継承に変更し、host を node_modules から解決 |
 | `test/pi-runtime/*` | 書き換え | 公開 API だけ残し、深い pin は公式モードへ |
 | `test/architecture/*` / `test/fixtures/architecture/*` | 書き換え | ホスト公開パッケージの解決に更新。`registry:bin-deep-imports` を削除 |
 | `test/managed-pi-compat-guard.test.ts` | 書き換え | fork ホストを外し、fixture と公式ホストを比較 |
@@ -377,9 +383,9 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 | `scripts/build-binaries.ts` | `packages/coding-agent/src/config.ts`、`package.json`、theme、worker、`tsconfig.json` の paths | 書き換え | 起動役はホストを内包しない。worker / config VERSION 置換は不要。互換用テーマは `scripts/compat-theme/` から出力する |
 | `scripts/replace-pi-version.ts` | Pi の `VERSION` 置換 | 削除 | 起動役のビルドで使わない |
 | `packages/spirits/bin/spirits.ts` | `@earendil-works/pi-coding-agent` の `bun/*`、`main`、`cli/setup` | 書き換え | 起動役はホストを import しない |
-| `packages/spirits/bin/tsconfig.json` | root の Pi paths | 書き換え | 新しい root を継承 |
+| `packages/spirits/bin/tsconfig.json` | root の Pi paths | 書き換え | `packages/spirits/tsconfig.json` を継承 |
 | `packages/spirits/src/rlm/tsconfig.json` / `routing` / `harness` | root の Pi paths | 書き換え | host を node_modules から解決 |
-| `packages/spirits/src/types/*.d.ts` | ホスト API の型 | 残す (`pi-subpaths.d.ts` は削除) | 型検査の isolation。固定 artifact と照合 |
+| `packages/spirits/src/types/*.d.ts` | ホスト API の型 | 削除 | 型ミラーを廃止し、公式パッケージの実型で検査する (D3) |
 | `spirits-release.yml` のテーマ資産の検証と添付 | `dist/theme/*.json` | 残す | 旧版の自己更新用の互換資産 (D8) |
 | `packages/spirits/test/pi-runtime/branding-art-colors.test.ts` | `packages/coding-agent/src/modes/interactive/theme` の実ファイル | 公式モードへ移動 | ホストの theme の場所に依存しない |
 | `packages/spirits/test/pi-runtime/child-model-source-pin.test.ts` | `@earendil-works/pi-coding-agent/core/virtual-models` | 公式モードへ移動 | ホスト内部の deep import |
@@ -447,15 +453,16 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 `docs/spirits-host-upgrade.md` に次の順で書く。
 
 1. 対象の公式 Pi の版を決める。
-2. `packages/spirits/src/constants.ts` の `PINNED_PI` (版、artifact 名、sha256、overlay 版) を更新する。
-3. `bun scripts/check-pi-type-mirror.ts --pi-version <版> --pi-dist <展開先>` で型ミラーを照合する。
-4. `bun scripts/build-managed-pi-inputs.ts --version <spirits 版> --out dist` で拡張 bundle と manifest を再生成する。
-5. `bun scripts/managed-pi-compat/run.ts --mode official --artifact-root <展開先> --bundle dist/spirits-managed-pi-extension.js --out <出力>` で公式 artifact の互換性実測を通す。
-6. `scripts/tmux-verify.sh run` でビルドした起動役と managed 一式を対話起動し、ヘッダ・`/spirits-clear`・`tsrepl` を確認する。
-7. `bun test` と `bun run check` を通す。
-8. `docs/spirits-host-upgrade.md` と `docs/spirits-design.md` の固定値を更新する。
+2. `packages/spirits/package.json` の devDependency `@earendil-works/pi-coding-agent` / `@earendil-works/pi-tui` を対象の版へ完全一致で更新し、`packages/spirits` で `bun install` する。root の workspace 経由で fork のソースへ解決されないことを `import.meta.resolve` で確認する。
+3. `packages/spirits` で `bun run check` (`tsc --noEmit`) を通す。ホストの公開型が変わった箇所は src / test を実型に合わせて直す。
+4. `packages/spirits/src/constants.ts` の `PINNED_PI` (版、artifact 名、sha256、overlay 版) を同じ版に更新する。
+5. `bun scripts/build-managed-pi-inputs.ts --version <spirits 版> --out dist` で拡張 bundle と manifest を再生成する。
+6. `bun scripts/managed-pi-compat/run.ts --mode official --artifact-root <展開先> --bundle dist/spirits-managed-pi-extension.js --out <出力>` で公式 artifact の互換性実測を通す。
+7. `scripts/tmux-verify.sh run` でビルドした起動役と managed 一式を対話起動し、ヘッダ・`/spirits-clear`・`tsrepl` を確認する。
+8. `bun test` と `bun run check` を通す。
+9. `docs/spirits-host-upgrade.md` と `docs/spirits-design.md` の固定値を更新する。
 
-手順 3〜6 のいずれかが失敗した場合は更新を中止し、固定値の変更をコミットしない。手順書には旧版への戻し方 (Rollback) と、旧版の利用者は `spirits update --all` ではなく `spirits update` を使う注意も載せる。
+手順 2〜8 のいずれかが失敗した場合は更新を中止し、固定値の変更をコミットしない。手順書には旧版への戻し方 (Rollback) と、旧版の利用者は `spirits update --all` ではなく `spirits update` を使う注意も載せる。`scripts/check-pi-type-mirror.ts` は置かず、型検査は `tsc` に一本化する。
 
 `docs/spirits-upstream-sync.md` と `docs/spirits-core-diffs.md` は削除し、`docs/spirits-design.md` §5 は「ホスト版更新方針」に置き換える。
 

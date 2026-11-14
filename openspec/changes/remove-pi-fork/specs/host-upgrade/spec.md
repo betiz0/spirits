@@ -2,7 +2,7 @@
 
 ## Purpose
 
-固定した公式 Pi ホスト artifact の版と SHA256 を更新し、型ミラーと公式 artifact 上での互換性を検証してからリリースする手順を、再実行可能な契約として定める。
+固定した公式 Pi ホスト artifact の版と SHA256 を更新し、`packages/spirits` の固定 devDependency と `tsc` による型検査、公式 artifact 上での互換性を検証してからリリースする手順を、再実行可能な契約として定める。
 
 ## ADDED Requirements
 
@@ -20,32 +20,31 @@
 
 ### Requirement: ホスト版の更新手順
 リポジトリは、ホストの版を更新する手順書 `docs/spirits-host-upgrade.md` を保持しなければならない。(SHALL)
-手順書は、固定値 (版・artifact SHA256・overlay 版) の更新、型ミラーの照合、拡張 bundle と manifest の再生成、公式 artifact での互換性実測、tmux 検証を、この順で、各手順の実行コマンドとともに記載しなければならない。(MUST)
+手順書は、`packages/spirits` の固定 devDependency (対象版) の更新と `tsc` による型検査、固定値 (artifact SHA256・overlay 版) の更新、拡張 bundle と manifest の再生成、公式 artifact での互換性実測、tmux 検証を、この順で、各手順の実行コマンドとともに記載しなければならない。(MUST)
 手順書は、いずれかの手順が失敗した場合に更新を中止し、固定値の変更をコミットしないことを記載しなければならない。(MUST)
 
 #### Scenario: 手順の順序とコマンド
 - **WHEN** `docs/spirits-host-upgrade.md` を読む
-- **THEN** 固定値の更新から tmux 検証までがこの順に並び、各手順に実行コマンドが付いている
+- **THEN** devDependency の更新と `tsc` から tmux 検証までがこの順に並び、各手順に実行コマンドが付いている
 
 #### Scenario: 失敗時の中止
 - **WHEN** 手順書の失敗時の扱いを読む
-- **THEN** 型ミラーの照合または公式 artifact での互換性実測が失敗した場合は更新を中止し、固定値の変更をコミットしない旨が記載されている
+- **THEN** `tsc` による型検査または公式 artifact での互換性実測が失敗した場合は更新を中止し、固定値の変更をコミットしない旨が記載されている
 
-### Requirement: 型ミラーの照合
-システムは、`packages/spirits/src/types/` の型ミラーが固定したホスト artifact の公開 API 表面と一致することを、更新時に検証しなければならない。(SHALL) 検証は artifact に含まれる `.d.ts` を読み、宣言済みの export と member の欠落・改名・型変更を検出できなければならない。(MUST)
-型ミラーに未反映の API 追加は失敗の理由にしてはならない。(MUST NOT)
+### Requirement: 公式型による型検査
+システムは、`packages/spirits` の固定した公式パッケージ (`@earendil-works/pi-coding-agent` / `@earendil-works/pi-tui`) を devDependency として完全一致で保持し、ホストの型を実型として `tsc --noEmit` で検査しなければならない。(SHALL) `packages/spirits/src/types/` にホスト型の再宣言 (型ミラー) を置いてはならない。(MUST) `packages/spirits` の解決が root の workspace 経由で fork のソースへ向いてはならない。(MUST) `scripts/check-pi-type-mirror.ts` を置いてはならない。(MUST)
 
-#### Scenario: ミラーの欠落を検出する
-- **WHEN** ホストの新しい版で export が改名され、型ミラーが古い名前のままである
-- **THEN** 照合は失敗し、対象のミラーとホスト側の名前を報告する
+#### Scenario: 実型で検査する
+- **WHEN** `packages/spirits` で `bun run check` を実行する
+- **THEN** ホストの公開型を固定 devDependency の実体から解決し、型エラーが 0 件である
 
-#### Scenario: 型の変更を検出する
-- **WHEN** ホストの新しい版で、型ミラーに宣言済みの member の型が変わっている
-- **THEN** 照合は失敗し、対象の member と両側の型を報告する
+#### Scenario: 型ミラーを置かない
+- **WHEN** `packages/spirits/src/types/` を調べる
+- **THEN** ホスト API の再宣言 (型ミラー) が無い
 
-#### Scenario: 追加のみの変更は通す
-- **WHEN** ホストの新しい版が export を追加し、既存の export を変えていない
-- **THEN** 照合は成功する
+#### Scenario: 公開面の外は失敗する
+- **WHEN** `@earendil-works/pi-coding-agent/core/session` のように `exports` に無い subpath を import する
+- **THEN** `tsc` はその specifier を解決できず失敗する
 
 ### Requirement: 公式 artifact での互換性実測
 システムは、ホストの版を更新したとき、固定した公式 artifact と対象 commit の拡張 bundle で互換性ランナーの公式モードを実行し、必須観測が `confirmed` または `limited` で、失敗が 0 件であることを確認しなければならない。(SHALL) `not-run` を成功として扱ってはならない。(MUST)
