@@ -578,6 +578,12 @@ export const MANAGED_PI_REPAIR_COMMAND = "spirits managed-pi repair";
 /** Install command shown when the managed set is absent. */
 export const MANAGED_PI_INSTALL_COMMAND = "spirits managed-pi install";
 
+/** Command that updates the pinned host and the spirits extension bundle. */
+export const MANAGED_PI_UPDATE_COMMAND = "spirits managed-pi update";
+
+/** Prefix that hands `update` arguments to the host instead of the launcher's self-update. */
+export const HOST_UPDATE_COMMAND_PREFIX = "spirits -- update";
+
 /** Escape hatch shown together with a managed launch failure. */
 export const MANAGED_PI_FORK_ROUTE_HINT = `SPIRITS_ROUTE=${ROUTE_FORK_VALUE} spirits`;
 

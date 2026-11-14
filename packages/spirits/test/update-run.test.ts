@@ -1,11 +1,13 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { runSelfUpdate, type RunUpdateOptions, type UpdateIo } from "../src/update/run.ts";
 
 const BINARY_CONTENT = "downloaded spirits binary";
-const THEME_CONTENTS: Record<string, string> = {
+
+/** The assets an older updater fetched. A release still attaches them; this updater never asks. */
+const COMPAT_ASSETS: Record<string, string> = {
 	"dark.json": '{"name":"dark","source":"release"}',
 	"light.json": '{"name":"light","source":"release"}',
 };
@@ -40,10 +42,8 @@ interface Fixture {
 }
 
 interface FixtureOptions {
-	/** Theme asset name whose checksum is deliberately wrong. */
-	corruptThemeChecksum?: string;
-	/** Serve no theme assets, like 0.6.0 and earlier releases. */
-	withoutThemes?: boolean;
+	/** Serve a checksum that does not match the executable. */
+	corruptBinaryChecksum?: boolean;
 }
 
 function startFixture(latestVersion: string, options: FixtureOptions = {}): Fixture {
@@ -57,20 +57,15 @@ function startFixture(latestVersion: string, options: FixtureOptions = {}): Fixt
 				return Response.json([{ tag_name: `spirits-v${latestVersion}`, draft: false, prerelease: false }]);
 			}
 			if (path.endsWith("/spirits-linux-x64.sha256")) {
-				return new Response(`${sha256Hex(BINARY_CONTENT)}  spirits-linux-x64\n`);
+				const hash = options.corruptBinaryChecksum === true ? "0".repeat(64) : sha256Hex(BINARY_CONTENT);
+				return new Response(`${hash}  spirits-linux-x64\n`);
 			}
 			if (path.endsWith("/spirits-linux-x64")) {
 				return new Response(BINARY_CONTENT);
 			}
-			for (const [name, content] of Object.entries(THEME_CONTENTS)) {
-				if (options.withoutThemes === true) break;
-				if (path.endsWith(`/${name}.sha256`)) {
-					const hash = options.corruptThemeChecksum === name ? "0".repeat(64) : sha256Hex(content);
-					return new Response(`${hash}  ${name}\n`);
-				}
-				if (path.endsWith(`/${name}`)) {
-					return new Response(content);
-				}
+			for (const [name, content] of Object.entries(COMPAT_ASSETS)) {
+				if (path.endsWith(`/${name}.sha256`)) return new Response(`${sha256Hex(content)}  ${name}\n`);
+				if (path.endsWith(`/${name}`)) return new Response(content);
 			}
 			return new Response("not found", { status: 404 });
 		},
@@ -94,24 +89,21 @@ function makeIo(): Captured {
 interface InstalledPaths {
 	installDir: string;
 	execPath: string;
+	/** The directory a pre-managed release placed next to the executable. */
 	themeDir: string;
 }
 
-/** Install a placeholder binary; `themeContent: null` leaves the theme directory absent. */
-async function setupInstalled(
-	version: string,
-	themeContent: string | null = "installed theme",
-): Promise<InstalledPaths> {
+/** Install a placeholder binary, plus the asset directory an older release left behind. */
+async function setupInstalled(version: string): Promise<InstalledPaths> {
 	const work = await makeWorkDir();
 	const installDir = join(work, "install");
 	await mkdir(installDir);
 	const execPath = join(installDir, "spirits");
 	await writeFile(execPath, `installed ${version}`);
 	const themeDir = join(installDir, "theme");
-	if (themeContent !== null) {
-		await mkdir(themeDir);
-		await writeFile(join(themeDir, "dark.json"), themeContent);
-		await writeFile(join(themeDir, "light.json"), themeContent);
+	await mkdir(themeDir);
+	for (const name of Object.keys(COMPAT_ASSETS)) {
+		await writeFile(join(themeDir, name), "installed asset");
 	}
 	return { installDir, execPath, themeDir };
 }
@@ -123,7 +115,6 @@ function makeOptions(
 	overrides: Partial<RunUpdateOptions> = {},
 ): RunUpdateOptions {
 	return {
-		kind: "self",
 		force: false,
 		env: {
 			SPIRITS_API_BASE_URL: fixture.baseUrl,
@@ -139,6 +130,16 @@ function makeOptions(
 	};
 }
 
+/** Requests other than the release listing, the executable, and its checksum. */
+function otherRequests(fixture: Fixture): string[] {
+	return fixture.requests.filter(
+		(path) =>
+			!path.endsWith("/releases") &&
+			!path.endsWith("/spirits-linux-x64") &&
+			!path.endsWith("/spirits-linux-x64.sha256"),
+	);
+}
+
 test("replaces an older binary and reports the version transition", async () => {
 	const fixture = startFixture("0.3.0");
 	const { installDir, execPath } = await setupInstalled("0.2.0");
@@ -150,16 +151,18 @@ test("replaces an older binary and reports the version transition", async () => 
 	expect((await readdir(installDir)).filter((entry) => entry.startsWith(".spirits-tmp-"))).toEqual([]);
 });
 
-test("places the theme assets on a replacement", async () => {
+test("does not fetch the theme assets a release still attaches", async () => {
 	const fixture = startFixture("0.3.0");
 	const { execPath, themeDir } = await setupInstalled("0.2.0");
 	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.2.0", { io: makeIo().io }));
-	expect(result).toEqual({ exitCode: 0, replaced: true, releaseTag: "spirits-v0.3.0" });
-	expect(await readFile(join(themeDir, "dark.json"), "utf8")).toBe(THEME_CONTENTS["dark.json"]);
-	expect(await readFile(join(themeDir, "light.json"), "utf8")).toBe(THEME_CONTENTS["light.json"]);
+	expect(result.exitCode).toBe(0);
+	expect(otherRequests(fixture)).toEqual([]);
+	for (const name of Object.keys(COMPAT_ASSETS)) {
+		expect(await Bun.file(join(themeDir, name)).text()).toBe("installed asset");
+	}
 });
 
-test("does not fetch artifacts when up to date and themes are present", async () => {
+test("fetches nothing but the release listing when up to date", async () => {
 	const fixture = startFixture("0.3.0");
 	const { execPath } = await setupInstalled("0.3.0");
 	const captured = makeIo();
@@ -167,26 +170,16 @@ test("does not fetch artifacts when up to date and themes are present", async ()
 	expect(result).toEqual({ exitCode: 0, replaced: false, releaseTag: "spirits-v0.3.0" });
 	expect(await Bun.file(execPath).text()).toBe("installed 0.3.0");
 	expect(captured.out.join("\n")).toContain("spirits 0.3.0 is already up to date");
-	expect(fixture.requests.every((path) => path.endsWith("/releases"))).toBe(true);
-});
-
-test("repairs missing theme assets when up to date", async () => {
-	const fixture = startFixture("0.3.0");
-	const { execPath, themeDir } = await setupInstalled("0.3.0", null);
-	const captured = makeIo();
-	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.3.0", { io: captured.io }));
-	expect(result).toEqual({ exitCode: 0, replaced: false, releaseTag: "spirits-v0.3.0" });
-	expect(await Bun.file(execPath).text()).toBe("installed 0.3.0");
-	expect(await readFile(join(themeDir, "dark.json"), "utf8")).toBe(THEME_CONTENTS["dark.json"]);
-	expect(await readFile(join(themeDir, "light.json"), "utf8")).toBe(THEME_CONTENTS["light.json"]);
-	expect(captured.out.join("\n")).toContain("repaired the missing theme assets");
+	expect(fixture.requests).toEqual(["/repos/betiz0/spirits/releases"]);
 });
 
 test("replaces an equal version when --force is given", async () => {
 	const fixture = startFixture("0.3.0");
 	const { execPath } = await setupInstalled("0.3.0");
 	const captured = makeIo();
-	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.3.0", { force: true, io: captured.io }));
+	const result = await runSelfUpdate(
+		makeOptions(fixture, execPath, "0.3.0", { force: true, io: captured.io }),
+	);
 	expect(result).toEqual({ exitCode: 0, replaced: true, releaseTag: "spirits-v0.3.0" });
 	expect(await Bun.file(execPath).text()).toBe(BINARY_CONTENT);
 	expect(fixture.requests.some((path) => path.endsWith("spirits-linux-x64"))).toBe(true);
@@ -202,92 +195,18 @@ test("does not replace a prerelease newer than the latest stable", async () => {
 	expect(result).toEqual({ exitCode: 0, replaced: false, releaseTag: "spirits-v0.4.0-rc.1" });
 	expect(await Bun.file(execPath).text()).toBe("installed 0.4.0-rc.1");
 	expect(captured.out.join("\n")).toContain("newer than the latest stable release");
+	expect(fixture.requests).toEqual(["/repos/betiz0/spirits/releases"]);
 });
 
-test("does not touch theme assets when installed is newer", async () => {
-	const fixture = startFixture("0.3.0");
-	const { execPath, themeDir } = await setupInstalled("0.4.0-rc.1", "installed theme");
-	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.4.0-rc.1", { io: makeIo().io }));
-	expect(result).toEqual({ exitCode: 0, replaced: false, releaseTag: "spirits-v0.4.0-rc.1" });
-	expect(await readFile(join(themeDir, "dark.json"), "utf8")).toBe("installed theme");
-	expect(await readFile(join(themeDir, "light.json"), "utf8")).toBe("installed theme");
-	expect(fixture.requests.every((path) => path.endsWith("/releases"))).toBe(true);
-});
-
-test("keeps the binary when a theme checksum fails", async () => {
-	const fixture = startFixture("0.3.0", { corruptThemeChecksum: "dark.json" });
+test("keeps the binary and the installed assets when the executable checksum fails", async () => {
+	const fixture = startFixture("0.3.0", { corruptBinaryChecksum: true });
 	const { execPath, themeDir } = await setupInstalled("0.2.0");
 	const captured = makeIo();
 	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.2.0", { io: captured.io }));
 	expect(result).toEqual({ exitCode: 1, replaced: false });
 	expect(await Bun.file(execPath).text()).toBe("installed 0.2.0");
-	expect(await readFile(join(themeDir, "dark.json"), "utf8")).toBe("installed theme");
+	expect(await Bun.file(join(themeDir, "dark.json")).text()).toBe("installed asset");
 	expect(captured.err.join("\n")).toContain("Checksum mismatch");
-});
-
-test("keeps the binary when theme placement fails", async () => {
-	const fixture = startFixture("0.3.0");
-	const { installDir, execPath } = await setupInstalled("0.2.0", null);
-	// A regular file at the theme directory path makes mkdir fail after the downloads succeed.
-	await writeFile(join(installDir, "theme"), "not a directory");
-	const captured = makeIo();
-	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.2.0", { io: captured.io }));
-	expect(result).toEqual({ exitCode: 1, replaced: false });
-	expect(await Bun.file(execPath).text()).toBe("installed 0.2.0");
-	expect(captured.err.join("\n")).toContain("Update failed");
-});
-
-test("fails the repair when a theme checksum does not match", async () => {
-	const fixture = startFixture("0.3.0", { corruptThemeChecksum: "dark.json" });
-	const { execPath, themeDir } = await setupInstalled("0.3.0", null);
-	const captured = makeIo();
-	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.3.0", { io: captured.io }));
-	expect(result).toEqual({ exitCode: 1, replaced: false });
-	expect(await Bun.file(execPath).text()).toBe("installed 0.3.0");
-	expect(await Bun.file(join(themeDir, "dark.json")).exists()).toBe(false);
-	expect(captured.err.join("\n")).toContain("Checksum mismatch");
-	expect(captured.out.join("\n")).not.toContain("repaired");
-});
-
-test("fails the repair when the theme directory is not a directory", async () => {
-	const fixture = startFixture("0.3.0");
-	const { installDir, execPath } = await setupInstalled("0.3.0", null);
-	// A regular file at the theme directory path makes mkdir fail after the downloads succeed.
-	await writeFile(join(installDir, "theme"), "not a directory");
-	const captured = makeIo();
-	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.3.0", { io: captured.io }));
-	expect(result).toEqual({ exitCode: 1, replaced: false });
-	expect(await Bun.file(execPath).text()).toBe("installed 0.3.0");
-	expect(await Bun.file(join(installDir, "theme")).text()).toBe("not a directory");
-	expect(captured.err.join("\n")).toContain("Update failed");
-	expect(captured.out.join("\n")).not.toContain("repaired");
-});
-
-test("keeps the binary when the release has no theme assets", async () => {
-	const fixture = startFixture("0.3.0", { withoutThemes: true });
-	const { execPath, themeDir } = await setupInstalled("0.2.0");
-	const captured = makeIo();
-	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.2.0", { io: captured.io }));
-	expect(result).toEqual({ exitCode: 1, replaced: false });
-	expect(await Bun.file(execPath).text()).toBe("installed 0.2.0");
-	expect(await readFile(join(themeDir, "dark.json"), "utf8")).toBe("installed theme");
-	expect(await readFile(join(themeDir, "light.json"), "utf8")).toBe("installed theme");
-	expect(captured.err.join("\n")).toContain("Update failed");
-});
-
-test("keeps the theme assets when the release has no theme assets", async () => {
-	const fixture = startFixture("0.3.0", { withoutThemes: true });
-	const { execPath, themeDir } = await setupInstalled("0.3.0", null);
-	await mkdir(themeDir);
-	await writeFile(join(themeDir, "dark.json"), "installed theme");
-	const captured = makeIo();
-	const result = await runSelfUpdate(makeOptions(fixture, execPath, "0.3.0", { io: captured.io }));
-	expect(result).toEqual({ exitCode: 1, replaced: false });
-	expect(await Bun.file(execPath).text()).toBe("installed 0.3.0");
-	expect(await readFile(join(themeDir, "dark.json"), "utf8")).toBe("installed theme");
-	expect(await Bun.file(join(themeDir, "light.json")).exists()).toBe(false);
-	expect(captured.err.join("\n")).toContain("Update failed");
-	expect(captured.out.join("\n")).not.toContain("repaired");
 });
 
 test("replaces a newer prerelease with --force", async () => {

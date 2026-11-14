@@ -15,8 +15,8 @@ import type { ManagedIo } from "../src/managed-pi/install.ts";
 import { managedRoot } from "../src/managed-pi/layout.ts";
 import type { ManagedSpawn } from "../src/managed-pi/launch.ts";
 import { classifyUpdateArgs } from "../src/update/classify.ts";
-import { formatUncompiledMessage } from "../src/update/guards.ts";
-import { runSelfUpdate } from "../src/update/run.ts";
+import { formatUncompiledMessage, formatUpdateRefusalMessage } from "../src/update/guards.ts";
+import { runSelfUpdate, type RunUpdateOptions, type UpdateResult } from "../src/update/run.ts";
 import type { FetchLike } from "../src/update/types.ts";
 import { checkBunVersion } from "./bun-gate.ts";
 import { computeEnvDefaults } from "./env-defaults.ts";
@@ -49,24 +49,22 @@ const SPIRITS_HELP = [
 	"separator, for example `spirits -- --help`.",
 ].join("\n");
 
-/**
- * An `update` of the program itself.
- *
- * Narrower than the classifier's result: a plan is only produced for the arguments that target the
- * binary, so the launcher never carries a `pass-through` it has to re-check.
- */
-export interface SelfUpdatePlan {
-	target: "self" | "all";
-	force: boolean;
-	trustFlag?: string;
-}
+/** Runs the self-update; the launcher calls {@link runSelfUpdate} unless a test replaced it. */
+export type SelfUpdateRunner = (options: RunUpdateOptions) => Promise<UpdateResult>;
 
 /** What the launcher does with one argument list. */
 export type LauncherPlan =
 	| { kind: "version" }
 	| { kind: "help" }
 	| { kind: "managed"; action: ManagedPiAction }
-	| { kind: "update"; update: SelfUpdatePlan }
+	/** Replace the executable. */
+	| { kind: "update"; force: boolean }
+	/**
+	 * An `update` that is not a self-update form: neither self-update nor host launch. The launcher
+	 * prints the two commands that do the rest and exits non-zero, because passing the arguments on
+	 * would make an unhandled flag look like a succeeded update.
+	 */
+	| { kind: "update-refusal"; args: string[] }
 	/** Hand these arguments to the verified managed host. */
 	| { kind: "host"; args: string[] };
 
@@ -78,9 +76,12 @@ function hostArgs(argv: readonly string[]): string[] {
 /**
  * Classify one launcher run.
  *
- * The order is the precedence: a spirits flag first, then the `managed-pi` subcommand, then an
- * `update` of the program itself, and everything else is a host launch. Because the subcommands are
- * decided here, they never reach the host and never consult the removed fork route.
+ * The order is the precedence: a spirits flag first, then the `managed-pi` subcommand, then the
+ * `update` family (self-update form or refusal), and everything else is a host launch. Because the
+ * subcommands are decided here, they never reach the host and never consult the removed fork route.
+ *
+ * Everything behind the pass-through separator stays a host launch, which is how a host `update` of
+ * the caller's own choosing is spelled: `spirits -- update --extensions`.
  */
 export function planLauncherArgs(argv: readonly string[]): LauncherPlan {
 	const first = argv[0] ?? "";
@@ -89,16 +90,8 @@ export function planLauncherArgs(argv: readonly string[]): LauncherPlan {
 	const managed = classifyManagedPiArgs(argv);
 	if (managed.kind !== "none") return { kind: "managed", action: managed };
 	const update = classifyUpdateArgs(argv);
-	if (update.target !== "pass-through") {
-		return {
-			kind: "update",
-			update: {
-				target: update.target,
-				force: update.force,
-				...(update.trustFlag !== undefined ? { trustFlag: update.trustFlag } : {}),
-			},
-		};
-	}
+	if (update.kind === "self-update") return { kind: "update", force: update.force };
+	if (update.kind === "refusal") return { kind: "update-refusal", args: update.args };
 	return { kind: "host", args: hostArgs(argv) };
 }
 
@@ -118,6 +111,8 @@ export interface LauncherRuntime {
 	io: ManagedIo;
 	/** Test-only spawn seam forwarded to the host launch. */
 	spawn?: ManagedSpawn;
+	/** Test-only seam for the self-update, so a test never replaces the running binary. */
+	runUpdate?: SelfUpdateRunner;
 }
 
 const DEFAULT_IO: ManagedIo = {
@@ -179,15 +174,17 @@ export async function runLauncher(runtime: Partial<LauncherRuntime> = {}): Promi
 				version,
 				io,
 			});
+		case "update-refusal":
+			io.err(formatUpdateRefusalMessage(plan.args));
+			return 1;
 		case "update": {
 			if (!compiled) {
 				io.err(formatUncompiledMessage());
 				return 1;
 			}
-			const result = await runSelfUpdate({
-				kind: plan.update.target,
-				force: plan.update.force,
-				trustFlag: plan.update.trustFlag,
+			const update = runtime.runUpdate ?? runSelfUpdate;
+			const result = await update({
+				force: plan.force,
 				env,
 				fetch: fetchImpl,
 				installedVersion: version,

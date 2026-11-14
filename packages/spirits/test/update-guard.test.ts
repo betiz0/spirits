@@ -100,7 +100,6 @@ function makeIo(): Captured {
 
 function makeOptions(fixture: Fixture, execPath: string, overrides: Partial<RunUpdateOptions> = {}): RunUpdateOptions {
 	return {
-		kind: "self",
 		force: false,
 		env: {
 			SPIRITS_API_BASE_URL: fixture.baseUrl,

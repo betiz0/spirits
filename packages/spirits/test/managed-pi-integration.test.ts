@@ -143,5 +143,5 @@ test("install, update, launch, and the compatibility runner complete on a fixtur
 
 	expect(classifyManagedPiArgs(["managed-pi", "update"])).toEqual({ kind: "update" });
 	expect(classifyManagedPiArgs(["update"])).toEqual({ kind: "none" });
-	expect(classifyUpdateArgs(["update"]).target).not.toBe("pass-through");
+	expect(classifyUpdateArgs(["update"]).kind).toBe("self-update");
 }, 120_000);

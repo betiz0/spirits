@@ -17,8 +17,8 @@ test("classifies managed-pi install update and launch", () => {
 });
 
 test("keeps the existing update classification", () => {
-	expect(classifyUpdateArgs(["update"]).target).toBe("self");
-	expect(classifyUpdateArgs(["update", "--extensions"]).target).toBe("pass-through");
+	expect(classifyUpdateArgs(["update"]).kind).toBe("self-update");
+	expect(classifyUpdateArgs(["update", "--extensions"]).kind).toBe("refusal");
 	expect(classifyManagedPiArgs(["update"])).toEqual({ kind: "none" });
 });
 

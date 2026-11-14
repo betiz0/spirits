@@ -35,8 +35,14 @@
 
 ## 5. 自己更新
 
-- [ ] 5.1 `src/update/classify.ts` を、Pi の `update` 文法による分類から、自己更新形 (`update`、`self`、`pi`、`--self` と `--force`、`-a` / `--approve`、`-na` / `--no-approve`) かどうかの判定に置き換える。自己更新形以外は `spirits managed-pi update` と `spirits -- update <引数>` を案内して非ゼロで終了する (design D11)。完了確認: `bun test test/update-classify.test.ts test/update-routing.test.ts` が成功し、`--extensions`、`--all`、`--unknown`、`-h` が案内と非ゼロになり、`-a` が自己更新になるケースを含む。
-- [ ] 5.2 `src/update/run.ts` からテーマ資産の取得・修復と `runExtensionUpdate` を外し、`src/update/theme.ts` と `test/update-theme.test.ts` を削除する (design D8)。完了確認: `bun test test/update-run.test.ts test/update-download.test.ts test/update-apply.test.ts` が成功し、「テーマ資産を取得しない」ケースで fetch に `dark.json` / `light.json` の要求が無い。`rg -n "theme|runExtensionUpdate" packages/spirits/src/update` が 0 件。
+- [x] 5.1 `src/update/classify.ts` を、Pi の `update` 文法による分類から、自己更新形 (`update`、`self`、`pi`、`--self` と `--force`、`-a` / `--approve`、`-na` / `--no-approve`) かどうかの判定に置き換える。自己更新形以外は `spirits managed-pi update` と `spirits -- update <引数>` を案内して非ゼロで終了する (design D11)。完了確認: `bun test test/update-classify.test.ts test/update-routing.test.ts` が成功し、`--extensions`、`--all`、`--unknown`、`-h` が案内と非ゼロになり、`-a` が自己更新になるケースを含む。
+  - 実測: `bun test test/update-classify.test.ts test/update-routing.test.ts` -> 成功。`classifyUpdateArgs` は `not-update` / `self-update(force)` / `refusal(args)` のどれかで、`-a`・`--approve`・`-na`・`--no-approve` は受理して自己更新の挙動を変えない (転送先は無い)。
+  - `runLauncher` に `update-refusal` を追加 (自己更新もホスト起動もせず、`formatUpdateRefusalMessage` を stderr に出して 1)。`--` 以降の `update --extensions` は従来どおりホストへ渡る。案内文は `spirits managed-pi update` と `spirits -- update <実行した引数>`。
+  - 自己更新の実行は `LauncherRuntime.runUpdate` の seam 越しにし、テストが実行中のバイナリを置き換えないようにした (tasks に名の無い変更)。
+- [x] 5.2 `src/update/run.ts` からテーマ資産の取得・修復と `runExtensionUpdate` を外し、`src/update/theme.ts` と `test/update-theme.test.ts` を削除する (design D8)。完了確認: `bun test test/update-run.test.ts test/update-download.test.ts test/update-apply.test.ts` が成功し、「テーマ資産を取得しない」ケースで fetch に `dark.json` / `light.json` の要求が無い。`rg -n "theme|runExtensionUpdate" packages/spirits/src/update` が 0 件。
+  - 実測: 上記 3 ファイルを含む update 系のテストで 49 pass / 0 fail。`rg -n "theme|runExtensionUpdate" packages/spirits/src/update` -> 0 件 (exit 1)。
+  - 「テーマ資産を取得しない」ケースは、テーマ資産を添付したリリースへ更新したときにリリース一覧・実行ファイル・その `.sha256` 以外の要求が 0 件で、既存の `theme/` の中身が変わらないことを確認している。
+  - 副次: 使われなくなる `applyVerifiedThemeAssets` を `src/update/apply.ts` から削除し、`test/update-apply.test.ts` のテーマ配置ケース、`test/update-cleanup.test.ts` と `test/update-guard.test.ts` の `kind` 指定を削った (tasks に名の無い変更)。
 
 ## 6. 拡張の fork 経路を削除する
 

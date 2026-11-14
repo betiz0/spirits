@@ -7,7 +7,14 @@
 
 import { constants as fsConstants } from "node:fs";
 import { access } from "node:fs/promises";
-import { ENV_OFFLINE, INSTALL_COMMAND, SUPPORTED_ARCH, SUPPORTED_PLATFORM } from "../constants.ts";
+import {
+	ENV_OFFLINE,
+	HOST_UPDATE_COMMAND_PREFIX,
+	INSTALL_COMMAND,
+	MANAGED_PI_UPDATE_COMMAND,
+	SUPPORTED_ARCH,
+	SUPPORTED_PLATFORM,
+} from "../constants.ts";
 import type { EnvLike } from "./types.ts";
 
 /** Result of a single guard check. */
@@ -28,6 +35,21 @@ export function formatInstallerGuidance(): string {
 /** Refusal for an uncompiled (source) run. */
 export function formatUncompiledMessage(): string {
 	return `spirits is running from source; only the compiled binary can update itself.\n${formatInstallerGuidance()}`;
+}
+
+/**
+ * Refusal for `update` arguments that are not a self-update form.
+ *
+ * The launcher updates the executable and nothing else, so the message names the two commands that
+ * cover what it does not do, and echoes the caller's own arguments in the host pass-through form.
+ */
+export function formatUpdateRefusalMessage(args: readonly string[]): string {
+	const shown = args.length > 0 ? args.join(" ") : "<arguments>";
+	return [
+		`spirits update only replaces the spirits executable; it does not take ${shown}.`,
+		`Update the host and the spirits extension bundle with:\n  ${MANAGED_PI_UPDATE_COMMAND}`,
+		`Update extensions and models on the host with:\n  ${HOST_UPDATE_COMMAND_PREFIX} ${shown}`,
+	].join("\n");
 }
 
 /** Refusal for an unsupported platform or architecture. */

@@ -1,15 +1,16 @@
 /**
  * Self-update orchestration.
  *
- * The CLI entry intercepts `update` and calls `runSelfUpdate`. The function resolves the latest
- * stable release, decides whether to replace, downloads and verifies the artifact, and places it
- * atomically. For the `all` target it then runs `update --extensions` with the new binary.
+ * The launcher intercepts the self-update forms of `update` and calls `runSelfUpdate`. The function
+ * resolves the latest stable release, decides whether to replace, downloads and verifies the
+ * executable, and places it atomically. Nothing else is fetched: the host and the spirits extension
+ * bundle come from the managed set, which the launcher installs from the release this run reports.
  */
 
 import { mkdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { RELEASE_ARTIFACT_NAME, THEME_ASSET_NAMES, UPDATE_TEMP_DIR_PREFIX } from "../constants.ts";
-import { applyVerifiedBinary, applyVerifiedThemeAssets, type ThemeAssetPlacement } from "./apply.ts";
+import { RELEASE_ARTIFACT_NAME, UPDATE_TEMP_DIR_PREFIX } from "../constants.ts";
+import { applyVerifiedBinary } from "./apply.ts";
 import { cleanStaleTempDirs, guardTempDir } from "./cleanup.ts";
 import { downloadVerifiedArtifact } from "./download.ts";
 import {
@@ -25,9 +26,7 @@ import {
 	releaseTagForVersion,
 	resolveLatestStableRelease,
 	resolveReleaseBaseUrl,
-	type SpiritsRelease,
 } from "./release.ts";
-import { hasThemeAssets, themeAssetPath, themeDirFor } from "./theme.ts";
 import { resolveIdleTimeoutMs } from "./timeout.ts";
 import type { EnvLike, FetchLike } from "./types.ts";
 import { decideUpdate } from "./version.ts";
@@ -38,22 +37,10 @@ export interface UpdateIo {
 	err(line: string): void;
 }
 
-/** Spawn request for the extension update that follows a successful `all` self-update. */
-export interface ExtensionUpdateRequest {
-	command: string[];
-	cwd: string;
-}
-
-/** Runs the extension update and resolves with its exit code. */
-export type SpawnExtensionUpdate = (request: ExtensionUpdateRequest) => Promise<number>;
-
 /** Options accepted by `runSelfUpdate`. */
 export interface RunUpdateOptions {
-	/** pi's update target: `self` replaces the binary, `all` also updates extensions. */
-	kind: "self" | "all";
+	/** `--force` re-downloads even when the installed version matches. */
 	force: boolean;
-	/** Original `-a` / `--approve` / `-na` / `--no-approve` token, forwarded to the extension update. */
-	trustFlag?: string;
 	env: EnvLike;
 	fetch: FetchLike;
 	/** Version currently installed. */
@@ -64,7 +51,6 @@ export interface RunUpdateOptions {
 	platform: string;
 	arch: string;
 	io?: UpdateIo;
-	spawnExtensionUpdate?: SpawnExtensionUpdate;
 }
 
 /** Outcome of `runSelfUpdate`. */
@@ -92,35 +78,6 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
-/** Run the installed binary with `update --extensions`, inheriting stdio. */
-async function spawnExtensionUpdate(request: ExtensionUpdateRequest): Promise<number> {
-	const child = Bun.spawn(request.command, {
-		cwd: request.cwd,
-		stdin: "inherit",
-		stdout: "inherit",
-		stderr: "inherit",
-	});
-	return await child.exited;
-}
-
-async function runExtensionUpdate(
-	options: RunUpdateOptions,
-	io: UpdateIo,
-): Promise<number> {
-	if (options.kind !== "all") return 0;
-	const command = [options.execPath, "update", "--extensions"];
-	if (options.trustFlag !== undefined) {
-		command.push(options.trustFlag);
-	}
-	const spawn = options.spawnExtensionUpdate ?? spawnExtensionUpdate;
-	try {
-		return await spawn({ command, cwd: process.cwd() });
-	} catch (error) {
-		io.err(`Failed to run the extension update: ${errorMessage(error)}`);
-		return 1;
-	}
-}
-
 /** Create this run's temporary directory; `undefined` after reporting the failure. */
 async function createTempDir(installDir: string, io: UpdateIo): Promise<string | undefined> {
 	const tempDir = join(installDir, `${UPDATE_TEMP_DIR_PREFIX}${process.pid}`);
@@ -133,71 +90,11 @@ async function createTempDir(installDir: string, io: UpdateIo): Promise<string |
 	return tempDir;
 }
 
-/** Download and verify every built-in theme asset into `tempDir`. */
-async function downloadThemeAssets(options: {
-	fetch: FetchLike;
-	tempDir: string;
-	release: SpiritsRelease;
-	releaseBaseUrl: string;
-	timeoutMs: number;
-}): Promise<ThemeAssetPlacement[]> {
-	const assets: ThemeAssetPlacement[] = [];
-	for (const assetName of THEME_ASSET_NAMES) {
-		const url = releaseArtifactUrl(options.release.tag, assetName, options.releaseBaseUrl);
-		const downloadedPath = themeAssetPath(options.tempDir, assetName);
-		await downloadVerifiedArtifact({
-			fetch: options.fetch,
-			artifactUrl: url,
-			checksumUrl: `${url}.sha256`,
-			destinationPath: downloadedPath,
-			timeoutMs: options.timeoutMs,
-		});
-		assets.push({ downloadedPath, assetName });
-	}
-	return assets;
-}
-
-/** Repair missing theme assets on the current version without touching the binary. */
-async function repairThemeAssets(options: {
-	run: RunUpdateOptions;
-	io: UpdateIo;
-	release: SpiritsRelease;
-	themeDir: string;
-	timeoutMs: number;
-}): Promise<UpdateResult> {
-	const tempDir = await createTempDir(dirname(options.run.execPath), options.io);
-	if (tempDir === undefined) return { exitCode: 1, replaced: false };
-	const guard = guardTempDir(tempDir);
-	try {
-		const assets = await downloadThemeAssets({
-			fetch: options.run.fetch,
-			tempDir,
-			release: options.release,
-			releaseBaseUrl: resolveReleaseBaseUrl(options.run.env),
-			timeoutMs: options.timeoutMs,
-		});
-		await applyVerifiedThemeAssets({ themeDir: options.themeDir, assets });
-	} catch (error) {
-		options.io.err(formatFailureMessage(`Update failed: ${errorMessage(error)}`));
-		return { exitCode: 1, replaced: false };
-	} finally {
-		guard.dispose();
-		await rm(tempDir, { recursive: true, force: true }).catch(() => {});
-	}
-	options.io.out(`spirits ${options.run.installedVersion} is already up to date; repaired the missing theme assets`);
-	return {
-		exitCode: await runExtensionUpdate(options.run, options.io),
-		replaced: false,
-		releaseTag: options.release.tag,
-	};
-}
-
 /**
- * Update the installed binary, then optionally update extensions.
+ * Update the installed binary.
  *
- * Returns the process exit code. Refusals and failures print to stderr and never touch the
- * installed binary. `all` spawns the extension update only after a zero self-update result
- * (including the no-op cases).
+ * Returns the process exit code. Refusals and failures print to stderr and never touch the installed
+ * binary.
  */
 export async function runSelfUpdate(options: RunUpdateOptions): Promise<UpdateResult> {
 	const io = options.io ?? DEFAULT_IO;
@@ -239,20 +136,16 @@ export async function runSelfUpdate(options: RunUpdateOptions): Promise<UpdateRe
 	}
 
 	const decision = decideUpdate(options.installedVersion, release.version, options.force);
-	const themeDir = themeDirFor(options.execPath);
 	if (decision === "up-to-date") {
-		if (await hasThemeAssets(themeDir)) {
-			io.out(`spirits ${options.installedVersion} is already up to date`);
-			return { exitCode: await runExtensionUpdate(options, io), replaced: false, releaseTag: release.tag };
-		}
-		return repairThemeAssets({ run: options, io, release, themeDir, timeoutMs });
+		io.out(`spirits ${options.installedVersion} is already up to date`);
+		return { exitCode: 0, replaced: false, releaseTag: release.tag };
 	}
 	if (decision === "newer") {
 		io.out(
 			`spirits ${options.installedVersion} is newer than the latest stable release (${release.version})`,
 		);
 		return {
-			exitCode: await runExtensionUpdate(options, io),
+			exitCode: 0,
 			replaced: false,
 			// The running binary stays on its own (newer, usually prerelease) release, so the managed
 			// set is taken from that tag rather than from the older stable release.
@@ -264,8 +157,7 @@ export async function runSelfUpdate(options: RunUpdateOptions): Promise<UpdateRe
 	if (tempDir === undefined) return { exitCode: 1, replaced: false };
 	const guard = guardTempDir(tempDir);
 	try {
-		const releaseBaseUrl = resolveReleaseBaseUrl(options.env);
-		const binaryUrl = releaseArtifactUrl(release.tag, RELEASE_ARTIFACT_NAME, releaseBaseUrl);
+		const binaryUrl = releaseArtifactUrl(release.tag, RELEASE_ARTIFACT_NAME, resolveReleaseBaseUrl(options.env));
 		await downloadVerifiedArtifact({
 			fetch: options.fetch,
 			artifactUrl: binaryUrl,
@@ -273,15 +165,6 @@ export async function runSelfUpdate(options: RunUpdateOptions): Promise<UpdateRe
 			destinationPath: join(tempDir, RELEASE_ARTIFACT_NAME),
 			timeoutMs,
 		});
-		// Themes first, binary last: a placement failure leaves the installed executable in place.
-		const assets = await downloadThemeAssets({
-			fetch: options.fetch,
-			tempDir,
-			release,
-			releaseBaseUrl,
-			timeoutMs,
-		});
-		await applyVerifiedThemeAssets({ themeDir, assets });
 		await applyVerifiedBinary({
 			tempDir,
 			downloadedPath: join(tempDir, RELEASE_ARTIFACT_NAME),
@@ -296,5 +179,5 @@ export async function runSelfUpdate(options: RunUpdateOptions): Promise<UpdateRe
 	}
 
 	io.out(`Updated spirits from ${options.installedVersion} to ${release.version}`);
-	return { exitCode: await runExtensionUpdate(options, io), replaced: true, releaseTag: release.tag };
+	return { exitCode: 0, replaced: true, releaseTag: release.tag };
 }

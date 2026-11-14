@@ -1,195 +1,188 @@
+/**
+ * Routing of `update` through the launcher.
+ *
+ * The launcher knows two outcomes for an `update`: the self-update forms reach `runSelfUpdate`, and
+ * everything else is refused with the commands that do the rest. A test therefore drives
+ * `runLauncher` with the self-update replaced by a seam, so the routing is observed without ever
+ * touching the binary that runs the tests.
+ */
 import { afterAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import {
-	runSelfUpdate,
-	type ExtensionUpdateRequest,
-	type RunUpdateOptions,
-	type SpawnExtensionUpdate,
-	type UpdateIo,
-} from "../src/update/run.ts";
+import { planLauncherArgs, runLauncher, type LauncherRuntime } from "../bin/bootstrap.ts";
+import type { ManagedSpawnRequest } from "../src/managed-pi/launch.ts";
+import { installManagedSet } from "../src/managed-pi/install.ts";
+import type { RunUpdateOptions, UpdateIo, UpdateResult } from "../src/update/run.ts";
+import type { FetchLike } from "../src/update/types.ts";
+import { cleanupManagedFixture, makeManagedFixture, type ManagedFixture } from "./managed-pi-fixtures.ts";
 
-const BINARY_CONTENT = "downloaded spirits binary";
-
-const runningServers: Array<ReturnType<typeof Bun.serve>> = [];
-const workDirs: string[] = [];
+const fixtures: ManagedFixture[] = [];
 
 afterAll(async () => {
-	for (const server of runningServers) {
-		server.stop(true);
-	}
-	for (const dir of workDirs) {
-		await rm(dir, { recursive: true, force: true });
-	}
+	for (const fixture of fixtures) await cleanupManagedFixture(fixture);
 });
 
-async function makeWorkDir(): Promise<string> {
-	const dir = await mkdtemp(join(tmpdir(), "spirits-update-routing-"));
-	workDirs.push(dir);
-	return dir;
+interface Captured {
+	io: UpdateIo;
+	out: string[];
+	err: string[];
 }
 
-function sha256Hex(content: string): string {
-	const hasher = new Bun.CryptoHasher("sha256");
-	hasher.update(content);
-	return hasher.digest("hex");
+function makeIo(): Captured {
+	const out: string[] = [];
+	const err: string[] = [];
+	return { io: { out: (line) => out.push(line), err: (line) => err.push(line) }, out, err };
 }
 
-interface Fixture {
-	baseUrl: string;
-}
-
-function startFixture(options: { latestVersion: string; artifactStatus?: number }): Fixture {
-	const server = Bun.serve({
-		port: 0,
-		fetch(request) {
-			const path = new URL(request.url).pathname;
-			if (path.endsWith("/releases")) {
-				return Response.json([
-					{ tag_name: `spirits-v${options.latestVersion}`, draft: false, prerelease: false },
-				]);
-			}
-			if (path.endsWith(".sha256")) {
-				return new Response(`${sha256Hex(BINARY_CONTENT)}  spirits-linux-x64\n`);
-			}
-			if (options.artifactStatus) {
-				return new Response("missing", { status: options.artifactStatus });
-			}
-			return new Response(BINARY_CONTENT);
-		},
-	});
-	runningServers.push(server);
-	return { baseUrl: `http://127.0.0.1:${server.port}` };
-}
-
-interface SpawnCall {
-	command: string[];
-	cwd: string;
-	targetContent: string | undefined;
-}
-
-function makeSpawn(exitCode: number): { calls: SpawnCall[]; spawn: SpawnExtensionUpdate } {
-	const calls: SpawnCall[] = [];
-	const spawn: SpawnExtensionUpdate = async (request: ExtensionUpdateRequest) => {
-		let targetContent: string | undefined;
-		try {
-			targetContent = await Bun.file(request.command[0]).text();
-		} catch {
-			targetContent = undefined;
-		}
-		calls.push({ command: request.command, cwd: request.cwd, targetContent });
-		return exitCode;
-	};
-	return { calls, spawn };
-}
-
-async function setupInstalled(version: string): Promise<{ installDir: string; execPath: string }> {
-	const work = await makeWorkDir();
-	const installDir = join(work, "install");
-	await mkdir(installDir);
-	const execPath = join(installDir, "spirits");
-	await writeFile(execPath, `installed ${version}`);
-	return { installDir, execPath };
-}
-
-const silentIo: UpdateIo = { out: () => {}, err: () => {} };
-
-function makeOptions(
-	fixture: Fixture,
-	execPath: string,
-	installedVersion: string,
-	overrides: Partial<RunUpdateOptions> = {},
-): RunUpdateOptions {
+/** A fetch that records URLs and fails, so nothing reaches the network. */
+function recordingFetch(): { urls: string[]; fetch: FetchLike } {
+	const urls: string[] = [];
 	return {
-		kind: "self",
-		force: false,
-		env: {
-			SPIRITS_API_BASE_URL: fixture.baseUrl,
-			SPIRITS_RELEASE_BASE_URL: fixture.baseUrl,
+		urls,
+		fetch: async (input: string | URL | Request) => {
+			urls.push(String(input));
+			return new Response("not served", { status: 503 });
 		},
-		fetch,
-		installedVersion,
-		execPath,
-		compiled: true,
-		platform: "linux",
-		arch: "x64",
-		io: silentIo,
-		...overrides,
 	};
 }
 
-test("runs the extension update after the replacement", async () => {
-	const fixture = startFixture({ latestVersion: "0.3.0" });
-	const { execPath } = await setupInstalled("0.2.0");
-	const { calls, spawn } = makeSpawn(0);
-	const result = await runSelfUpdate(
-		makeOptions(fixture, execPath, "0.2.0", { kind: "all", spawnExtensionUpdate: spawn }),
-	);
-	// The replacement reports the release it installed, which is also the release the managed set
-	// has to come from.
-	expect(result).toEqual({ exitCode: 0, replaced: true, releaseTag: "spirits-v0.3.0" });
-	expect(calls).toHaveLength(1);
-	expect(calls[0]?.command).toEqual([execPath, "update", "--extensions"]);
-	expect(calls[0]?.cwd).toBe(process.cwd());
-	expect(calls[0]?.targetContent).toBe(BINARY_CONTENT);
+/** A managed set on disk, so a host launch reaches the spawn seam instead of the install guidance. */
+async function launchedFixture(): Promise<{ root: string; home: string }> {
+	const fixture = await makeManagedFixture();
+	fixtures.push(fixture);
+	await installManagedSet({ root: fixture.root, manifest: fixture.manifest, fetch, timeoutMs: 3000 });
+	return { root: fixture.root, home: fixture.work };
+}
+
+interface UpdateRun {
+	exitCode: number;
+	options: RunUpdateOptions[];
+	out: string[];
+	err: string[];
+	fetchUrls: string[];
+	spawnRequests: ManagedSpawnRequest[];
+}
+
+/** Run one launcher invocation with the self-update, the host spawn, and the network replaced. */
+async function runUpdateLaunch(argv: string[], updateResult: UpdateResult): Promise<UpdateRun> {
+	const { root, home } = await launchedFixture();
+	const captured = makeIo();
+	const recorder = recordingFetch();
+	const options: RunUpdateOptions[] = [];
+	const spawnRequests: ManagedSpawnRequest[] = [];
+	const exitCode = await runLauncher({
+		argv,
+		env: {},
+		home,
+		root,
+		version: "0.2.0",
+		compiled: true,
+		bunVersion: "1.4.2",
+		fetch: recorder.fetch,
+		io: captured.io,
+		spawn: async (request) => {
+			spawnRequests.push(request);
+			return 0;
+		},
+		runUpdate: async (updateOptions) => {
+			options.push(updateOptions);
+			return updateResult;
+		},
+	});
+	return {
+		exitCode,
+		options,
+		out: captured.out,
+		err: captured.err,
+		fetchUrls: recorder.urls,
+		spawnRequests,
+	};
+}
+
+test("the accepted forms plan a self-update and the rest a refusal", () => {
+	expect(planLauncherArgs(["update"])).toEqual({ kind: "update", force: false });
+	expect(planLauncherArgs(["update", "self", "--force"])).toEqual({ kind: "update", force: true });
+	expect(planLauncherArgs(["update", "-a"])).toEqual({ kind: "update", force: false });
+	expect(planLauncherArgs(["update", "--extensions"])).toEqual({
+		kind: "update-refusal",
+		args: ["--extensions"],
+	});
+	expect(planLauncherArgs(["update", "--all"])).toEqual({ kind: "update-refusal", args: ["--all"] });
 });
 
-test("propagates the extension update exit code", async () => {
-	const fixture = startFixture({ latestVersion: "0.3.0" });
-	const { execPath } = await setupInstalled("0.2.0");
-	const { calls, spawn } = makeSpawn(9);
-	const result = await runSelfUpdate(
-		makeOptions(fixture, execPath, "0.2.0", { kind: "all", spawnExtensionUpdate: spawn }),
-	);
-	expect(result.exitCode).toBe(9);
-	expect(calls).toHaveLength(1);
+test("a self-update runs with the launcher's version, force flag, and environment", async () => {
+	const run = await runUpdateLaunch(["update", "self", "--force"], {
+		exitCode: 0,
+		replaced: false,
+		releaseTag: "spirits-v0.2.0",
+	});
+	expect(run.options).toHaveLength(1);
+	expect(run.options[0]).toMatchObject({
+		force: true,
+		installedVersion: "0.2.0",
+		execPath: process.execPath,
+		compiled: true,
+	});
+	// The managed set of the release the update reported is fetched right after the executable step.
+	expect(run.fetchUrls.some((url) => url.includes("spirits-v0.2.0"))).toBe(true);
+	expect(run.spawnRequests).toHaveLength(0);
 });
 
-for (const trustFlag of ["-a", "--no-approve"]) {
-	test(`forwards ${trustFlag} to the extension update`, async () => {
-		const fixture = startFixture({ latestVersion: "0.3.0" });
-		const { execPath } = await setupInstalled("0.2.0");
-		const { calls, spawn } = makeSpawn(0);
-		await runSelfUpdate(
-			makeOptions(fixture, execPath, "0.2.0", {
-				kind: "all",
-				trustFlag,
-				spawnExtensionUpdate: spawn,
-			}),
-		);
-		expect(calls[0]?.command).toEqual([execPath, "update", "--extensions", trustFlag]);
+test("a failing self-update stops before the managed set", async () => {
+	const run = await runUpdateLaunch(["update"], { exitCode: 1, replaced: false });
+	expect(run.exitCode).toBe(1);
+	expect(run.fetchUrls).toHaveLength(0);
+	expect(run.spawnRequests).toHaveLength(0);
+});
+
+for (const argv of [["update", "--extensions"], ["update", "--all"], ["update", "--unknown"], ["update", "-h"]]) {
+	test(`"${argv[1]}" is refused with both commands and no host launch`, async () => {
+		const run = await runUpdateLaunch(argv, { exitCode: 0, replaced: true, releaseTag: "spirits-v0.3.0" });
+		expect(run.exitCode).not.toBe(0);
+		expect(run.options).toHaveLength(0);
+		expect(run.fetchUrls).toHaveLength(0);
+		expect(run.spawnRequests).toHaveLength(0);
+		const message = run.err.join("\n");
+		expect(message).toContain("spirits managed-pi update");
+		expect(message).toContain(`spirits -- update ${argv.slice(1).join(" ")}`);
 	});
 }
 
-test("runs the extension update when the binary is already latest", async () => {
-	const fixture = startFixture({ latestVersion: "0.3.0" });
-	const { execPath } = await setupInstalled("0.3.0");
-	const { calls, spawn } = makeSpawn(4);
-	const result = await runSelfUpdate(
-		makeOptions(fixture, execPath, "0.3.0", { kind: "all", spawnExtensionUpdate: spawn }),
-	);
-	expect(result).toEqual({ exitCode: 4, replaced: false, releaseTag: "spirits-v0.3.0" });
-	expect(await Bun.file(execPath).text()).toBe("installed 0.3.0");
-	expect(calls).toHaveLength(1);
-	expect(calls[0]?.targetContent).toBe("installed 0.3.0");
+test("the separator hands an update invocation to the host untouched", async () => {
+	expect(planLauncherArgs(["--", "update", "--extensions"])).toEqual({
+		kind: "host",
+		args: ["update", "--extensions"],
+	});
+	const run = await runUpdateLaunch(["--", "update", "--extensions"], {
+		exitCode: 0,
+		replaced: false,
+	});
+	expect(run.exitCode).toBe(0);
+	expect(run.options).toHaveLength(0);
+	expect(run.spawnRequests).toHaveLength(1);
+	const command = run.spawnRequests[0]?.command ?? [];
+	expect(command.slice(-2)).toEqual(["update", "--extensions"]);
 });
 
-test("does not run the extension update when the self-update fails", async () => {
-	const fixture = startFixture({ latestVersion: "0.3.0", artifactStatus: 500 });
-	const { execPath } = await setupInstalled("0.2.0");
-	const { calls, spawn } = makeSpawn(0);
-	const result = await runSelfUpdate(
-		makeOptions(fixture, execPath, "0.2.0", { kind: "all", spawnExtensionUpdate: spawn }),
-	);
-	expect(result.exitCode).toBe(1);
-	expect(calls).toHaveLength(0);
-});
-
-test("never runs the extension update for the self target", async () => {
-	const fixture = startFixture({ latestVersion: "0.3.0" });
-	const { execPath } = await setupInstalled("0.2.0");
-	const { calls, spawn } = makeSpawn(0);
-	await runSelfUpdate(makeOptions(fixture, execPath, "0.2.0", { spawnExtensionUpdate: spawn }));
-	expect(calls).toHaveLength(0);
+test("a source run refuses to update itself", async () => {
+	const { root, home } = await launchedFixture();
+	const captured = makeIo();
+	const recorder = recordingFetch();
+	const options: RunUpdateOptions[] = [];
+	const exitCode = await runLauncher({
+		argv: ["update"],
+		env: {},
+		home,
+		root,
+		version: "0.2.0",
+		compiled: false,
+		bunVersion: "1.4.2",
+		fetch: recorder.fetch,
+		io: captured.io,
+		runUpdate: async (updateOptions) => {
+			options.push(updateOptions);
+			return { exitCode: 0, replaced: true };
+		},
+	});
+	expect(exitCode).not.toBe(0);
+	expect(options).toHaveLength(0);
+	expect(captured.err.join("\n")).toContain("running from source");
 });

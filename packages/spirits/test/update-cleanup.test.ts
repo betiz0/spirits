@@ -102,18 +102,9 @@ function makeIo(): Captured {
 	return { io: { out: (line) => out.push(line), err: (line) => err.push(line) }, out, err };
 }
 
-/** Write both theme files so the up-to-date path is a true no-op. */
-async function writeInstalledThemeAssets(installDir: string): Promise<void> {
-	const themeDir = join(installDir, "theme");
-	await mkdir(themeDir, { recursive: true });
-	await writeFile(join(themeDir, "dark.json"), "{}");
-	await writeFile(join(themeDir, "light.json"), "{}");
-}
-
 /** Options for an installed binary that already matches the fixture's latest stable release. */
 function makeNoOpOptions(baseUrl: string, execPath: string, io: UpdateIo): RunUpdateOptions {
 	return {
-		kind: "self",
 		force: false,
 		env: { SPIRITS_API_BASE_URL: baseUrl, SPIRITS_RELEASE_BASE_URL: baseUrl },
 		fetch,
@@ -133,7 +124,6 @@ test("removes stale temp directories on the up-to-date path", async () => {
 	await mkdir(installDir);
 	const execPath = join(installDir, "spirits");
 	await writeFile(execPath, "installed binary");
-	await writeInstalledThemeAssets(installDir);
 	const finished = Bun.spawn(["true"]);
 	const finishedPid = finished.pid;
 	await finished.exited;
@@ -159,7 +149,6 @@ test("keeps running processes' temp directories on the up-to-date path", async (
 	await mkdir(installDir);
 	const execPath = join(installDir, "spirits");
 	await writeFile(execPath, "installed binary");
-	await writeInstalledThemeAssets(installDir);
 	const running = Bun.spawn(["sleep", "30"]);
 	try {
 		await waitFor(() => isProcessAlive(running.pid), "the helper process to start");
