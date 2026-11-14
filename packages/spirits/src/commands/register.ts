@@ -1,9 +1,8 @@
 /**
  * Wiring of the managed command surface.
  *
- * The commands exist only where the host has no role vocabulary, which the caller decides by checking
- * `registerModelRoles` — the one difference between the fork route and the managed route that the
- * bundle can see. This module assumes it is on the managed route and registers:
+ * The host takes no part in the role, the step, or the conversation boundary, so this surface is what
+ * puts them on a session. It registers:
  *
  * - `/spirits-role`, which locks the role, sets a role or step target and thinking level, reports how
  *   the routing is running, and opens the settings list on a terminal;
@@ -324,8 +323,8 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 
 	pi.on("session_start", (event, ctx) => {
 		// This handler runs after the routing layer's own start handler, which put the default role on the
-		// phase. A session with a record of its own — one this surface wrote, or a fork wrote — takes that
-		// lock back, because `models.role` is a default and not a session's state. On a reload only, the
+		// phase. A session with a record of its own — one this surface wrote, or one an older spirits wrote
+		// — takes that lock back, because `models.role` is a default and not a session's state. On a reload only, the
 		// step that was still running comes back too: the record says whether one was, and a step that
 		// ended appended the record that says it did not (design Decision 12).
 		const branch = ctx.sessionManager.getBranch();

@@ -112,8 +112,8 @@ export interface RoutingPhase {
 	followStepRecord(name: string | undefined): void;
 	/**
 	 * Open a session for one of pi's `session_start` reasons. A reload keeps the step — the runtime was
-	 * replaced, not the conversation — and every other start, new or resumed or forked, begins a
-	 * conversation that never had the step.
+	 * replaced, not the conversation — and every other start, new, resumed, or opened on a copied
+	 * conversation, begins a conversation that never had the step.
 	 */
 	beginSession(reason: string): void;
 	/** Snapshot of the state a reload restores. */

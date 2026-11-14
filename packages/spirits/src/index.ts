@@ -135,9 +135,9 @@ export default function spiritsExtension(pi: ExtensionAPI): void {
 	// Routing registers before the REPL tool: `rlm` and `routing` are sibling layers, so the entry
 	// point is the only place that can join them. The resolver reads the phase and the settings when a
 	// child starts, which is what makes a settings edit take effect on the next child.
-	// The badge shows the role that answered the last request, which the route reports through this
-	// hook on either route. On the fork route pi draws its own badge next to the model name as well;
-	// this line is the extension status line, not that one.
+	// The badge shows the role that answered the last request, which the route reports through this hook.
+	// It is the extension status line the official footer draws on its own status row, not a badge the
+	// host attaches to the model name.
 	// A badge that cannot draw is contained inside the routing layer: the hook runs on the way to the
 	// user's answer, and a host that refuses a status write loses the footer line and nothing else.
 	const badge = createRoleBadge();
@@ -153,21 +153,15 @@ export default function spiritsExtension(pi: ExtensionAPI): void {
 					lastRequest = request;
 				},
 		}),
-		() => ({
-			roleApi: false,
-			phase: fallbackRoutingPhase(() => readRoutingSettings(pi.getSettings()).defaultRole),
-		}),
+		() => ({ phase: fallbackRoutingPhase(() => readRoutingSettings(pi.getSettings()).defaultRole) }),
 	);
 
-	// One bundle, two routes. `registerModelRoles` is the fork's role patch: where it is missing the
-	// host is an official Pi, and the commands that reach the same state through documented API —
-	// `/spirits-role` and `/spirits-clear` — are what fills the gap. Where it exists, pi's `/model`
-	// already takes a role and these commands would only compete with it.
-	if (!routing.roleApi) {
-		attempt("/spirits-role and /spirits-clear", () =>
-			registerManagedCommands(pi, { phase: routing.phase, badge, lastRequest: () => lastRequest }),
-		);
-	}
+	// `/spirits-role` and `/spirits-clear` are the command surface of the bundle: they reach the role, the
+	// step, and the conversation through documented host API, so they are registered on every load and
+	// not only when something else is missing.
+	attempt("/spirits-role and /spirits-clear", () =>
+		registerManagedCommands(pi, { phase: routing.phase, badge, lastRequest: () => lastRequest }),
+	);
 
 	const rlm = createRlmHostFn({
 		pi,

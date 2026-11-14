@@ -46,11 +46,18 @@
 
 ## 6. 拡張の fork 経路を削除する
 
-- [ ] 6.1 `src/routing/register.ts` の `registerModelRoles` 分岐、`ROUTING_STATE_ENTRY_TYPE` の書き込み、`onStepChange` の fork 分岐、`session_tree` の条件登録を外す。完了確認: `bun test test/routing-register.test.ts test/routing-managed-compat.test.ts test/routing-phase-wiring.test.ts` が成功する。
-- [ ] 6.2 `src/index.ts` の `routing.roleApi` の条件を外し、`registerManagedCommands` を常に登録する。完了確認: `bun test test/extension-degradation.test.ts test/managed-commands.test.ts` が成功する。
-- [ ] 6.3 `src/commands/role.ts` の `forkRoleRecord` を読み取り専用の旧データ互換として残し、ホストの状態 entry に書き戻さない。完了確認: `bun test test/managed-role-command.test.ts test/managed-role-status.test.ts` が成功する。
-- [ ] 6.4 `src/constants.ts` の `MANAGED_PI_FORK_ROUTE_HINT` を削除する。`ENV_ROUTE` / `ROUTE_FORK_VALUE` は 3.5 の拒否判定のために残す。`src/managed-pi/environment.ts` の fork 期の env 除去は残す。完了確認: `bun test test/managed-pi-env.test.ts` が成功し、`rg -n "MANAGED_PI_FORK_ROUTE_HINT" packages/spirits` が 0 件。
-- [ ] 6.5 `src/commands/settings-store.ts` の fork の文言を「別の spirits プロセス」に更新する。完了確認: `rg -n -i "fork" packages/spirits/src/commands packages/spirits/src/routing packages/spirits/src/index.ts` のヒットが `forkRoleRecord` とその旧データ互換を説明するコメント (「旧 fork」を含む行) だけになる。
+- [x] 6.1 `src/routing/register.ts` の `registerModelRoles` 分岐、`ROUTING_STATE_ENTRY_TYPE` の書き込み、`onStepChange` の fork 分岐、`session_tree` の条件登録を外す。完了確認: `bun test test/routing-register.test.ts test/routing-managed-compat.test.ts test/routing-phase-wiring.test.ts` が成功する。
+  - 実測: 上記 3 ファイルで 21 pass / 0 fail。`registerDualModelRouting` の返り値は `phase` だけ (`roleApi` と `RoutingRecordData` / `latestRoutingRecord` / `isUnaskedSession` / 限定互換の notify は削除)。`onStepChange` は常に `spirits_step` を追記し、`session_tree` は無条件登録、セッション開始では何も追記しない。
+  - tasks に名の無い削除: `test/pi-runtime/model-roles-api.test.ts` は fork の role 登録 API と fork ソースの `model-command-args` を pin するテストで、この分岐の削除で失敗するため 8.1 より前に削除した (`routing-record-pin.test.ts` は 8.1 のまま残す)。
+  - テストの作り替え: `routing-register.test.ts` の fork 専用のケース (既定ロールを host の状態 entry に書く、`registerModelRoles` の登録、`/model` の onSelect) を削り、ロックは `phase.setRole` で行う。`routing-managed-compat.test.ts` は「公式ホストで何も報告せず、何も書かずにロードされる」検査に作り替えた。`test/routing/fake-pi.ts` から `modelRoles` と `withoutRoleApi` を削除 (`registerModelRoles` はホスト型 mirror が要求するため空実装として残し、7.1 の mirror 更新で消す)。`routing-integration.test.ts` は `src/index.ts` と同じ 2 層配線を自分で行い (`patchSettings` は noop)、ロックは `phase.setRole` で立てる。
+- [x] 6.2 `src/index.ts` の `routing.roleApi` の条件を外し、`registerManagedCommands` を常に登録する。完了確認: `bun test test/extension-degradation.test.ts test/managed-commands.test.ts` が成功する。
+  - 実測: 上記 2 ファイルで成功 (6.3 / 6.4 と合わせて 76 pass / 0 fail)。`managed-commands.test.ts` の「fork 経路は 0 件、公式 Pi では 2 件」のケースは「どのロードでも 2 件」に置き、`extension-degradation.test.ts` の `routing.roleApi` の主張は「virtual model が 1 件登録される」に置いた。
+- [x] 6.3 `src/commands/role.ts` の `forkRoleRecord` を読み取り専用の旧データ互換として残し、ホストの状態 entry に書き戻さない。完了確認: `bun test test/managed-role-command.test.ts test/managed-role-status.test.ts` が成功する。
+  - 実測: 上記 2 ファイルで成功。`ROUTING_STATE_ENTRY_TYPE` を読むのは `forkRoleRecord` だけで、書き込み元は src に 0 件 (`rg -n "appendEntry\(ROUTING_STATE_ENTRY_TYPE" src` -> 0 件)。role の書き込みは `spirits_role` (`src/commands/register.ts`) だけ。doc comment は旧 fork の旧データの読み取り互換として書き直した。
+- [x] 6.4 `src/constants.ts` の `MANAGED_PI_FORK_ROUTE_HINT` を削除する。`ENV_ROUTE` / `ROUTE_FORK_VALUE` は 3.5 の拒否判定のために残す。`src/managed-pi/environment.ts` の fork 期の env 除去は残す。完了確認: `bun test test/managed-pi-env.test.ts` が成功し、`rg -n "MANAGED_PI_FORK_ROUTE_HINT" packages/spirits` が 0 件。
+  - 実測: `bun test test/managed-pi-env.test.ts` -> 成功。`rg -n "MANAGED_PI_FORK_ROUTE_HINT" packages/spirits` -> 0 件 (exit 1)。`ENV_ROUTE` / `ROUTE_FORK_VALUE` の読み手は `default-route.ts` の `forkRouteRefusal` だけで、その旨を doc comment に更新した。
+- [x] 6.5 `src/commands/settings-store.ts` の fork の文言を「別の spirits プロセス」に更新する。完了確認: `rg -n -i "fork" packages/spirits/src/commands packages/spirits/src/routing packages/spirits/src/index.ts` のヒットが `forkRoleRecord` とその旧データ互換を説明するコメント (「旧 fork」を含む行) だけになる。
+  - 実測: ヒットは 6 行で、`forkRoleRecord` の宣言と呼び出しと `{@link forkRoleRecord}` の行、そして「旧 fork」を含むコメント 3 行だけ。その他 (`index.ts` の badge とコマンド登録のコメント、`commands/register.ts` の 2 箇所、`routing/phase.ts` の "forked") も fork の語を消して更新した。
 
 ## 7. 型ミラーの照合
 

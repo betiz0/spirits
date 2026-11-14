@@ -1,3 +1,7 @@
+/**
+ * The routing on the host it actually runs on: an official Pi, which offers the virtual model and the
+ * events and no role vocabulary of its own. The role, the step, and their records are the bundle's.
+ */
 import { expect, test } from "bun:test";
 import type { ModelRoute, PiModel } from "@earendil-works/pi-coding-agent";
 import { registerDualModelRouting } from "../src/routing/register.ts";
@@ -6,10 +10,9 @@ import { AUTO_SELECTION, fakeCatalog, FakePi, makeRequest } from "./routing/fake
 const SONNET: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5" };
 const OPUS: PiModel = { provider: "anthropic", id: "claude-opus-4-7" };
 
-function withoutRoleApi(): FakePi {
+function host(): FakePi {
 	const pi = new FakePi();
-	Object.defineProperty(pi, "registerModelRoles", { value: undefined, configurable: true });
-	// The review skill is the starter of the step the compat case drives, and a step only opens where
+	// The review skill is the starter of the step the cases below drive, and a step only opens where
 	// pi reports the command.
 	pi.slashCommands = [{ name: "skill:sprt-opsx-review-change", source: "skill" }];
 	pi.settings = {
@@ -20,32 +23,30 @@ function withoutRoleApi(): FakePi {
 	return pi;
 }
 
-test("loads without the role API", () => {
-	const pi = withoutRoleApi();
-	const result = registerDualModelRouting(pi);
-	expect(result.roleApi).toBe(false);
+test("loads on the host with nothing to report", async () => {
+	const pi = host();
+	const routing = registerDualModelRouting(pi);
+	const { ctx, notices } = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"] });
+
+	expect(Object.keys(routing)).toEqual(["phase"]);
 	expect(pi.registrations).toHaveLength(1);
-	expect(pi.modelRoles).toBeUndefined();
+
+	await pi.fire("session_start", { type: "session_start", reason: "startup" }, ctx);
+	await pi.fire("session_start", { type: "session_start", reason: "reload" }, ctx);
+
+	// Nothing is degraded any more, so a start says nothing and writes nothing: the session file the
+	// routing leaves alone is the point.
+	expect(notices).toEqual([]);
+	expect(pi.entries).toEqual([]);
 });
 
-test("keeps skill-driven strong phase", async () => {
-	const pi = withoutRoleApi();
+test("keeps the skill-driven strong step", async () => {
+	const pi = host();
 	registerDualModelRouting(pi);
 	const { ctx } = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"], model: AUTO_SELECTION });
 	const input = pi.handlers.get("input")![0]!;
-	await input({ type: "input", text: "/skill:sprt-opsx-review-change", source: "interactive" }, ctx);
-	const route = pi.route()(makeRequest(), ctx) as ModelRoute;
-	expect(route.model.id).toBe(OPUS.id);
-});
 
-test("reports the degraded role surface once", async () => {
-	const pi = withoutRoleApi();
-	registerDualModelRouting(pi);
-	const { ctx, notices } = fakeCatalog({ available: [SONNET], authedProviders: ["anthropic"] });
-	await pi.fire("session_start", { type: "session_start", reason: "startup" }, ctx);
-	await pi.fire("session_start", { type: "session_start", reason: "reload" }, ctx);
-	expect(notices).toHaveLength(1);
-	expect(notices[0]).toContain("no role API");
-	expect(notices[0]).toContain("/model role");
-	expect(pi.entries).toEqual([]);
+	await input({ type: "input", text: "/skill:sprt-opsx-review-change", source: "interactive" }, ctx);
+
+	expect((pi.route()(makeRequest(), ctx) as ModelRoute).model.id).toBe(OPUS.id);
 });

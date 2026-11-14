@@ -551,13 +551,13 @@ export const ENV_MANAGED_PI_MANIFEST_URL = "SPIRITS_MANAGED_PI_MANIFEST_URL";
 // ---------------------------------------------------------------------------
 
 /**
- * Environment variable that selects the launch route. `fork` starts the compiled fork; unset and
- * any other value start managed. Pi owns a `--fork` CLI flag, so the escape hatch is an environment
- * variable and never a flag.
+ * Environment variable that used to select the launch route. Only `fork` is read, and only to refuse:
+ * a release that still carries it in the environment is a release that expects an embedded Pi, and
+ * silently starting the host instead would hide that.
  */
 export const ENV_ROUTE = "SPIRITS_ROUTE";
 
-/** Value of {@link ENV_ROUTE} that keeps the fork route. */
+/** Value of {@link ENV_ROUTE} that refuses the launch (see `forkRouteRefusal`). */
 export const ROUTE_FORK_VALUE = "fork";
 
 /** Backups root under `$HOME` (`~/.spirits/backups`), beside `bin`, `agent`, and `managed-pi`. */
@@ -583,9 +583,6 @@ export const MANAGED_PI_UPDATE_COMMAND = "spirits managed-pi update";
 
 /** Prefix that hands `update` arguments to the host instead of the launcher's self-update. */
 export const HOST_UPDATE_COMMAND_PREFIX = "spirits -- update";
-
-/** Escape hatch shown together with a managed launch failure. */
-export const MANAGED_PI_FORK_ROUTE_HINT = `SPIRITS_ROUTE=${ROUTE_FORK_VALUE} spirits`;
 
 /** Tag of the last commit that still contained the Pi fork, and the source of a rollback build. */
 export const FORK_FINAL_TAG_NAME = "spirits-fork-final";

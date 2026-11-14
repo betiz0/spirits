@@ -35,7 +35,7 @@ import type { SettingsPatch } from "../src/commands/settings-store.ts";
 import { readRoutingSettings } from "../src/config.ts";
 import spiritsExtension from "../src/index.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
-import { FakePi, fakeCatalog, fakeCommandContext, withoutRoleApi } from "./routing/fake-pi.ts";
+import { FakePi, fakeCatalog, fakeCommandContext } from "./routing/fake-pi.ts";
 
 const MODEL_A: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5", name: "Sonnet", api: "anthropic" };
 const MODEL_B: PiModel = { provider: "openai", id: "gpt-5-mini", name: "GPT-5 Mini", api: "openai" };
@@ -305,16 +305,12 @@ test("a settings file with a byte-order mark is merged and written back without 
 	expect(JSON.parse(text)).toEqual({ base: true, defaultModel: "model-a" });
 });
 
-// spec requirement "managed 限定のコマンド登録": `registerModelRoles` の有無だけで分岐し、fork 経路では
-// 0 件、公式 Pi では 3 コマンド。entry point を通して確認するのは、分岐が登録の側にあるからである。
-test("registers only spirits-role and spirits-clear on an official host", () => {
-	const fork = new FakePi();
-	spiritsExtension(fork);
-	expect([...fork.commands.keys()]).toEqual([]);
-
-	const official = withoutRoleApi(new FakePi());
-	spiritsExtension(official);
-	expect([...official.commands.keys()].sort()).toEqual([COMMAND_SPIRITS_CLEAR, COMMAND_SPIRITS_ROLE].sort());
+// spec requirement "managed コマンドの登録": 登録はロードごとに必ず行う。host 側の分岐は無くなったので、
+// entry point を通して 2 コマンドだけを数える (それ以上でもそれ以下でもないことを見る)。
+test("registers spirits-role and spirits-clear on every load", () => {
+	const pi = new FakePi();
+	spiritsExtension(pi);
+	expect([...pi.commands.keys()].sort()).toEqual([COMMAND_SPIRITS_CLEAR, COMMAND_SPIRITS_ROLE].sort());
 });
 
 test("a settings file that is not JSON is reported instead of overwritten", () => {

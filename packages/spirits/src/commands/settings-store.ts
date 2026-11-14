@@ -11,8 +11,8 @@
  * next to pi's own keys.
  *
  * `withFileMutationQueue` is deliberately not used: it serializes writes inside one process, while
- * the writer that matters here is a different process — a fork `spirits` binary or another managed
- * Pi sharing the same agent dir. Only the file lock is inter-process.
+ * the writer that matters here is a different spirits process — another `spirits` run, or the host it
+ * spawns, sharing the same agent dir. Only the file lock is inter-process.
  *
  * Only the global file is written. The project file belongs to a trust decision pi prompts for.
  */

@@ -21,7 +21,6 @@ import type {
 	ExtensionVirtualModel,
 	InputEvent,
 	InputEventResult,
-	ModelRoleRegistration,
 	ModelRouteRequest,
 	PiModel,
 	RegisteredCommandOptions,
@@ -55,8 +54,6 @@ export class FakePi implements ExtensionAPI {
 	readonly errors: unknown[] = [];
 	/** Entries passed to `appendEntry()`, in order. */
 	readonly entries: Array<{ customType: string; data: unknown }> = [];
-	/** The `registerModelRoles()` registration, which a re-registration replaces. */
-	modelRoles?: ModelRoleRegistration;
 	settings: Record<string, unknown> = {};
 	/** Commands registered through `registerCommand()`, in registration order. */
 	readonly commands = new Map<string, RegisteredCommandOptions>();
@@ -119,9 +116,8 @@ export class FakePi implements ExtensionAPI {
 		return this.settings;
 	}
 
-	registerModelRoles(definition: ModelRoleRegistration): void {
-		this.modelRoles = definition;
-	}
+	/** Declared by the host API, used by no spirits code. */
+	registerModelRoles(): void {}
 
 	registerVirtualModel<TState = unknown>(model: ExtensionVirtualModel<TState>): void {
 		this.registrations.push(model as ExtensionVirtualModel);
@@ -354,15 +350,6 @@ export function makeUserEntry(text: string): SessionEntry {
  * catalog entry carries the virtual api id, which is how a reader tells it from a physical model.
  */
 export const AUTO_SELECTION: PiModel = { provider: "spirits", id: "auto", api: PI_VIRTUAL_MODEL_API };
-
-/**
- * Make `pi` look like an official host: the role API the fork patches in is not there to read.
- * Deleting the property is what pi does to an extension it did not patch, not assigning undefined.
- */
-export function withoutRoleApi<T extends FakePi>(pi: T): T {
-	Object.defineProperty(pi, "registerModelRoles", { value: undefined, configurable: true });
-	return pi;
-}
 
 /**
  * Command context: the event context plus the `reload()` a command handler gets. `reloads` counts

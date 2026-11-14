@@ -14,7 +14,7 @@ import type { PiModel, SessionEntry } from "@earendil-works/pi-coding-agent";
 import { ROLE_ENTRY_TYPE, STEP_ENTRY_TYPE } from "../src/constants.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
 import { registerDualModelRouting } from "../src/routing/register.ts";
-import { AUTO_SELECTION, FakePi, fakeCommandContext, makeCustomEntry, withoutRoleApi } from "./routing/fake-pi.ts";
+import { AUTO_SELECTION, FakePi, fakeCommandContext, makeCustomEntry } from "./routing/fake-pi.ts";
 
 const FAKE_MODEL: PiModel = { provider: "compat-fake", id: "fake-model", api: "openai" };
 const FAKE_STRONG: PiModel = { provider: "compat-fake", id: "fake-strong", api: "openai" };
@@ -22,7 +22,7 @@ const AVAILABLE = [FAKE_MODEL, FAKE_STRONG];
 
 /** The routing layer and the command surface over one fake host, as `src/index.ts` wires them. */
 function wire(options: { skills?: readonly string[]; settings?: Record<string, unknown> } = {}) {
-	const pi = withoutRoleApi(new FakePi());
+	const pi = new FakePi();
 	pi.settings = { defaultProvider: "compat-fake", defaultModel: "fake-model", ...(options.settings ?? {}) };
 	pi.slashCommands = (options.skills ?? ["skill:openspec-apply-change", "skill:sprt-opsx-verify-deep"]).map((name) => ({
 		name,
@@ -424,7 +424,7 @@ test("a tree move appends no step record", async () => {
 // A start that records nothing leaves the configured default standing, which is what makes `models.role`
 // a default rather than a session's state.
 test("a new session with no records takes the configured default", async () => {
-	const pi = withoutRoleApi(new FakePi());
+	const pi = new FakePi();
 	pi.settings = { defaultProvider: "compat-fake", defaultModel: "fake-model", models: { role: "strong" } };
 	const routing = registerDualModelRouting(pi);
 	registerManagedCommands(pi, { phase: routing.phase, patchSettings: () => {} });

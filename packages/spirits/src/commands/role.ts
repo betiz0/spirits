@@ -1,17 +1,15 @@
 /**
  * The role of a managed session, and the `/spirits-role` grammar that sets it.
  *
- * The fork route records the role in pi's `pi.virtual-model-state` entry, because the fork's role
- * patch is what writes that entry. On the official Pi that entry belongs to the core: its own reader
- * takes `{ provider, modelId, state }` from the newest matching record, and an extension writing a
- * role-shaped record there risks the state the core keeps in it. So the managed route writes its own
- * `spirits_role` entry and only *reads* pi's record, at session start, when spirits has written
- * nothing on the branch — the one-way handoff that lets a session a fork started continue on the
- * managed route with the role it had.
+ * A session's own role lives in the `spirits_role` entry this surface writes. The host keeps a state
+ * entry of its own (`pi.virtual-model-state`), and its reader takes `{ provider, modelId, state }` from
+ * the newest matching record, so an extension that wrote a role-shaped record there would risk the
+ * state the host keeps in it. Releases before 旧 fork wrote their role in exactly that entry, so
+ * {@link forkRoleRecord} reads it at session start and never writes it back: the one-way handoff that
+ * lets a session an older release started continue with the role it had.
  *
  * The badge goes on `ui.setStatus()`. The official footer renders extension statuses on its own status
- * line, alphabetically by key, which is a different place from the fork's badge next to the model
- * name. It is not the fork badge, and `docs/spirits-managed-pi.md` says so.
+ * line, alphabetically by key, and `docs/spirits-managed-pi.md` says so.
  *
  * The grammar below is pure: it turns a line of arguments into an intent, or into a request for the
  * usage line. Nothing here touches the session or the settings file, so every branch of the grammar is
@@ -200,8 +198,8 @@ export function spiritsRoleEntry(branch: readonly SessionEntry[]): string | unde
 }
 
 /**
- * Newest role a fork wrote in pi's routing-state entry, or undefined. Read-only by design: the
- * managed route never appends to that entry.
+ * Newest role a 旧 fork release wrote in the host's routing-state entry, or undefined. Read-only by
+ * design: the managed route never appends to that entry, so the host keeps it alone.
  */
 export function forkRoleRecord(branch: readonly SessionEntry[]): string | undefined {
 	for (let index = branch.length - 1; index >= 0; index--) {
@@ -214,8 +212,8 @@ export function forkRoleRecord(branch: readonly SessionEntry[]): string | undefi
 }
 
 /**
- * The role a session inherits at start: spirits' own record first, then a fork's record, then
- * nothing. The caller falls back to `normal` when this is undefined.
+ * The role a session inherits at start: spirits' own record first, then a 旧 fork release's record,
+ * then nothing. The caller falls back to `normal` when this is undefined.
  */
 export function inheritedRole(branch: readonly SessionEntry[]): string | undefined {
 	return spiritsRoleEntry(branch) ?? forkRoleRecord(branch);

@@ -26,7 +26,7 @@ import { MANAGE_TODOS_TOOL_NAME } from "../src/todo/tool.ts";
 import spiritsExtension, { fallbackRoutingPhase } from "../src/index.ts";
 import { createChildModelResolver } from "../src/routing/child.ts";
 import { registerDualModelRouting } from "../src/routing/register.ts";
-import { AUTO_SELECTION, FakePi, fakeCatalog, fakeToolContext, makeRequest, withoutRoleApi } from "./routing/fake-pi.ts";
+import { AUTO_SELECTION, FakePi, fakeCatalog, fakeToolContext, makeRequest } from "./routing/fake-pi.ts";
 import { makeToolContext } from "./support.ts";
 
 const SONNET: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5", name: "Sonnet", api: "anthropic" };
@@ -130,7 +130,7 @@ test("a host that cannot take a virtual model keeps the core and says so once", 
 });
 
 test("a host that cannot take the commands keeps the core and says so once", async () => {
-	const pi = withoutRoleApi(new HostWithoutCommandApi());
+	const pi = new HostWithoutCommandApi();
 	expect(() => spiritsExtension(pi)).not.toThrow();
 	expectCoreRegistered(pi);
 	expect(pi.commands.size).toBe(0);
@@ -174,12 +174,12 @@ test("a header the host will not draw costs the header only", async () => {
 test("a footer that refuses a status write does not stop the request", () => {
 	const pi = new FakePi();
 	pi.settings = { defaultProvider: "anthropic", defaultModel: "claude-sonnet-4-5" };
-	const routing = registerDualModelRouting(pi, {
+	registerDualModelRouting(pi, {
 		onRole: () => {
 			throw new Error("setStatus is gone");
 		},
 	});
-	expect(routing.roleApi).toBe(true);
+	expect(pi.registrations).toHaveLength(1);
 
 	const base = fakeCatalog({ available: [SONNET], authedProviders: ["anthropic"], model: AUTO_SELECTION });
 	const ctx = {
