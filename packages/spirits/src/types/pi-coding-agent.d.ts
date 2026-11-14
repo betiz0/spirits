@@ -1,18 +1,22 @@
 /**
  * Minimal local mirror of the upstream pi Extension API surface that spirits uses.
  *
- * The real types live in `packages/coding-agent/src/core/extensions/types.ts`. Spirits
- * does not compile against them directly: doing so pulls the whole pi source tree into
- * the type check, where `@types/bun` globals conflict with pi's Node-targeted types
- * (`ReadableStream`, `path.PlatformPath`). The `paths` entry in
- * `packages/spirits/tsconfig.json` points type-only imports at this file, which the
- * runtime does not load.
+ * The real types live in the host package `@earendil-works/pi-coding-agent` at the version
+ * `PINNED_PI` names, in its `core/extensions` module. Spirits does not compile against them
+ * directly: doing so pulls the whole host tree into the type check, where `@types/bun` globals
+ * conflict with pi's Node-targeted types (`ReadableStream`, `path.PlatformPath`). The `paths` entry
+ * in `packages/spirits/tsconfig.json` points type-only imports at this file, which the runtime does
+ * not load.
  *
  * `src/rlm/spawn.ts` is the exception: it imports pi values at runtime (the SDK). Bun
  * resolves those with the nearest `tsconfig.json`, `src/rlm/tsconfig.json`, whose
  * `paths` extend the root config and point at the pi sources (design Decision 12).
  *
- * Keep this in sync with the upstream definitions when spirits adopts new API fields.
+ * `scripts/check-pi-type-mirror.ts` compares this file with the `.d.ts` files of the pinned artifact:
+ * every name here has to exist in the host, every member the mirror declares has to exist there, and a
+ * member type spelled with literals and primitives has to be spelled the same way. A name the host has
+ * never declared — a stand-in for a shape the published entry points do not export — is listed in that
+ * script with the reason it has no host side, and the check fails when the list no longer matches.
  */
 
 import type { Static, TSchema } from "typebox";

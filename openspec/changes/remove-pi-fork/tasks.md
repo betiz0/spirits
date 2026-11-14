@@ -62,7 +62,13 @@
 ## 7. 型ミラーの照合
 
 - [ ] 7.1 `scripts/check-pi-type-mirror.ts` を追加し、固定したホスト artifact の `.d.ts` と `src/types/*.d.ts` の export / member を照合する。テスト `test/pi-type-mirror.test.ts` を新設し、改名・型変更・追加のみの fixture を置く。完了確認: 公式 Pi 1.5.0 の展開先を渡して成功し、`bun test test/pi-type-mirror.test.ts` で改名と型変更の fixture が失敗、追加のみの fixture が成功と判定される。
-- [ ] 7.2 型ミラーの doc comment を「固定 artifact と照合する」に更新する。完了確認: `bun test test/pi-runtime/virtual-model-api.test.ts` が成功し、`src/types/pi-coding-agent.d.ts` の先頭コメントが更新されている。
+  - 実装済み: チェッカーは package.json の `types` と `exports` から公開 entry point を解決し、`export *` / `export {a as b} from` を追跡して公開 surface を作る (`scripts/check-pi-type-mirror.ts` の `readHostDeclarations`)。照合は (a) 名前が host に存在する、(b) mirror が宣言する member が host 側 (`extends`  chain と union alias の flatten を辿る) に存在する、(c) 公開 entry point 経由の名前でリテラル/基本型だけの表記は綴りまで一致する。host 側のみにある追加は失敗にしない。host 展開先を 1 つ以上 `--artifact-root` で受け、複数 package をマージする。
+  - テスト `packages/spirits/test/pi-type-mirror.test.ts` は fixture host (manifest + `export * from "./types.js"` の entry) で 9 pass / 0 fail: narrow のみで成功、export 改名 -> `missing-export`、member 改名 -> `missing-member`、表記のズレ -> `type-mismatch`、未公開名の member 照合、spirits 固有名の除外と stale 検出、entry 無し artifact の読み取り失敗。
+  - 未達 (公式 1.5.0 に対して green にできない): `--artifact-root` に公式 1.5.0 の pi-coding-agent / pi-tui / pi-ai を渡すと 38 件の issue が出る。内訳は (i) fork 固有名を mirror がそのまま運んでいる (`ExtensionAPI.registerModelRoles`、`ExtensionRunner.getModelRoles` / `selectModelRole`、`ModelRoleRegistration`、`ModelRoleSettingsKey`、`SystemPromptOptions`)、(ii) mirror が発明した stand-in (`ToolCallEventBase`、`OtherToolCallEvent`、`SessionStateChangeEntry`、`CompactionSessionEntry`、`AgentMessage`、`ParsedFrontmatter`、`SkillCollision`、`SkillDiagnostic`、`ExtensionSettings`、`ExtensionModelRegistry`、`CallableToolInfo`、`RegisteredCommandOptions`、`AgentToolCallOutcome`)、(iii) チェッカー側の解像不足 (`WithParentToolCallId<Exclude<AgentEvent, …>>` のような mapped/generic ユーティリティ型、同名宣言が複数 package にある時の優先、`BashToolInput` / `CustomEntry.id` / `AgentSession.readonly` / `KeybindingsManager.matches`)。
+  - 停止した理由: (i) の削除は §6 で利用側を消した延伸だが mirror 側の削除は 12.2 の範囲、(ii) は mirror 宣言ごとに host 側の対応名を調べて表へ登録する作業 (spirits 側のコードが fork 固有名を使っているうちは削除できない) で、(iii) を埋めないと (i)(ii) を片付けても green にならない。要求 (公式 1.5.0 で成功) を緩めずに進めるには、(ii) の対応名調査と (iii) の型解決拡張のどちらを先にやるかの方針判断が要る。
+- [x] 7.2 型ミラーの doc comment を「固定 artifact と照合する」に更新する。完了確認: `bun test test/pi-runtime/virtual-model-api.test.ts` が成功し、`src/types/pi-coding-agent.d.ts` の先頭コメントが更新されている。
+  - `src/types/pi-coding-agent.d.ts` と `src/types/pi-tui.d.ts` の先頭コメントを、実体 が固定版 (`PINNED_PI`) の公開パッケージにあること、`scripts/check-pi-type-mirror.ts` が名前一貫性・member・閉じた型表記を照合すること、host に無い名前はチェック側の一覧に理由付きで登録されることに更新した。
+  - 検証: `bun test test/pi-type-mirror.test.ts test/pi-runtime/virtual-model-api.test.ts` -> 11 pass / 0 fail。`npx tsc --noEmit -p packages/spirits/tsconfig.json` -> pass。
 
 ## 8. pin テストの再編
 
