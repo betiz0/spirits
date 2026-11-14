@@ -96,7 +96,7 @@ spirits update --force   # インストール済みが最新でも再取得し�
 curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/main/scripts/install.sh | VERSION=0.4.0-rc.1 sh
 ```
 
-実行ファイルの更新後、`spirits update` は**同じリリース**の manifest から managed の一式を取得して `~/.spirits/managed-pi` に導入する(最新リリースの manifest ではない)。置換を行わなかった同版・新版インストール済みの場合も同じ規則で取得する。一式の取得・導入が失敗したときは理由と `spirits managed-pi repair` と `SPIRITS_ROUTE=fork spirits` を表示して非ゼロで終わるが、配置済みの実行ファイルはそのまま残る。
+実行ファイルの更新後、`spirits update` は**同じリリース**の manifest から managed の一式を取得して `~/.spirits/managed-pi` に導入する(最新リリースの manifest ではない)。置換を行わなかった同版・新版インストール済みの場合も同じ規則で取得する。一式の取得・導入が失敗したときは理由と `spirits managed-pi repair` と旧版への戻し方を表示して非ゼロで終わるが、配置済みの実行ファイルはそのまま残る。旧版への戻し方の手順は [docs/spirits-host-upgrade.md](../docs/spirits-host-upgrade.md) に書く。
 
 ## アンインストール
 
@@ -112,7 +112,7 @@ curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/main/scripts/install
 
 `spirits` は既定で managed を起動する。公式 Pi の固定成果物に spirits 拡張 bundle を読み込ませた経路で、保存先は従来と同じ規則で決まるため、設定・セッション・認証・外部拡張はそのまま引き継がれる。CLI 引数は `--` なしでそのまま Pi に渡る(`--continue`、`--resume`、`--session`、`--fork` など)。
 
-初回の managed 起動の前に、agent dir のバックアップを 1 回だけ `~/.spirits/backups/agent-<UTC 時刻>/` へ取る(シンボリックリンクはたどらずリンクのまま保存し、リンクと参照先を表示する)。バックアップに失敗した場合は起動しない。fork へ戻るには `SPIRITS_ROUTE=fork spirits`。手順と復元は [docs/spirits-default-launch.md](../docs/spirits-default-launch.md)。
+初回の managed 起動の前に、agent dir のバックアップを 1 回だけ `~/.spirits/backups/agent-<UTC 時刻>/` へ取る(シンボリックリンクはたどらずリンクのまま保存し、リンクと参照先を表示する)。バックアップに失敗した場合は起動せず、理由と `spirits managed-pi repair` と旧版への戻し方を出す。手順と復元は [docs/spirits-default-launch.md](../docs/spirits-default-launch.md)。
 
 ## 設定ディレクトリ
 
@@ -431,9 +431,9 @@ use `~/.spirits/agent` and to forward every Pi argument unchanged.
 
 Managed assets are fetched from the release of the running launcher binary, never from the newest
 release. `spirits update` and `install.sh` place the set next to the binary they install; a missing
-set is fetched on the first default launch. A fetch failure or a corrupt set never falls back to the
-fork silently: the reason, `spirits managed-pi repair`, and `SPIRITS_ROUTE=fork spirits` are printed
-and the exit code is non-zero.
+set is fetched on the first default launch. A fetch failure or a corrupt set never falls back to
+another host silently: the reason, `spirits managed-pi repair`, and the way back to a previous
+binary are printed and the exit code is non-zero.
 
 Read and write compatibility between the two routes over the same agent directory is measured in
 `docs/agent-data-compat/`. Read success in the compatibility runner is not write compatibility, and

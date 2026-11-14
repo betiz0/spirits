@@ -92,7 +92,8 @@ test("the managed install command reports success and failure", async () => {
 	const message = failedErr.join("\n");
 	expect(message).toContain("spirits-v0.9.9");
 	expect(message).toContain("Repair: spirits managed-pi repair");
-	expect(message).toContain("Start the previous fork route with: SPIRITS_ROUTE=fork spirits");
+	expect(message).toContain("Rollback:");
+	expect(message).toContain("spirits-fork-final");
 });
 
 async function readFileText(path: string): Promise<string> {

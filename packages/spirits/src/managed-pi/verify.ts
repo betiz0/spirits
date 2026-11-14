@@ -9,9 +9,9 @@
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import {
-	MANAGED_PI_FORK_ROUTE_HINT,
 	MANAGED_PI_PLATFORM,
 	MANAGED_PI_REPAIR_COMMAND,
+	MANAGED_PI_ROLLBACK_HINT,
 	MANAGED_PI_SET_EXTENSION_NAME,
 	MANAGED_PI_SET_INSTALLED_STATE_NAME,
 } from "../constants.ts";
@@ -193,15 +193,11 @@ export function managedSetFailureMessage(reason: string): string {
 }
 
 /**
- * Reason plus the two ways out: the repair command and the fork escape hatch.
+ * Reason plus the two ways out: the repair command and the way back to a previous spirits binary.
  *
  * Every managed failure the user can act on shows both. Naming only the repair command would leave a
  * user who cannot reach the network looking at a command that also fails, with the way back hidden.
  */
 export function managedRepairHint(reason: string): string {
-	return [
-		reason,
-		`Repair: ${MANAGED_PI_REPAIR_COMMAND}`,
-		`Start the previous fork route with: ${MANAGED_PI_FORK_ROUTE_HINT}`,
-	].join("\n");
+	return [reason, `Repair: ${MANAGED_PI_REPAIR_COMMAND}`, MANAGED_PI_ROLLBACK_HINT].join("\n");
 }

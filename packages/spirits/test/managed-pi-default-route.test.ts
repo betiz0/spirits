@@ -263,7 +263,7 @@ test("a failed backup stops the launch", async () => {
 		const message = harness.err.join("\n");
 		expect(message).toContain("The managed launch did not start");
 		expect(message).toContain("spirits managed-pi repair");
-		expect(message).toContain("SPIRITS_ROUTE=fork spirits");
+		expect(message).toContain("Rollback:");
 		expect(message).toContain("no Pi process was started");
 		// Nothing was launched and nothing was recorded, so the next launch retries the backup.
 		expect(await Bun.file(harness.argsFile).exists()).toBe(false);
@@ -342,7 +342,7 @@ test("a fetch failure and a corrupt set both refuse to launch", async () => {
 	expect(unreachable.agentDir).toBe(missing.agentDir);
 	const fetchMessage = missing.err.join("\n");
 	expect(fetchMessage).toContain("spirits managed-pi repair");
-	expect(fetchMessage).toContain("SPIRITS_ROUTE=fork spirits");
+	expect(fetchMessage).toContain("Rollback:");
 	expect(await entries(missing.backupsDir)).toEqual([]);
 
 	// An installed set whose bundle was rewritten is left alone: the refusal names the repair command
@@ -355,6 +355,6 @@ test("a fetch failure and a corrupt set both refuse to launch", async () => {
 	const message = corrupt.err.join("\n");
 	expect(message).toContain("does not match its recorded checksum");
 	expect(message).toContain("spirits managed-pi repair");
-	expect(message).toContain("SPIRITS_ROUTE=fork spirits");
+	expect(message).toContain("Rollback:");
 	expect(await entries(corrupt.backupsDir)).toEqual([]);
 }, 60_000);

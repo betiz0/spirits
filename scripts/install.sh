@@ -27,11 +27,6 @@ TAG_PREFIX="spirits-v"
 INSTALL_DIR="$HOME/.spirits/bin"
 INSTALLED_BINARY="$INSTALL_DIR/spirits"
 
-# Built-in themes pi reads from <install dir>/theme. Shared contract with the self-update code
-# (packages/spirits/src/constants.ts).
-THEME_DIR="$INSTALL_DIR/theme"
-THEME_ASSETS="dark.json light.json"
-
 # Data directory the default route stores in (packages/spirits/src/env-defaults.ts).
 AGENT_DIR="$HOME/.spirits/agent"
 
@@ -50,6 +45,12 @@ BACKUP_DIR="$HOME/.spirits/backups"
 # Temporary directory prefix inside INSTALL_DIR. Shared contract with the self-update code
 # (packages/spirits/src/constants.ts): `.spirits-tmp-<pid>`.
 TMP_PREFIX=".spirits-tmp-"
+
+# The two ways out of a managed install failure, shown together with the reason
+# (packages/spirits/src/constants.ts: MANAGED_PI_REPAIR_COMMAND, MANAGED_PI_ROLLBACK_HINT).
+REPAIR_COMMAND="spirits managed-pi repair"
+FORK_FINAL_TAG="spirits-fork-final"
+HOST_UPGRADE_DOC="docs/spirits-host-upgrade.md"
 
 # Base URLs. Overridable for tests (fixture server).
 API_BASE_URL="${SPIRITS_API_BASE_URL:-https://api.github.com}"
@@ -196,19 +197,12 @@ install_managed_set() {
 		return 0
 	fi
 	printf 'Error: spirits %s is installed, but the managed Pi set is not.\n' "$new_version" >&2
-	printf 'Repair it with:\n  spirits managed-pi repair\n' >&2
-	printf 'Start the previous fork route with:\n  SPIRITS_ROUTE=fork spirits\n' >&2
-	printf 'The installed binary and theme assets were left in place.\n' >&2
+	printf 'Repair it with:\n  %s\n' "$REPAIR_COMMAND" >&2
+	printf 'To go back to a previous spirits: move %s aside and restore a saved binary, or rebuild it from the %s tag.\n' \
+		"$INSTALL_DIR" "$FORK_FINAL_TAG" >&2
+	printf 'Steps: %s\n' "$HOST_UPGRADE_DOC" >&2
+	printf 'The installed binary was left in place.\n' >&2
 	return 1
-}
-
-# Both built-in theme files must be present as regular files. A missing directory or a
-# directory named like an asset counts as missing.
-theme_assets_present() {
-	for name in $THEME_ASSETS; do
-		[ -f "$THEME_DIR/$name" ] || return 1
-	done
-	return 0
 }
 
 # --- Main -----------------------------------------------------------------------------------
@@ -218,7 +212,6 @@ check_platform
 
 if [ "${1:-}" = "--uninstall" ]; then
 	printf 'To remove the spirits binary:\n  rm -f %s\n' "$INSTALLED_BINARY"
-	printf 'To remove the installed theme assets:\n  rm -rf %s\n' "$THEME_DIR"
 	printf 'To remove the managed Pi set the default route launches:\n  rm -rf %s\n' "$MANAGED_ROOT"
 	printf 'To remove the agent directory backups:\n  rm -rf %s\n' "$BACKUP_DIR"
 	printf 'To remove the data directory (settings, sessions, extensions):\n  rm -rf %s\n' "$AGENT_DIR"
@@ -234,22 +227,18 @@ cleanup_stale_tmpdirs
 tag=$(resolve_tag)
 new_version=${tag#"$TAG_PREFIX"}
 
-# `VERSION` requests an explicit placement (repair/reinstall) and always downloads. Without it,
-# a same-version install with both theme assets is skipped; a same-version install with missing
-# theme assets repairs only the assets; an unreadable `--version` falls through to the download.
+# `VERSION` requests an explicit placement (repair/reinstall) and always downloads. Without it, an
+# install that is already current places nothing; an unreadable `--version` falls through to the
+# download.
 version_specified=0
 if [ -n "${VERSION:-}" ]; then version_specified=1; fi
-repair_only=0
 old_version=$(installed_version) || old_version=""
 if [ "$version_specified" = 0 ] && [ -n "$old_version" ] && [ "$old_version" = "$new_version" ]; then
-	if theme_assets_present; then
-		# The default route needs the managed set. Fetch it here when it is missing so an install that
-		# predates the default switch does not turn the next launch into an unannounced download.
-		managed_set_present || install_managed_set || exit 1
-		printf 'spirits %s is already up to date\n' "$new_version"
-		exit 0
-	fi
-	repair_only=1
+	# The default route needs the managed set. Fetch it here when it is missing so an install that
+	# predates the default switch does not turn the next launch into an unannounced download.
+	managed_set_present || install_managed_set || exit 1
+	printf 'spirits %s is already up to date\n' "$new_version"
+	exit 0
 fi
 
 mkdir -p "$INSTALL_DIR" || fail "Failed to create $INSTALL_DIR."
@@ -267,54 +256,25 @@ trap 'rm -rf "$tmpdir"' EXIT
 trap on_interrupt INT
 trap on_terminate TERM
 
-log "Downloading theme assets for $tag..."
-for name in $THEME_ASSETS; do
-	asset_url="$RELEASE_BASE_URL/$OWNER/$REPO/releases/download/$tag/$name"
-	curl -fsSL -o "$tmpdir/$name" "$asset_url" || fail "Failed to download $asset_url."
-	curl -fsSL -o "$tmpdir/$name.sha256" "$asset_url.sha256" || fail "Failed to download $asset_url.sha256."
-done
-
-if [ "$repair_only" = 0 ]; then
-	binary_url="$RELEASE_BASE_URL/$OWNER/$REPO/releases/download/$tag/$ARTIFACT"
-	checksum_url="$binary_url.sha256"
-	log "Downloading $tag from $binary_url..."
-	curl -fsSL -o "$tmpdir/$ARTIFACT" "$binary_url" || fail "Failed to download $binary_url."
-	curl -fsSL -o "$tmpdir/$ARTIFACT.sha256" "$checksum_url" || fail "Failed to download $checksum_url."
-fi
+binary_url="$RELEASE_BASE_URL/$OWNER/$REPO/releases/download/$tag/$ARTIFACT"
+checksum_url="$binary_url.sha256"
+log "Downloading $tag from $binary_url..."
+curl -fsSL -o "$tmpdir/$ARTIFACT" "$binary_url" || fail "Failed to download $binary_url."
+curl -fsSL -o "$tmpdir/$ARTIFACT.sha256" "$checksum_url" || fail "Failed to download $checksum_url."
 
 log "Verifying checksums..."
-for name in $THEME_ASSETS; do
-	(cd "$tmpdir" && sha256sum -c "$name.sha256" >&2) ||
-		fail "Checksum verification failed; nothing was installed."
-done
-if [ "$repair_only" = 0 ]; then
-	(cd "$tmpdir" && sha256sum -c "$ARTIFACT.sha256" >&2) ||
-		fail "Checksum verification failed; nothing was installed."
-fi
+(cd "$tmpdir" && sha256sum -c "$ARTIFACT.sha256" >&2) ||
+	fail "Checksum verification failed; nothing was installed."
 
-# Theme assets first, binary last: a failure leaves the installed executable in place.
-mkdir -p "$THEME_DIR" || fail "Failed to create $THEME_DIR."
-for name in $THEME_ASSETS; do
-	chmod 644 "$tmpdir/$name" || fail "Failed to make $tmpdir/$name readable."
-	mv -f "$tmpdir/$name" "$THEME_DIR/$name" || fail "Failed to install $THEME_DIR/$name."
-done
-
-if [ "$repair_only" = 1 ]; then
-	rm -rf "$tmpdir"
-	trap - EXIT INT TERM
-	managed_set_present || install_managed_set || exit 1
-	printf 'spirits %s is already up to date; restored the missing theme assets\n' "$new_version"
-	printf 'Theme assets installed to %s\n' "$THEME_DIR"
-	exit 0
-fi
-
+# The binary is the only placement this script makes, and it is a rename of a complete file: a
+# failure above leaves the installed executable in place.
 chmod 755 "$tmpdir/$ARTIFACT" || fail "Failed to mark $tmpdir/$ARTIFACT executable."
 mv -f "$tmpdir/$ARTIFACT" "$INSTALLED_BINARY" || fail "Failed to install $INSTALLED_BINARY."
 rm -rf "$tmpdir"
 trap - EXIT INT TERM
 
 # The managed set follows the binary and is placed after it: a failure here costs the managed route,
-# not the binary and theme assets this run already verified and placed.
+# not the executable this run already verified and placed.
 install_managed_set || exit 1
 
 if [ -n "$old_version" ]; then
@@ -323,7 +283,6 @@ else
 	printf 'Installed spirits %s\n' "$new_version"
 fi
 printf 'Installed to %s\n' "$INSTALLED_BINARY"
-printf 'Installed theme assets to %s\n' "$THEME_DIR"
 printf 'Installed the managed Pi set to %s\n' "$MANAGED_ROOT"
 printf 'Start it with:\n  %s\n' "$INSTALLED_BINARY"
 

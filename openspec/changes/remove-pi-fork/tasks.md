@@ -23,9 +23,15 @@
 
 ## 4. 失敗表示とインストーラ
 
-- [ ] 4.1 `managedRepairHint` を修復コマンド `spirits managed-pi repair` と旧版への戻し方 (タグからの再ビルド、`~/.spirits/bin` の退避) に置き換える。完了確認: `bun test test/managed-pi-release-assets.test.ts test/managed-pi-default-route.test.ts test/managed-pi-launch.test.ts` が成功し、`rg -n "SPIRITS_ROUTE=fork spirits" packages/spirits scripts` が 0 件。
-- [ ] 4.2 `scripts/install.sh` から fork の案内とテーマ資産の取得・検証・配置・修復を外し、managed 一式の導入と失敗時の修復・旧版の戻し方を出す。`--uninstall` の案内に `~/.spirits/managed-pi` を含める。完了確認: `sh scripts/install.test.sh` が成功し、「テーマ資産を取得しない」「旧版のテーマ資産の残置」「managed 導入失敗時の非ゼロ」のケースを含む。`rg -n "SPIRITS_ROUTE|theme|dark\.json" scripts/install.sh` が 0 件。
+- [x] 4.1 `managedRepairHint` を修復コマンド `spirits managed-pi repair` と旧版への戻し方 (タグからの再ビルド、`~/.spirits/bin` の退避) に置き換える。完了確認: `bun test test/managed-pi-release-assets.test.ts test/managed-pi-default-route.test.ts test/managed-pi-launch.test.ts` が成功し、`rg -n "SPIRITS_ROUTE=fork spirits" packages/spirits scripts` が 0 件。
+  - 実測: 上記 3 ファイルで 29 pass / 0 fail。`rg -n "SPIRITS_ROUTE=fork spirits" packages/spirits scripts` -> 0 件 (exit 1)。`managedRepairHint` は `MANAGED_PI_ROLLBACK_HINT` (`~/.spirits/bin` の退避、`spirits-fork-final` からの再ビルド、`docs/spirits-host-upgrade.md`) を出す。
+- [x] 4.2 `scripts/install.sh` から fork の案内とテーマ資産の取得・検証・配置・修復を外し、managed 一式の導入と失敗時の修復・旧版の戻し方を出す。`--uninstall` の案内に `~/.spirits/managed-pi` を含める。完了確認: `sh scripts/install.test.sh` が成功し、「テーマ資産を取得しない」「旧版のテーマ資産の残置」「managed 導入失敗時の非ゼロ」のケースを含む。`rg -n "SPIRITS_ROUTE|theme|dark\.json" scripts/install.sh` が 0 件。
+  - 実測: `sh scripts/install.test.sh` -> 97 passed / 0 failed。`rg -n -i "theme\|SPIRITS_ROUTE\|dark\.json" scripts/install.sh` -> 0 件 (exit 1)。
+  - ケース: 「テーマ資産を取得しない」= case 20 (互換資産を置いた配信元でも `dark.json` を要求せず `~/.spirits/bin/theme` を作らない)、「旧版のテーマ資産の残置」= case 6b と case 16 (旧版が残した `bin/dark.json` と `bin/theme/*` をそのまま置く)、「managed 導入失敗時の非ゼロ」= case 22 (終了 1、修復コマンド・旧版への戻し方・`spirits-fork-final`・手順書を表示し `SPIRITS_ROUTE` を表示しない、実行ファイルは残る)。
+  - 副次: テーマ資産名の複製検査だった `test/theme-assets-contract.test.ts` は、配置しなくなった installer / smoke の分岐を消し、リリース yml の互換用添付と smoke の互換資産サーブの検査に残した (tasks に名の無い変更)。
 - [ ] 4.3 `scripts/self-update-smoke.sh` を新しい自己更新 (実行ファイルのみ) と managed 一式の導入に合わせる。完了確認: `sh scripts/self-update-smoke.sh <old> <new> <version>` が成功する。
+  - スクリプトは合わせた (テーマ資産の配置検証と修復フェーズを削除、4/5 引数を manifest / bundle に、旧自己更新向けの互換資産は有るときだけ配信し、更新後の 2 度目の `update` が資産を要求せずに 0 で「already up to date」になることを確認)。
+  - 完了確認は未実施: コンパイル済みバイナリ 2 版と manifest / bundle が必要で、それを作る `scripts/build-binaries.ts` の書き換えは 11.1 (§11)。11.1 か 14.4 で実測するまで未完了のままにする。
 
 ## 5. 自己更新
 

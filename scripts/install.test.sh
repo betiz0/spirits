@@ -157,21 +157,15 @@ make_release() { # version content
 	fake_binary_script "$1" "$2" >"$dir/spirits-linux-x64"
 	chmod 755 "$dir/spirits-linux-x64"
 	(cd "$dir" && sha256sum spirits-linux-x64 >spirits-linux-x64.sha256)
-	make_theme_assets "$dir" "$1"
 }
 
-# A release that only ships the executable, like 0.6.0 and earlier.
-make_theme_less_release() { # version content
+# A release that also attaches the assets the pre-managed self-update used to fetch. The installer
+# must never request them.
+attach_compat_assets() { # version
 	dir="$SERVER_ROOT/betiz0/spirits/releases/download/spirits-v$1"
-	mkdir -p "$dir"
-	printf '%s\n' "$2" >"$dir/spirits-linux-x64"
-	(cd "$dir" && sha256sum spirits-linux-x64 >spirits-linux-x64.sha256)
-}
-
-make_theme_assets() { # dir version
-	printf '{"name":"dark","version":"%s"}\n' "$2" >"$1/dark.json"
-	printf '{"name":"light","version":"%s"}\n' "$2" >"$1/light.json"
-	(cd "$1" && sha256sum dark.json >dark.json.sha256 && sha256sum light.json >light.json.sha256)
+	printf '{"name":"dark","version":"%s"}\n' "$1" >"$dir/dark.json"
+	printf '{"name":"light","version":"%s"}\n' "$1" >"$dir/light.json"
+	(cd "$dir" && sha256sum dark.json >dark.json.sha256 && sha256sum light.json >light.json.sha256)
 }
 
 make_broken_release() { # version content (checksum does not match)
@@ -180,17 +174,6 @@ make_broken_release() { # version content (checksum does not match)
 	printf '%s\n' "$2" >"$dir/spirits-linux-x64"
 	printf '0000000000000000000000000000000000000000000000000000000000000000  spirits-linux-x64\n' \
 		>"$dir/spirits-linux-x64.sha256"
-	make_theme_assets "$dir" "$1"
-}
-
-make_broken_theme_release() { # version content (theme checksum does not match)
-	dir="$SERVER_ROOT/betiz0/spirits/releases/download/spirits-v$1"
-	mkdir -p "$dir"
-	printf '%s\n' "$2" >"$dir/spirits-linux-x64"
-	(cd "$dir" && sha256sum spirits-linux-x64 >spirits-linux-x64.sha256)
-	make_theme_assets "$dir" "$1"
-	printf '0000000000000000000000000000000000000000000000000000000000000000  dark.json\n' \
-		>"$dir/dark.json.sha256"
 }
 
 # Fake `uname` reporting Darwin for the unsupported-platform case.
@@ -303,11 +286,7 @@ assert_eq "VERSION install exits 0" "0" "$RUN_RC"
 assert_file_exists "VERSION install places the binary" "$home/.spirits/bin/spirits"
 assert_executable "VERSION install sets the exec bit" "$home/.spirits/bin/spirits"
 assert_contains "VERSION install downloads spirits-v0.1.0" "$(cat "$home/.spirits/bin/spirits")" "fake spirits 0.1.0"
-assert_file_exists "fresh install places theme assets" "$home/.spirits/bin/theme/dark.json"
-assert_file_exists "fresh install places light theme assets" "$home/.spirits/bin/theme/light.json"
-assert_content_eq "fresh install theme content matches the release" "$home/.spirits/bin/theme/dark.json" '{"name":"dark","version":"0.1.0"}'
-assert_mode "theme assets are placed with mode 644" "$home/.spirits/bin/theme/dark.json" "644"
-assert_mode "theme assets are placed with mode 644 (light)" "$home/.spirits/bin/theme/light.json" "644"
+assert_file_absent "a fresh install creates no theme directory" "$home/.spirits/bin/theme"
 assert_contains "VERSION install shows the start command" "$(cat "$RUN_OUT")" "spirits"
 assert_contains "VERSION install shows the PATH bun version" "$(cat "$RUN_OUT")" "9.9.9-test"
 
@@ -364,45 +343,16 @@ run_install "$home" "0.2.0" "$STUB_DIR:$PATH"
 assert_eq "re-running a different version exits 0" "0" "$RUN_RC"
 assert_contains "re-running a different version replaces the binary" "$(cat "$home/.spirits/bin/spirits")" "fake spirits 0.2.0"
 assert_executable "re-running a different version keeps the exec bit" "$home/.spirits/bin/spirits"
-assert_content_eq "re-running a different version replaces theme assets" "$home/.spirits/bin/theme/dark.json" '{"name":"dark","version":"0.2.0"}'
 
-# 6b. Same-version latest run with missing themes repairs only the theme assets.
+# 6b. Assets an older release left in the install directory are left alone.
 write_releases <<'EOF'
 spirits-v0.2.0 false false
 spirits-v0.1.0 false false
 EOF
-rm -rf "$home/.spirits/bin/theme"
-printf '#!/bin/sh\necho "spirits 0.2.0 (installed)"\n' >"$home/.spirits/bin/spirits"
-chmod 755 "$home/.spirits/bin/spirits"
+printf 'left behind by an old release\n' >"$home/.spirits/bin/dark.json"
 run_install "$home" "" "$STUB_DIR:$PATH"
-assert_eq "same-version repair exits 0" "0" "$RUN_RC"
-assert_contains "same-version run repairs missing theme assets" "$(cat "$RUN_OUT")" "restored the missing theme assets"
-assert_contains "same-version repair keeps the binary" "$("$home/.spirits/bin/spirits" --version)" "installed"
-assert_file_exists "same-version repair places the dark theme" "$home/.spirits/bin/theme/dark.json"
-assert_file_exists "same-version repair places the light theme" "$home/.spirits/bin/theme/light.json"
-assert_content_eq "same-version repair restores the dark theme content" "$home/.spirits/bin/theme/dark.json" '{"name":"dark","version":"0.2.0"}'
-assert_content_eq "same-version repair restores the light theme content" "$home/.spirits/bin/theme/light.json" '{"name":"light","version":"0.2.0"}'
-assert_mode "same-version repair restores the theme mode" "$home/.spirits/bin/theme/dark.json" "644"
-assert_no_temp_dirs "same-version repair leaves no temp directory" "$home/.spirits/bin"
-
-# 6c. A theme checksum mismatch keeps the binary and the existing theme assets.
-make_broken_theme_release 0.5.0 "fake spirits 0.5.0"
-write_releases <<'EOF'
-spirits-v0.5.0 false false
-spirits-v0.2.0 false false
-EOF
-home="$WORK/home-theme-broken"
-mkdir -p "$home/.spirits/bin/theme"
-printf 'existing install\n' >"$home/.spirits/bin/spirits"
-printf 'old dark\n' >"$home/.spirits/bin/theme/dark.json"
-printf 'old light\n' >"$home/.spirits/bin/theme/light.json"
-run_install "$home" "" "$STUB_DIR:$PATH"
-assert_eq "theme checksum mismatch exits 1" "1" "$RUN_RC"
-assert_contains "theme checksum mismatch reports verification" "$(cat "$RUN_ERR")" "Checksum"
-assert_content_eq "theme checksum mismatch keeps the existing installation" "$home/.spirits/bin/spirits" "existing install"
-assert_content_eq "theme checksum mismatch keeps the existing dark theme" "$home/.spirits/bin/theme/dark.json" "old dark"
-assert_content_eq "theme checksum mismatch keeps the existing light theme" "$home/.spirits/bin/theme/light.json" "old light"
-assert_no_temp_dirs "theme checksum mismatch leaves no temp directory" "$home/.spirits/bin"
+assert_eq "same-version run with leftovers exits 0" "0" "$RUN_RC"
+assert_content_eq "the installer leaves an old leftover asset alone" "$home/.spirits/bin/dark.json" "left behind by an old release"
 
 # 7. Success without bun on PATH: still exits 0 and points at Bun for extension dependencies.
 NO_BUN_PATH="/usr/bin:/bin"
@@ -436,7 +386,7 @@ run_uninstall "$home" "$MIN_PATH_DIR"
 assert_eq "uninstall exits 0" "0" "$RUN_RC"
 assert_contains "uninstall names the binary path" "$(cat "$RUN_OUT")" "$home/.spirits/bin/spirits"
 assert_contains "uninstall names the data directory" "$(cat "$RUN_OUT")" "$home/.spirits/agent"
-assert_contains "uninstall names the theme directory" "$(cat "$RUN_OUT")" "$home/.spirits/bin/theme"
+assert_contains "uninstall names the managed Pi root" "$(cat "$RUN_OUT")" "$home/.spirits/managed-pi"
 assert_contains "uninstall prints a remove command" "$(cat "$RUN_OUT")" "rm"
 assert_file_exists "uninstall keeps the installed binary" "$home/.spirits/bin/spirits"
 assert_content_eq "uninstall keeps the data directory" "$home/.spirits/agent/settings.json" "settings"
@@ -581,7 +531,6 @@ make_script_release() { # version
 	printf '#!/bin/sh\necho "spirits %s (fake)"\n' "$1" >"$dir/spirits-linux-x64"
 	chmod 755 "$dir/spirits-linux-x64"
 	(cd "$dir" && sha256sum spirits-linux-x64 >spirits-linux-x64.sha256)
-	make_theme_assets "$dir" "$1"
 }
 make_script_release 0.1.0
 home="$WORK/home-uptodate"
@@ -602,13 +551,14 @@ printf '#!/bin/sh\necho "spirits 0.1.0 (repaired)"\n' \
 	>"$SERVER_ROOT/betiz0/spirits/releases/download/"$TAG_PREFIX"0.1.0/spirits-linux-x64"
 chmod 755 "$SERVER_ROOT/betiz0/spirits/releases/download/"$TAG_PREFIX"0.1.0/spirits-linux-x64"
 (cd "$SERVER_ROOT/betiz0/spirits/releases/download/"$TAG_PREFIX"0.1.0" && sha256sum spirits-linux-x64 >spirits-linux-x64.sha256)
+mkdir -p "$home/.spirits/bin/theme"
 printf 'old dark\n' >"$home/.spirits/bin/theme/dark.json"
 printf 'old light\n' >"$home/.spirits/bin/theme/light.json"
 run_install "$home" "0.1.0" "$STUB_DIR:$PATH"
 assert_eq "VERSION same-version run exits 0" "0" "$RUN_RC"
 assert_contains "VERSION same-version run re-places the binary" "$("$home/.spirits/bin/spirits" --version)" "repaired"
-assert_content_eq "VERSION same-version run replaces the dark theme" "$home/.spirits/bin/theme/dark.json" '{"name":"dark","version":"0.1.0"}'
-assert_content_eq "VERSION same-version run replaces the light theme" "$home/.spirits/bin/theme/light.json" '{"name":"light","version":"0.1.0"}'
+assert_content_eq "VERSION re-place keeps the old theme directory content" "$home/.spirits/bin/theme/dark.json" "old dark"
+assert_content_eq "VERSION re-place keeps the old theme directory content (light)" "$home/.spirits/bin/theme/light.json" "old light"
 assert_contains "VERSION same-version run reports the transition" "$(cat "$RUN_OUT")" "0.1.0 -> 0.1.0"
 
 # 17. A different latest version replaces the installed binary.
@@ -634,7 +584,6 @@ run_install "$home" "" "$STUB_DIR:$PATH"
 assert_eq "prerelease replacement exits 0" "0" "$RUN_RC"
 assert_contains "prerelease replacement reports the transition" "$(cat "$RUN_OUT")" "0.4.0-rc.1 -> 0.1.0"
 assert_contains "prerelease replacement installs the stable version" "$("$home/.spirits/bin/spirits" --version)" "0.1.0"
-assert_content_eq "prerelease replacement installs the stable dark theme" "$home/.spirits/bin/theme/dark.json" '{"name":"dark","version":"0.1.0"}'
 
 # 19. A failing --version falls through to the download.
 home="$WORK/home-versionfail"
@@ -645,72 +594,22 @@ run_install "$home" "" "$STUB_DIR:$PATH"
 assert_eq "unreadable --version exits 0" "0" "$RUN_RC"
 assert_not_contains "unreadable --version shows no transition" "$(cat "$RUN_OUT")" " -> "
 assert_contains "unreadable --version installs the latest" "$("$home/.spirits/bin/spirits" --version)" "0.1.0"
-assert_content_eq "unreadable --version installs the latest dark theme" "$home/.spirits/bin/theme/dark.json" '{"name":"dark","version":"0.1.0"}'
 
-# 20. A same-version repair fails on a theme checksum mismatch and keeps the binary.
-make_broken_theme_release 0.6.0 "fake spirits 0.6.0"
+# 20. A release that still attaches the old self-update assets: the installer never asks for them,
+#     and never creates the directory the old releases placed there.
+make_release 0.9.0 "fake spirits 0.9.0"
+attach_compat_assets 0.9.0
 write_releases <<'EOF'
-spirits-v0.6.0 false false
+spirits-v0.9.0 false false
 EOF
-home="$WORK/home-repair-broken-theme"
-mkdir -p "$home/.spirits/bin/theme"
-printf '#!/bin/sh\necho "spirits 0.6.0 (installed)"\n' >"$home/.spirits/bin/spirits"
-chmod 755 "$home/.spirits/bin/spirits"
-printf 'old dark\n' >"$home/.spirits/bin/theme/dark.json"
-run_install "$home" "" "$STUB_DIR:$PATH"
-assert_eq "same-version repair fails on a theme checksum mismatch" "1" "$RUN_RC"
-assert_contains "same-version repair failure reports verification" "$(cat "$RUN_ERR")" "Checksum"
-assert_not_contains "same-version repair failure reports no repair" "$(cat "$RUN_OUT")" "restored the missing theme assets"
-assert_contains "same-version repair failure keeps the binary" "$("$home/.spirits/bin/spirits" --version)" "installed"
-assert_content_eq "same-version repair failure keeps the existing dark theme" "$home/.spirits/bin/theme/dark.json" "old dark"
-assert_file_absent "same-version repair failure places no light theme" "$home/.spirits/bin/theme/light.json"
-assert_no_temp_dirs "same-version repair failure leaves no temp directory" "$home/.spirits/bin"
-
-# 21. A theme-less release fails a VERSION install without touching the install.
-make_theme_less_release 0.7.0 "fake spirits 0.7.0"
-home="$WORK/home-theme-less-version"
-mkdir -p "$home/.spirits/bin"
-printf 'existing install\n' >"$home/.spirits/bin/spirits"
-chmod 755 "$home/.spirits/bin/spirits"
-run_install "$home" "0.7.0" "$STUB_DIR:$PATH"
-assert_eq "theme-less release fails the VERSION install" "1" "$RUN_RC"
-assert_contains "theme-less release reports the failed download" "$(cat "$RUN_ERR")" "Failed to download"
-assert_content_eq "theme-less release keeps the existing install" "$home/.spirits/bin/spirits" "existing install"
-assert_file_absent "theme-less release places no theme directory" "$home/.spirits/bin/theme"
-assert_no_temp_dirs "theme-less release leaves no temp directory" "$home/.spirits/bin"
-
-# 22. A theme-less latest release fails the same-version repair without touching the install.
-write_releases <<'EOF'
-spirits-v0.7.0 false false
-EOF
-home="$WORK/home-theme-less-latest"
-mkdir -p "$home/.spirits/bin"
-printf '#!/bin/sh\necho "spirits 0.7.0 (installed)"\n' >"$home/.spirits/bin/spirits"
-chmod 755 "$home/.spirits/bin/spirits"
-run_install "$home" "" "$STUB_DIR:$PATH"
-assert_eq "theme-less latest release fails without touching the install" "1" "$RUN_RC"
-assert_contains "theme-less latest release reports the failed download" "$(cat "$RUN_ERR")" "Failed to download"
-assert_contains "theme-less latest release keeps the binary" "$("$home/.spirits/bin/spirits" --version)" "installed"
-assert_file_absent "theme-less latest release places no theme directory" "$home/.spirits/bin/theme"
-assert_no_temp_dirs "theme-less latest release leaves no temp directory" "$home/.spirits/bin"
-
-# 23. A regular file at the theme path fails the placement and keeps the binary.
-write_releases <<'EOF'
-spirits-v0.1.0 false false
-EOF
-home="$WORK/home-theme-not-a-dir"
-mkdir -p "$home/.spirits/bin"
-printf 'existing install\n' >"$home/.spirits/bin/spirits"
-chmod 755 "$home/.spirits/bin/spirits"
-printf 'not a directory\n' >"$home/.spirits/bin/theme"
-run_install "$home" "0.1.0" "$STUB_DIR:$PATH"
-assert_eq "a regular file at the theme path fails the install" "1" "$RUN_RC"
-assert_contains "a regular file at the theme path reports the failure" "$(cat "$RUN_ERR")" "Failed to create"
-assert_content_eq "a regular file at the theme path keeps the binary" "$home/.spirits/bin/spirits" "existing install"
-assert_content_eq "a regular file at the theme path is left alone" "$home/.spirits/bin/theme" "not a directory"
-assert_no_temp_dirs "a regular file at the theme path leaves no temp directory" "$home/.spirits/bin"
-
-# 24. The managed step runs the installed binary with this release's manifest pinned.
+home="$WORK/home-attached-assets"
+mkdir -p "$home"
+run_install "$home" "0.9.0" "$STUB_DIR:$PATH"
+assert_eq "install with the attached assets exits 0" "0" "$RUN_RC"
+assert_file_absent "the installer creates no theme directory" "$home/.spirits/bin/theme"
+assert_not_contains "the installer never requests the attached assets" "$(cat "$TEST_ROOT/server.log")" "dark.json"
+assert_no_temp_dirs "install with the attached assets leaves no temp directory" "$home/.spirits/bin"
+# 21. The managed step runs the installed binary with this release's manifest pinned.
 make_release 0.8.0 "fake spirits 0.8.0"
 write_releases <<'EOF'
 spirits-v0.8.0 false false
@@ -727,7 +626,7 @@ assert_contains "managed install pins this release's manifest" "$(cat "$WORK/man
 assert_eq "managed install selects a set" "present" "$([ -e "$home/.spirits/managed-pi/current" ] && echo present || echo missing)"
 assert_contains "managed install reports the managed root" "$(cat "$RUN_OUT")" "$home/.spirits/managed-pi"
 
-# 25. A failing managed install exits non-zero and keeps the placed binary and theme assets.
+# 22. A failing managed install exits non-zero, keeps the placed binary, and shows the way back.
 make_release 0.8.1 "fake spirits 0.8.1"
 write_releases <<'EOF'
 spirits-v0.8.1 false false
@@ -739,12 +638,14 @@ run_install "$home" "0.8.1" "$STUB_DIR:$PATH"
 FAKE_MANAGED_INSTALL_RC=0
 assert_eq "failed managed install exits 1" "1" "$RUN_RC"
 assert_contains "failed managed install shows the repair command" "$(cat "$RUN_ERR")" "spirits managed-pi repair"
-assert_contains "failed managed install shows the fork route" "$(cat "$RUN_ERR")" "SPIRITS_ROUTE=fork spirits"
+assert_contains "failed managed install shows the rollback" "$(cat "$RUN_ERR")" "move $home/.spirits/bin aside"
+assert_contains "failed managed install names the rollback tag" "$(cat "$RUN_ERR")" "spirits-fork-final"
+assert_contains "failed managed install points at the steps" "$(cat "$RUN_ERR")" "docs/spirits-host-upgrade.md"
+assert_not_contains "failed managed install shows no removed route" "$(cat "$RUN_ERR")" "SPIRITS_ROUTE"
 assert_executable "failed managed install keeps the binary" "$home/.spirits/bin/spirits"
-assert_file_exists "failed managed install keeps the dark theme" "$home/.spirits/bin/theme/dark.json"
 assert_no_temp_dirs "failed managed install leaves no temp directory" "$home/.spirits/bin"
 
-# 26. A same-version run installs the managed set when it is missing.
+# 23. A same-version run installs the managed set when it is missing.
 write_releases <<'EOF'
 spirits-v0.8.0 false false
 EOF

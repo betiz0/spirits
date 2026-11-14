@@ -259,7 +259,7 @@ test("an update that reported no release installs the running binary's release",
 	expect(release.requests).toContain("/betiz0/spirits/releases/download/spirits-v0.1.0/spirits-managed-pi-manifest.json");
 });
 
-test("a managed install failure after an update is a non-zero exit with the escape hatches", async () => {
+test("a managed install failure after an update is a non-zero exit with repair and rollback", async () => {
 	const release = await makeReleaseFixture();
 	const err: string[] = [];
 	const exitCode = await installManagedSetAfterUpdate({
@@ -273,7 +273,8 @@ test("a managed install failure after an update is a non-zero exit with the esca
 	expect(exitCode).toBe(1);
 	const message = err.join("\n");
 	expect(message).toContain("Repair: spirits managed-pi repair");
-	expect(message).toContain("Start the previous fork route with: SPIRITS_ROUTE=fork spirits");
+	expect(message).toContain("Rollback:");
+	expect(message).toContain("docs/spirits-host-upgrade.md");
 });
 
 test("the default hand-off keeps an explicit agent directory", async () => {
