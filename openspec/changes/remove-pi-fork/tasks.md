@@ -11,15 +11,15 @@
 
 - [x] 2.1 `packages/spirits/src/managed-pi/host.ts` に `HostDescriptor` (id、packageName、executablePath、packageDirName、extensionArgs、identity、env 名、manifest host 種別) を追加し、テスト `test/managed-pi-host.test.ts` を新設する。完了確認: `bun test test/managed-pi-host.test.ts` が成功し、公式 Pi の記述子が `pi` / `pi/pi` / `-e` / `piConfig.name` を返す。
 - [x] 2.2 `packages/spirits/src/constants.ts` に `PINNED_PI` (版、artifact 名、sha256、overlay 版) を追加し、`MANAGED_PI_FIRST_*` をそこから導出する。完了確認: `bun test test/managed-pi-manifest.test.ts` が成功し、固定値が manifest の `pi.version` / `pi.artifact.sha256` に反映される。
-- [ ] 2.3 `spawnManagedSet` / `install.ts` / `verify.ts` / `layout.ts` / `overlay.ts` / `environment.ts` を記述子経由にし、固定パスとホスト名を直書きしない。完了確認: `bun test test/managed-pi-launch.test.ts test/managed-pi-install.test.ts test/managed-pi-layout.test.ts test/managed-pi-integration.test.ts test/managed-pi-repair.test.ts test/managed-pi-overlay.test.ts test/managed-pi-env.test.ts` が成功する。
+- [x] 2.3 `spawnManagedSet` / `install.ts` / `verify.ts` / `layout.ts` / `overlay.ts` / `environment.ts` を記述子経由にし、固定パスとホスト名を直書きしない。完了確認: `bun test test/managed-pi-launch.test.ts test/managed-pi-install.test.ts test/managed-pi-layout.test.ts test/managed-pi-integration.test.ts test/managed-pi-repair.test.ts test/managed-pi-overlay.test.ts test/managed-pi-env.test.ts` が成功する。
 
 ## 3. 起動役を薄くする
 
-- [ ] 3.1 `packages/spirits/bin/spirits.ts` から `@earendil-works/pi-coding-agent` の import を外し、検証済み managed ホストを spawn するだけにする。参照が無くなる `src/types/pi-subpaths.d.ts` を削除する。完了確認: `rg -n "@earendil-works" packages/spirits/bin` が 0 件、`test -e packages/spirits/src/types/pi-subpaths.d.ts` が失敗し、`bun test test/managed-pi-bootstrap.test.ts` が成功する。
-- [ ] 3.2 `packages/spirits/bin/bootstrap.ts` の fork 分岐を外し、未コンパイルも managed を起動する。一式が未導入のとき、コンパイル済みは同じリリースから取得して起動し、未コンパイルは導入方法を表示して非ゼロで終了する (design D12)。完了確認: `bun test test/managed-pi-default-route.test.ts test/managed-pi-bootstrap.test.ts` が成功し、「未導入時の自動取得 (コンパイル済み)」と「未コンパイルでの未導入」のケースを含む。`rg -n "ENV_ROUTE|ROUTE_FORK_VALUE" packages/spirits/bin packages/spirits/src` のヒットが `constants.ts` の定義と、3.5 の拒否判定の 1 か所だけになる。
-- [ ] 3.3 `packages/spirits/bin/startup.ts` の fork の戻し先の文言を外し、旧版への戻し方に置き換える。完了確認: `rg -n "SPIRITS_ROUTE=fork spirits" packages/spirits/bin packages/spirits/src` が 0 件、`bun test test/managed-pi-default-route.test.ts` が成功する。
-- [ ] 3.4 `--help` / `-h` を起動役が処理し、spirits 自身の help を出す。`--` より後は `--` を除いてホストへ渡す。完了確認: `bun test test/managed-pi-bootstrap.test.ts` の「起動役の help」と「`--` 以降の透過」のケースが成功する (コンパイル済みバイナリでの確認は 14.3)。
-- [ ] 3.5 `SPIRITS_ROUTE=fork` が設定されたままホストを起動しようとした場合、廃止の理由、`unset SPIRITS_ROUTE`、旧版への戻し方を表示して非ゼロで終了する。`update`、`managed-pi`、`--version` / `-v`、`--help` / `-h` は通常どおり処理する (design D7)。完了確認: `bun test test/managed-pi-default-route.test.ts` の「SPIRITS_ROUTE=fork」と「SPIRITS_ROUTE=fork でもサブコマンドは動く」のケースが成功する。
+- [x] 3.1 `packages/spirits/bin/spirits.ts` から `@earendil-works/pi-coding-agent` の import を外し、検証済み managed ホストを spawn するだけにする。参照が無くなる `src/types/pi-subpaths.d.ts` を削除する。完了確認: `rg -n "@earendil-works" packages/spirits/bin` が 0 件、`test -e packages/spirits/src/types/pi-subpaths.d.ts` が失敗し、`bun test test/managed-pi-bootstrap.test.ts` が成功する。
+- [x] 3.2 `packages/spirits/bin/bootstrap.ts` の fork 分岐を外し、未コンパイルも managed を起動する。一式が未導入のとき、コンパイル済みは同じリリースから取得して起動し、未コンパイルは導入方法を表示して非ゼロで終了する (design D12)。完了確認: `bun test test/managed-pi-default-route.test.ts test/managed-pi-bootstrap.test.ts` が成功し、「未導入時の自動取得 (コンパイル済み)」と「未コンパイルでの未導入」のケースを含む。`rg -n "ENV_ROUTE|ROUTE_FORK_VALUE" packages/spirits/bin packages/spirits/src` のヒットが `constants.ts` の定義と、3.5 の拒否判定の 1 か所だけになる。
+- [x] 3.3 `packages/spirits/bin/startup.ts` の fork の戻し先の文言を外し、旧版への戻し方に置き換える。完了確認: `rg -n "SPIRITS_ROUTE=fork spirits" packages/spirits/bin packages/spirits/src` が 0 件、`bun test test/managed-pi-default-route.test.ts` が成功する。
+- [x] 3.4 `--help` / `-h` を起動役が処理し、spirits 自身の help を出す。`--` より後は `--` を除いてホストへ渡す。完了確認: `bun test test/managed-pi-bootstrap.test.ts` の「起動役の help」と「`--` 以降の透過」のケースが成功する (コンパイル済みバイナリでの確認は 14.3)。
+- [x] 3.5 `SPIRITS_ROUTE=fork` が設定されたままホストを起動しようとした場合、廃止の理由、`unset SPIRITS_ROUTE`、旧版への戻し方を表示して非ゼロで終了する。`update`、`managed-pi`、`--version` / `-v`、`--help` / `-h` は通常どおり処理する (design D7)。完了確認: `bun test test/managed-pi-default-route.test.ts` の「SPIRITS_ROUTE=fork」と「SPIRITS_ROUTE=fork でもサブコマンドは動く」のケースが成功する。
 
 ## 4. 失敗表示とインストーラ
 

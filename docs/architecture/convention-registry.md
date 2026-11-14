@@ -72,11 +72,7 @@
 ```
 
 ```json registry:bin-deep-imports
-[
-  "@earendil-works/pi-coding-agent/bun/sandbox-env-setup",
-  "@earendil-works/pi-coding-agent/bun/runtime-setup",
-  "@earendil-works/pi-coding-agent/cli/setup"
-]
+[]
 ```
 
 ```json registry:cycles
@@ -159,7 +155,7 @@
 ## ARCH-PI-BOUNDARY: spirits と Pi 上流の境界
 
 - **強度**: SHALL
-- **内容**: `packages/spirits/src/` は `@earendil-works/pi-*` をサブパスを持たない bare specifier でのみ import する。`packages/spirits/bin/` の deep import(サブパスを持つ specifier)は `registry:bin-deep-imports` の 3 件に限定し、使われていない要素があっても失敗する。
+- **内容**: `packages/spirits/src/` は `@earendil-works/pi-*` をサブパスを持たない bare specifier でのみ import する。`packages/spirits/bin/` はホストを import しないため `registry:bin-deep-imports` は空とし、deep import が現れても、リストに使われていない要素が残っても失敗する。
 - **例外**: `packages/spirits/src/` の層のうち `routing` を除く全層が `packages/coding-agent` と `packages/tui` へ依存すること(bare specifier)は許可する。`routing` の許可は `packages/coding-agent` だけとし、層ごとの許可は `registry:layers` が正であるため、この例外文はそれと食い違わないように同じ変更で更新する。
 - **判定方法**: spirits の src と bin の import を調べ、src の deep import・許可リスト外の bin の deep import・未使用の許可リスト要素を規約 ID とパスを付けて報告する。
 - **根拠**: Pi への deep import は上流パッケージの内部構成に依存するため。design decision 8。

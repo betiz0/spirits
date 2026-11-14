@@ -1,24 +1,14 @@
 /**
- * Ambient declarations for pi subpath imports used by `bin/`.
+ * Ambient declarations for pi subpath imports used by the pin tests in this directory.
  *
- * Runtime resolution goes through `bin/tsconfig.json` (which extends the root tsconfig and its
- * `paths` to pi source). The package `exports` do not expose these subpaths, so the type checker
- * needs these declarations to avoid loading pi source into the program (see M1 rationale in
- * `pi-coding-agent.d.ts`).
+ * The launcher no longer imports the host at all, so these declarations live beside the tests that
+ * read them instead of in `src/types/`. They exist because pi does not export these subpaths and the
+ * package isolation in `packages/spirits/tsconfig.json` keeps pi sources out of the program.
+ *
+ * Each declaration has exactly one reader among the pin tests here. Remove this file together with
+ * the last test that reads it (`remove-pi-fork` tasks 8.1 and 8.2).
  */
 
-declare module "@earendil-works/pi-coding-agent/bun/runtime-setup";
-declare module "@earendil-works/pi-coding-agent/bun/sandbox-env-setup";
-
-declare module "@earendil-works/pi-coding-agent/cli/setup" {
-	export function setupCli(): void;
-}
-
-/**
- * The `/model` argument split interactive mode performs. Only the pin test
- * `test/pi-runtime/model-roles-api.test.ts` reads it, to check a trailing role word against the
- * vocabulary an extension registered with pi.
- */
 declare module "@earendil-works/pi-coding-agent/modes/interactive/model-command-args" {
 	export interface ModelCommandArgs {
 		searchTerm?: string;

@@ -575,8 +575,26 @@ export const AGENT_BACKUP_STATE_FILE_NAME = "agent-backup.json";
 /** Repair command shown whenever managed assets are missing, corrupt, or failed to download. */
 export const MANAGED_PI_REPAIR_COMMAND = "spirits managed-pi repair";
 
+/** Install command shown when the managed set is absent. */
+export const MANAGED_PI_INSTALL_COMMAND = "spirits managed-pi install";
+
 /** Escape hatch shown together with a managed launch failure. */
 export const MANAGED_PI_FORK_ROUTE_HINT = `SPIRITS_ROUTE=${ROUTE_FORK_VALUE} spirits`;
+
+/** Tag of the last commit that still contained the Pi fork, and the source of a rollback build. */
+export const FORK_FINAL_TAG_NAME = "spirits-fork-final";
+
+/** Document that carries the full host-version upgrade and rollback steps. */
+export const HOST_UPGRADE_DOC_PATH = "docs/spirits-host-upgrade.md";
+
+/**
+ * The two lines that get a user back to a previous spirits binary, shown with every managed failure.
+ *
+ * A repair command alone is no help when the network is unreachable, so the way back is always
+ * stated: move the install directory aside and restore a saved binary, or rebuild one from the
+ * fork final tag. The long form lives in {@link HOST_UPGRADE_DOC_PATH}.
+ */
+export const MANAGED_PI_ROLLBACK_HINT = `Rollback: move "$HOME/${SPIRITS_CONFIG_DIR_NAME}/bin" aside and restore a saved \`spirits\` binary, or rebuild it from the ${FORK_FINAL_TAG_NAME} tag. Steps: ${HOST_UPGRADE_DOC_PATH}`;
 
 /**
  * Summary a cleared conversation writes when the extension takes a compaction over. It names what

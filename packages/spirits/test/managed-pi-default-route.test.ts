@@ -73,6 +73,8 @@ async function makeHarness(fixture: ReleaseFixture, installed: boolean): Promise
 				root: fixture.root,
 				home: fixture.home,
 				version: "0.1.0",
+				// The compiled launcher knows a release; the uncompiled path is its own case.
+				compiled: true,
 				fetch,
 				args: [],
 				io: { out: (line) => out.push(line), err: (line) => err.push(line) },
@@ -283,12 +285,50 @@ test("a missing managed set is fetched from the running binary's release", async
 	expect(await readFile(harness.settingsFile, "utf8")).toContain("dark");
 }, 60_000);
 
+test("a missing set is fetched only for a compiled launcher", async () => {
+	// A run from source has no release tag of its own, so nothing is downloaded: the way to install
+	// is shown and the exit code is non-zero.
+	const harness = await makeHarness(await makeReleaseFixture(), false);
+	const result = await harness.run({ compiled: false });
+	expect(result.exitCode).toBe(1);
+	expect(result.launched).toBe(false);
+	const message = harness.err.join("\n");
+	expect(message).toContain("spirits managed-pi install");
+	expect(message).toContain("SPIRITS_MANAGED_PI_MANIFEST_URL");
+	expect(harness.fixture.requests).toEqual([]);
+	expect(await Bun.file(join(harness.root, "current")).exists()).toBe(false);
+}, 60_000);
+
+test("SPIRITS_ROUTE=fork is refused before the host starts", async () => {
+	// The fork is gone. Silently ignoring the setting would leave the user believing a fork ran, so
+	// the refusal says why, says `unset` restores the launch, and gives the way back.
+	const harness = await makeHarness(await makeReleaseFixture(), true);
+	const result = await harness.run({ env: { SPIRITS_ROUTE: "fork" } });
+	expect(result.exitCode).toBe(1);
+	expect(result.launched).toBe(false);
+	const message = harness.err.join("\n");
+	expect(message).toContain("selects the Pi fork");
+	expect(message).toContain("Unset SPIRITS_ROUTE");
+	expect(message).toContain("Rollback:");
+	expect(message).toContain("spirits-fork-final");
+	// No host process was started and no backup was taken.
+	expect(await Bun.file(harness.argsFile).exists()).toBe(false);
+	expect(await entries(harness.backupsDir)).toEqual([]);
+
+	// Any other value keeps the launch, so a variable another tool set cannot break it.
+	const kept = await makeHarness(await makeReleaseFixture(), true);
+	const other = await kept.run({ env: { SPIRITS_ROUTE: "FORK" } });
+	expect(other.exitCode).toBe(0);
+	expect(other.launched).toBe(true);
+}, 60_000);
+
 test("a fetch failure and a corrupt set both refuse to launch", async () => {
 	const missing = await makeHarness(await makeReleaseFixture(), false);
 	const unreachable = await runDefaultManagedStartup({
 		root: missing.root,
 		home: missing.home,
 		version: "0.1.0",
+		compiled: true,
 		// A closed port: the manifest request cannot be served.
 		fetch: (async () => {
 			throw new Error("network is unavailable");

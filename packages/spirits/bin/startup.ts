@@ -1,8 +1,8 @@
 /**
- * Managed startup hand-off.
+ * Launcher hand-off to the managed route.
  *
- * `bootstrap.ts` classifies the CLI before pi loads, and the managed route must see the caller's
- * environment as it was *before* the wrapper injected the normal route's defaults. The injected
+ * `bootstrap.ts` classifies the CLI, and the managed launch must see the caller's environment as it
+ * was *before* the launcher injected the default route's values. The injected
  * `SPIRITS_CODING_AGENT_DIR=~/.spirits/agent` would otherwise be indistinguishable from a selection
  * the user made, and the managed isolation guard would reject every default launch.
  *
@@ -14,9 +14,7 @@
 import { runManagedCommand, type ManagedCommandOptions } from "../src/managed-pi/command.ts";
 import {
 	runDefaultManagedStartup,
-	selectStartupRoute,
 	type DefaultManagedStartupOptions,
-	type StartupRoute,
 } from "../src/managed-pi/default-route.ts";
 import type { ManagedSpawn } from "../src/managed-pi/launch.ts";
 import type { ManagedIo } from "../src/managed-pi/install.ts";
@@ -49,11 +47,6 @@ export interface DefaultManagedOptions extends Omit<DefaultManagedStartupOptions
 	snapshot: CallerEnv;
 }
 
-/** The route this run takes, decided from the caller's environment. */
-export function chooseStartupRoute(snapshot: CallerEnv, compiled: boolean): StartupRoute {
-	return selectStartupRoute({ env: snapshot, compiled });
-}
-
 /** Hand the pre-default environment copy to the default managed launch. */
 export async function runDefaultManaged(options: DefaultManagedOptions): Promise<number> {
 	const { snapshot, ...rest } = options;
@@ -79,7 +72,7 @@ export interface ManagedInstallAfterUpdateOptions {
  *
  * A replacement reports the release it installed; a run that was already current reports its own
  * release. Either way the set comes from the same release as the binary on disk, never from the
- * newest release. A failure has already printed the repair command and the fork escape hatch.
+ * newest release. A failure has already printed the repair command and the rollback lines.
  */
 export async function installManagedSetAfterUpdate(options: ManagedInstallAfterUpdateOptions): Promise<number> {
 	const env: EnvLike = copyCallerEnv(options.snapshot);

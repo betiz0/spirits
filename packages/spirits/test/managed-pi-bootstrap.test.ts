@@ -1,14 +1,9 @@
 import { afterAll, expect, test } from "bun:test";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { planLauncherArgs } from "../bin/bootstrap.ts";
 import { computeEnvDefaults } from "../bin/env-defaults.ts";
-import {
-	chooseStartupRoute,
-	copyCallerEnv,
-	installManagedSetAfterUpdate,
-	runDefaultManaged,
-	runManagedStartup,
-} from "../bin/startup.ts";
+import { copyCallerEnv, installManagedSetAfterUpdate, runDefaultManaged, runManagedStartup } from "../bin/startup.ts";
 import { installManagedSet } from "../src/managed-pi/install.ts";
 import type { ManagedSpawnRequest } from "../src/managed-pi/launch.ts";
 import {
@@ -164,15 +159,40 @@ test("managed help uses the same guard", async () => {
 	expect(await directoryExists(value.existing)).toBe(false);
 });
 
-test("the wrapper picks managed by default and fork only when asked", () => {
-	expect(chooseStartupRoute({}, true)).toBe("managed");
-	expect(chooseStartupRoute({ SPIRITS_ROUTE: "fork" }, true)).toBe("fork");
-	// Any other value keeps the default: a variable another tool set must not break the launch.
-	expect(chooseStartupRoute({ SPIRITS_ROUTE: "FORK" }, true)).toBe("managed");
-	expect(chooseStartupRoute({ SPIRITS_ROUTE: "" }, true)).toBe("managed");
-	// A source run has no embedded version and no release to fetch, so it stays on the fork.
-	expect(chooseStartupRoute({}, false)).toBe("fork");
-	expect(chooseStartupRoute({ SPIRITS_ROUTE: "fork" }, false)).toBe("fork");
+test("the launcher answers its own version and help", () => {
+	expect(planLauncherArgs(["--version"])).toEqual({ kind: "version" });
+	expect(planLauncherArgs(["-v"])).toEqual({ kind: "version" });
+	expect(planLauncherArgs(["--help"])).toEqual({ kind: "help" });
+	expect(planLauncherArgs(["-h"])).toEqual({ kind: "help" });
+});
+
+test("arguments after the separator reach the host without it", () => {
+	expect(planLauncherArgs(["--", "--help"])).toEqual({ kind: "host", args: ["--help"] });
+	expect(planLauncherArgs(["--", "update", "--extensions"])).toEqual({
+		kind: "host",
+		args: ["update", "--extensions"],
+	});
+	expect(planLauncherArgs(["--"])).toEqual({ kind: "host", args: [] });
+	// Without the separator the arguments still reach the host, unchanged.
+	expect(planLauncherArgs([])).toEqual({ kind: "host", args: [] });
+	expect(planLauncherArgs(["--continue"])).toEqual({ kind: "host", args: ["--continue"] });
+	expect(planLauncherArgs(["--session", "s.jsonl"])).toEqual({
+		kind: "host",
+		args: ["--session", "s.jsonl"],
+	});
+});
+
+test("spirits subcommands are decided before any host launch", () => {
+	// `SPIRITS_ROUTE=fork` is refused only on the host launch, so an operator who has not cleared the
+	// variable can still update the binary, repair the set, and read the help.
+	expect(planLauncherArgs(["update"])).toMatchObject({ kind: "update" });
+	expect(planLauncherArgs(["update", "self"])).toMatchObject({ kind: "update" });
+	expect(planLauncherArgs(["update", "--self", "--force"])).toMatchObject({ kind: "update" });
+	expect(planLauncherArgs(["managed-pi", "help"])).toMatchObject({ kind: "managed" });
+	expect(planLauncherArgs(["managed-pi", "install"])).toMatchObject({ kind: "managed" });
+	expect(planLauncherArgs(["managed-pi", "repair"])).toMatchObject({ kind: "managed" });
+	expect(planLauncherArgs(["--version"])).toMatchObject({ kind: "version" });
+	expect(planLauncherArgs(["--help"])).toMatchObject({ kind: "help" });
 });
 
 test("the default hand-off uses the pre-default environment copy", async () => {
@@ -184,6 +204,7 @@ test("the default hand-off uses the pre-default environment copy", async () => {
 		root: value.root,
 		home: value.home,
 		version: "0.1.0",
+		compiled: true,
 		fetch,
 		args: ["--continue"],
 		backupsDir: join(value.home, "backups"),
@@ -264,6 +285,7 @@ test("the default hand-off keeps an explicit agent directory", async () => {
 		root: value.root,
 		home: value.home,
 		version: "0.1.0",
+		compiled: true,
 		fetch,
 		args: [],
 		backupsDir: join(value.home, "backups"),

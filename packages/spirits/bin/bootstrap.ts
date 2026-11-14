@@ -1,25 +1,26 @@
 /**
- * First module evaluated by `spirits.ts`.
+ * Launcher classification and dispatch.
  *
- * Applies the Bun version gate, environment defaults, and `--version` / `-v` handling before pi
- * (and its runtime setup) is imported, so the gate message is not mixed with pi output and the
- * agent directory is in place before pi reads it.
+ * The launcher owns the arguments that are spirits' own (`--version`, `--help`, `update`,
+ * `managed-pi`) and starts the verified managed host with everything else. It imports no host code:
+ * the host comes from the managed set on disk, so a compiled launcher carries no Pi sources.
  *
- * It also intercepts the `update` invocations that target the program itself. The uncompiled
- * rejection happens before the first `await`, so a source run never loads pi.
+ * `runLauncher` returns an exit code instead of calling `process.exit`, so a test drives the same
+ * dispatch the entry point does.
  */
 
 import { homedir } from "node:os";
-import { SPIRITS_APP_NAME } from "../src/constants.ts";
 import { classifyManagedPiArgs, type ManagedPiAction } from "../src/managed-pi/classify.ts";
+import type { ManagedIo } from "../src/managed-pi/install.ts";
 import { managedRoot } from "../src/managed-pi/layout.ts";
-import { classifyUpdateArgs, type UpdateClassification } from "../src/update/classify.ts";
+import type { ManagedSpawn } from "../src/managed-pi/launch.ts";
+import { classifyUpdateArgs } from "../src/update/classify.ts";
 import { formatUncompiledMessage } from "../src/update/guards.ts";
 import { runSelfUpdate } from "../src/update/run.ts";
+import type { FetchLike } from "../src/update/types.ts";
 import { checkBunVersion } from "./bun-gate.ts";
 import { computeEnvDefaults } from "./env-defaults.ts";
 import {
-	chooseStartupRoute,
 	copyCallerEnv,
 	installManagedSetAfterUpdate,
 	runDefaultManaged,
@@ -27,109 +28,198 @@ import {
 } from "./startup.ts";
 import { VERSION_FLAGS, formatVersionLine, isCompiledRun, resolveSpiritsVersion } from "./version.ts";
 
-function applyEnvDefaults(): void {
-	// Must run before pi resolves APP_NAME so `SPIRITS_CODING_AGENT_DIR` and the other derived names
-	// match the env defaults computed below.
-	process.env.PI_APP_NAME = SPIRITS_APP_NAME;
-	const defaults = computeEnvDefaults(process.env, homedir());
-	for (const [name, value] of Object.entries(defaults)) {
-		process.env[name] = value;
+/** Flags the launcher answers itself, so the host never sees a bare `--help`. */
+export const HELP_FLAGS = new Set(["--help", "-h"]);
+
+/** Separator that hands everything after it to the host. */
+export const PASSTHROUGH_SEPARATOR = "--";
+
+/** Help the launcher prints for `--help`. The host's own help is behind the separator. */
+const SPIRITS_HELP = [
+	"spirits - a coding agent that runs on a pinned official Pi host",
+	"",
+	"Usage:",
+	"  spirits <host arguments...>                start the host with the spirits extension",
+	"  spirits -- <host arguments...>             same, arguments handed over verbatim",
+	"  spirits update [self|pi|--self] [--force]  replace this binary, then the managed set",
+	"  spirits managed-pi <command>               manage the pinned host set:",
+	"                                               install | update | repair | help",
+	"",
+	"`spirits --version` prints the spirits version. The host reads its own flags behind the",
+	"separator, for example `spirits -- --help`.",
+].join("\n");
+
+/**
+ * An `update` of the program itself.
+ *
+ * Narrower than the classifier's result: a plan is only produced for the arguments that target the
+ * binary, so the launcher never carries a `pass-through` it has to re-check.
+ */
+export interface SelfUpdatePlan {
+	target: "self" | "all";
+	force: boolean;
+	trustFlag?: string;
+}
+
+/** What the launcher does with one argument list. */
+export type LauncherPlan =
+	| { kind: "version" }
+	| { kind: "help" }
+	| { kind: "managed"; action: ManagedPiAction }
+	| { kind: "update"; update: SelfUpdatePlan }
+	/** Hand these arguments to the verified managed host. */
+	| { kind: "host"; args: string[] };
+
+/** Arguments the host receives: the launcher's own separator is dropped, nothing else is touched. */
+function hostArgs(argv: readonly string[]): string[] {
+	return argv[0] === PASSTHROUGH_SEPARATOR ? [...argv.slice(1)] : [...argv];
+}
+
+/**
+ * Classify one launcher run.
+ *
+ * The order is the precedence: a spirits flag first, then the `managed-pi` subcommand, then an
+ * `update` of the program itself, and everything else is a host launch. Because the subcommands are
+ * decided here, they never reach the host and never consult the removed fork route.
+ */
+export function planLauncherArgs(argv: readonly string[]): LauncherPlan {
+	const first = argv[0] ?? "";
+	if (VERSION_FLAGS.has(first)) return { kind: "version" };
+	if (HELP_FLAGS.has(first)) return { kind: "help" };
+	const managed = classifyManagedPiArgs(argv);
+	if (managed.kind !== "none") return { kind: "managed", action: managed };
+	const update = classifyUpdateArgs(argv);
+	if (update.target !== "pass-through") {
+		return {
+			kind: "update",
+			update: {
+				target: update.target,
+				force: update.force,
+				...(update.trustFlag !== undefined ? { trustFlag: update.trustFlag } : {}),
+			},
+		};
+	}
+	return { kind: "host", args: hostArgs(argv) };
+}
+
+/** Everything `runLauncher` needs. Each field defaults to the real process; tests replace what they check. */
+export interface LauncherRuntime {
+	argv: readonly string[];
+	/** Environment the launcher applies its defaults to. */
+	env: Record<string, string | undefined>;
+	home: string;
+	root: string;
+	/** Version embedded in the running binary. */
+	version: string;
+	/** True for the compiled launcher; only it knows a release to fetch a set from. */
+	compiled: boolean;
+	bunVersion: string;
+	fetch: FetchLike;
+	io: ManagedIo;
+	/** Test-only spawn seam forwarded to the host launch. */
+	spawn?: ManagedSpawn;
+}
+
+const DEFAULT_IO: ManagedIo = {
+	out: (line) => console.log(line),
+	err: (line) => console.error(line),
+};
+
+/** Apply the launcher's environment defaults in place, before the host or the update reads them. */
+function applyEnvDefaults(env: Record<string, string | undefined>, home: string): void {
+	for (const [name, value] of Object.entries(computeEnvDefaults(env, home))) {
+		env[name] = value;
 	}
 }
 
-/** One run's classification of the explicit routes. */
-interface StartupClassification {
-	update: UpdateClassification;
-	managed: ManagedPiAction;
-}
+/**
+ * Run one launcher invocation and return the exit code.
+ *
+ * The caller's environment is copied before the defaults land, so the injected
+ * `SPIRITS_CODING_AGENT_DIR` is never read as a selection the user made. Only `update` of the
+ * program itself needs a compiled binary; a source run starts the managed host like any other.
+ */
+export async function runLauncher(runtime: Partial<LauncherRuntime> = {}): Promise<number> {
+	const io = runtime.io ?? DEFAULT_IO;
+	const env = runtime.env ?? process.env;
+	const home = runtime.home ?? homedir();
+	const root = runtime.root ?? managedRoot(home);
+	const compiled = runtime.compiled ?? isCompiledRun();
+	const version = runtime.version ?? resolveSpiritsVersion();
+	const fetchImpl = runtime.fetch ?? fetch;
+	const argv = runtime.argv ?? process.argv.slice(2);
 
-/** Run the synchronous pre-pi startup and classify the CLI arguments. */
-function run(): StartupClassification {
-	const gate = checkBunVersion(Bun.version, isCompiledRun());
+	const gate = checkBunVersion(runtime.bunVersion ?? Bun.version, compiled);
 	if (gate.decision === "reject") {
-		console.error(gate.message);
-		process.exit(gate.exitCode);
+		io.err(gate.message);
+		return gate.exitCode;
 	}
 	if (gate.decision === "warn") {
-		console.error(gate.message);
+		io.err(gate.message);
 	}
-	applyEnvDefaults();
-	if (VERSION_FLAGS.has(process.argv[2] ?? "")) {
-		console.log(formatVersionLine(resolveSpiritsVersion(), Bun.version));
-		process.exit(0);
+
+	const snapshot = copyCallerEnv(env);
+	applyEnvDefaults(env, home);
+
+	const plan = planLauncherArgs(argv);
+	switch (plan.kind) {
+		case "version":
+			io.out(formatVersionLine(version, runtime.bunVersion ?? Bun.version));
+			return 0;
+		case "help":
+			io.out(SPIRITS_HELP);
+			return 0;
+		case "managed":
+			return await runManagedStartup({
+				snapshot,
+				action: plan.action,
+				root,
+				fetch: fetchImpl,
+				home,
+				version,
+				io,
+			});
+		case "update": {
+			if (!compiled) {
+				io.err(formatUncompiledMessage());
+				return 1;
+			}
+			const result = await runSelfUpdate({
+				kind: plan.update.target,
+				force: plan.update.force,
+				trustFlag: plan.update.trustFlag,
+				env,
+				fetch: fetchImpl,
+				installedVersion: version,
+				execPath: process.execPath,
+				compiled,
+				platform: process.platform,
+				arch: process.arch,
+			});
+			if (result.exitCode !== 0) return result.exitCode;
+			// The managed set follows the binary it belongs to. A failed install reports the repair
+			// command and the rollback lines and turns the exit code non-zero, while the binary the
+			// update already placed stays in place.
+			return await installManagedSetAfterUpdate({
+				snapshot,
+				root,
+				fetch: fetchImpl,
+				installedVersion: version,
+				io,
+				...(result.releaseTag !== undefined ? { releaseTag: result.releaseTag } : {}),
+			});
+		}
+		case "host":
+			return await runDefaultManaged({
+				snapshot,
+				args: plan.args,
+				root,
+				home,
+				version,
+				compiled,
+				fetch: fetchImpl,
+				io,
+				...(runtime.spawn ? { spawn: runtime.spawn } : {}),
+			});
 	}
-	const update = classifyUpdateArgs(process.argv.slice(2));
-	const managed = classifyManagedPiArgs(process.argv.slice(2));
-	if (!isCompiledRun() && (update.target !== "pass-through" || managed.kind !== "none")) {
-		console.error(formatUncompiledMessage());
-		process.exit(1);
-	}
-	return { update, managed };
-}
-
-// Taken before `run()` applies the normal route's defaults, so the wrapper's own
-// `SPIRITS_CODING_AGENT_DIR` injection is never read as an explicit managed selection. The normal
-// route keeps using the defaulted `process.env`; only this copy reaches the managed command.
-const snapshotEnv = copyCallerEnv(process.env);
-
-const { update: classification, managed } = run();
-
-// The explicit experimental route is handled before pi is imported. Its launch form never falls
-// through to the default compiled spirits path.
-if (managed.kind !== "none") {
-	const exitCode = await runManagedStartup({
-		snapshot: snapshotEnv,
-		action: managed,
-		root: managedRoot(homedir()),
-		fetch,
-		home: homedir(),
-		// `install`/`update` resolve the manifest of this binary's own release.
-		version: resolveSpiritsVersion(),
-	});
-	process.exit(exitCode);
-}
-
-// Everything except `update` of the program itself falls through to the route selection below.
-const target = classification.target;
-if (isCompiledRun() && target !== "pass-through") {
-	const result = await runSelfUpdate({
-		kind: target,
-		force: classification.force,
-		trustFlag: classification.trustFlag,
-		env: process.env,
-		fetch,
-		installedVersion: resolveSpiritsVersion(),
-		execPath: process.execPath,
-		compiled: isCompiledRun(),
-		platform: process.platform,
-		arch: process.arch,
-	});
-	if (result.exitCode !== 0) {
-		process.exit(result.exitCode);
-	}
-	// The managed set follows the binary it belongs to. A failed managed install reports the repair
-	// command and the fork escape hatch and turns the exit code non-zero, while the binary the update
-	// already placed stays in place.
-	const managedExitCode = await installManagedSetAfterUpdate({
-		snapshot: snapshotEnv,
-		root: managedRoot(homedir()),
-		fetch,
-		installedVersion: resolveSpiritsVersion(),
-		...(result.releaseTag !== undefined ? { releaseTag: result.releaseTag } : {}),
-	});
-	process.exit(managedExitCode);
-}
-
-// The default route starts managed and never imports the fork's pi. `SPIRITS_ROUTE=fork`, and any
-// source run, keep the path below.
-if (chooseStartupRoute(snapshotEnv, isCompiledRun()) === "managed") {
-	const exitCode = await runDefaultManaged({
-		snapshot: snapshotEnv,
-		args: process.argv.slice(2),
-		root: managedRoot(homedir()),
-		home: homedir(),
-		version: resolveSpiritsVersion(),
-		fetch,
-	});
-	process.exit(exitCode);
 }
