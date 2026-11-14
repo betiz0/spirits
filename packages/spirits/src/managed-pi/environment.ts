@@ -15,18 +15,8 @@
  */
 
 import { join } from "node:path";
-import {
-	ENV_MANAGED_AGENT_DIR,
-	ENV_MANAGED_SESSION_DIR,
-	ENV_OLD_AGENT_DIR,
-	ENV_OLD_APP_NAME,
-	ENV_OLD_CONFIG_DIR,
-	ENV_OLD_SESSION_DIR,
-	ENV_PACKAGE_DIR,
-	ENV_SKIP_VERSION_CHECK,
-	ENV_TELEMETRY,
-	MANAGED_PI_SESSION_DIR_NAME,
-} from "../constants.ts";
+import { MANAGED_PI_SESSION_DIR_NAME } from "../constants.ts";
+import { OFFICIAL_PI_HOST, type HostDescriptor } from "./host.ts";
 
 /** Value that disables pi's version check, matching the compiled route. */
 const SKIP_VERSION_CHECK_VALUE = "1";
@@ -55,6 +45,8 @@ export interface ManagedEnvOptions {
 	 * Omitting it passes an inherited value through, which is what the fork route does.
 	 */
 	sessionDir?: string;
+	/** Host the child process runs. Defaults to the official Pi. */
+	host?: HostDescriptor;
 }
 
 /** Session directory pinned inside an isolated agent dir. */
@@ -65,27 +57,26 @@ export function managedSessionDir(agentDir: string): string {
 /**
  * Compute the child environment without mutating the caller's object.
  *
- * `SPIRITS_CODING_AGENT_DIR` is set to the caller's resolved agent dir, and
- * `SPIRITS_CODING_AGENT_SESSION_DIR` is pinned only when the caller passed a session dir.
- * `PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`, `PI_APP_NAME` and `PI_CONFIG_DIR` are
- * removed by setting them to `undefined` (the caller deletes them). `PI_SKIP_VERSION_CHECK` is
- * always pinned; `PI_TELEMETRY` is defaulted only when the caller did not set it, matching the
- * compiled route.
+ * The names come from the host descriptor. The agent dir is set to the caller's resolved value, and
+ * the session dir is pinned only when the caller passed one. The names the descriptor lists as
+ * `removed` are dropped by setting them to `undefined` (the caller deletes them). The version-check
+ * name is always pinned, and the telemetry name is defaulted only when the caller did not set it,
+ * matching the compiled route.
  */
 export function computeManagedEnv(options: ManagedEnvOptions): Record<string, string | undefined> {
+	const host = options.host ?? OFFICIAL_PI_HOST;
 	const result: Record<string, string | undefined> = { ...options.env };
-	result[ENV_MANAGED_AGENT_DIR] = options.agentDir;
+	result[host.env.agentDir] = options.agentDir;
 	if (options.sessionDir !== undefined) {
-		result[ENV_MANAGED_SESSION_DIR] = options.sessionDir;
+		result[host.env.sessionDir] = options.sessionDir;
 	}
-	result[ENV_PACKAGE_DIR] = options.packageDir;
-	result[ENV_OLD_AGENT_DIR] = undefined;
-	result[ENV_OLD_SESSION_DIR] = undefined;
-	result[ENV_OLD_APP_NAME] = undefined;
-	result[ENV_OLD_CONFIG_DIR] = undefined;
-	result[ENV_SKIP_VERSION_CHECK] = SKIP_VERSION_CHECK_VALUE;
-	if (options.env[ENV_TELEMETRY] === undefined) {
-		result[ENV_TELEMETRY] = TELEMETRY_DISABLED_VALUE;
+	result[host.env.packageDir] = options.packageDir;
+	for (const name of host.env.removed) {
+		result[name] = undefined;
+	}
+	result[host.env.skipVersionCheck] = SKIP_VERSION_CHECK_VALUE;
+	if (options.env[host.env.telemetry] === undefined) {
+		result[host.env.telemetry] = TELEMETRY_DISABLED_VALUE;
 	}
 	return result;
 }

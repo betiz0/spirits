@@ -17,10 +17,19 @@ import {
 	MANAGED_PI_CURRENT_LINK_NAME,
 	MANAGED_PI_RELEASES_DIR_NAME,
 	MANAGED_PI_ROOT_NAME,
+	MANAGED_PI_SET_EXTENSION_NAME,
+	MANAGED_PI_SET_INSTALLED_STATE_NAME,
+	MANAGED_PI_SET_MANIFEST_NAME,
 	MANAGED_PI_TEMP_DIR_PREFIX,
 	SPIRITS_CONFIG_DIR_NAME,
 } from "../constants.ts";
 import { cleanStaleTempDirs } from "../update/cleanup.ts";
+import {
+	hostExecutablePath,
+	hostPackageDir,
+	OFFICIAL_PI_HOST,
+	type HostDescriptor,
+} from "./host.ts";
 
 /** Resolve the managed root from a home directory. */
 export function managedRoot(home: string = homedir()): string {
@@ -42,24 +51,24 @@ export function managedCurrentPath(root: string): string {
 	return join(root, MANAGED_PI_CURRENT_LINK_NAME);
 }
 
-/** Path of the installed official Pi package inside a set. */
-export function managedPiDir(root: string, setId: string): string {
-	return join(managedSetDir(root, setId), "pi");
+/** Path of the installed host package inside a set. */
+export function managedPiDir(root: string, setId: string, host: HostDescriptor = OFFICIAL_PI_HOST): string {
+	return hostPackageDir(managedSetDir(root, setId), host);
 }
 
-/** Path of the official Pi executable inside a set. */
-export function managedPiExecutable(root: string, setId: string): string {
-	return join(managedPiDir(root, setId), "pi");
+/** Path of the host executable inside a set. */
+export function managedPiExecutable(root: string, setId: string, host: HostDescriptor = OFFICIAL_PI_HOST): string {
+	return hostExecutablePath(managedSetDir(root, setId), host);
 }
 
 /** Path of the extension bundle inside a set. */
 export function managedExtensionPath(root: string, setId: string): string {
-	return join(managedSetDir(root, setId), "spirits-extension.js");
+	return join(managedSetDir(root, setId), MANAGED_PI_SET_EXTENSION_NAME);
 }
 
 /** Path of the installed manifest inside a set. */
 export function managedManifestPath(root: string, setId: string): string {
-	return join(managedSetDir(root, setId), "manifest.json");
+	return join(managedSetDir(root, setId), MANAGED_PI_SET_MANIFEST_NAME);
 }
 
 /** Temporary directory inside the managed root. */
@@ -147,5 +156,5 @@ export async function switchCurrent(root: string, setId: string): Promise<void> 
 
 /** Verification state written after a set is installed. */
 export function managedInstalledStatePath(root: string, setId: string): string {
-	return join(managedSetDir(root, setId), "installed.json");
+	return join(managedSetDir(root, setId), MANAGED_PI_SET_INSTALLED_STATE_NAME);
 }

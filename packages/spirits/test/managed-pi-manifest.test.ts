@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { PINNED_PI } from "../src/constants.ts";
 import {
 	firstSupportedManifest,
 	loadManagedManifest,
@@ -23,6 +24,17 @@ test("manifest accepts the first supported set", () => {
 	expect(manifest.pi.artifact.sha256).toBe("df870ba0e344cb7b3358d8d8f19397b8b8d225a8669784736ad68a5c2169d53b");
 	expect(manifest.extension.version).toBe("0.1.0");
 	expect(manifest.overlay.sha256).toHaveLength(64);
+});
+
+test("the manifest takes every pinned value from PINNED_PI", () => {
+	const manifest = validManifest();
+	expect(manifest.pi.version).toBe(PINNED_PI.version);
+	expect(manifest.pi.artifact.sha256).toBe(PINNED_PI.artifactSha256);
+	expect(manifest.pi.artifact.url).toContain(PINNED_PI.version);
+	expect(manifest.pi.artifact.url).toContain(PINNED_PI.artifactName);
+	expect(manifest.overlay.version).toBe(PINNED_PI.overlayVersion);
+	expect(manifest.overlay.sha256).toBe(PINNED_PI.overlaySha256);
+	expect(manifest.setId).toBe(`pi-${PINNED_PI.version}`);
 });
 
 test("manifest rejects a missing checksum", () => {

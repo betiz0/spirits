@@ -9,8 +9,8 @@
 
 ## 2. ホスト記述子と固定値
 
-- [ ] 2.1 `packages/spirits/src/managed-pi/host.ts` に `HostDescriptor` (id、packageName、executablePath、packageDirName、extensionArgs、identity、env 名、manifest host 種別) を追加し、テスト `test/managed-pi-host.test.ts` を新設する。完了確認: `bun test test/managed-pi-host.test.ts` が成功し、公式 Pi の記述子が `pi` / `pi/pi` / `-e` / `piConfig.name` を返す。
-- [ ] 2.2 `packages/spirits/src/constants.ts` に `PINNED_PI` (版、artifact 名、sha256、overlay 版) を追加し、`MANAGED_PI_FIRST_*` をそこから導出する。完了確認: `bun test test/managed-pi-manifest.test.ts` が成功し、固定値が manifest の `pi.version` / `pi.artifact.sha256` に反映される。
+- [x] 2.1 `packages/spirits/src/managed-pi/host.ts` に `HostDescriptor` (id、packageName、executablePath、packageDirName、extensionArgs、identity、env 名、manifest host 種別) を追加し、テスト `test/managed-pi-host.test.ts` を新設する。完了確認: `bun test test/managed-pi-host.test.ts` が成功し、公式 Pi の記述子が `pi` / `pi/pi` / `-e` / `piConfig.name` を返す。
+- [x] 2.2 `packages/spirits/src/constants.ts` に `PINNED_PI` (版、artifact 名、sha256、overlay 版) を追加し、`MANAGED_PI_FIRST_*` をそこから導出する。完了確認: `bun test test/managed-pi-manifest.test.ts` が成功し、固定値が manifest の `pi.version` / `pi.artifact.sha256` に反映される。
 - [ ] 2.3 `spawnManagedSet` / `install.ts` / `verify.ts` / `layout.ts` / `overlay.ts` / `environment.ts` を記述子経由にし、固定パスとホスト名を直書きしない。完了確認: `bun test test/managed-pi-launch.test.ts test/managed-pi-install.test.ts test/managed-pi-layout.test.ts test/managed-pi-integration.test.ts test/managed-pi-repair.test.ts test/managed-pi-overlay.test.ts test/managed-pi-env.test.ts` が成功する。
 
 ## 3. 起動役を薄くする

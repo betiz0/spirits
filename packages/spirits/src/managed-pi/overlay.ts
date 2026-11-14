@@ -1,6 +1,7 @@
 /**
- * Managed overlay: the small `package.json` change that gives the official Pi artifact the
- * spirits identity without touching the artifact's executable or package layout.
+ * Managed overlay: the small `package.json` change that gives the host artifact the spirits
+ * identity without touching the artifact's executable or package layout. Which field carries the
+ * identity is a host descriptor decision (`host.ts`).
  *
  * The official artifact checksum and the overlay checksum stay separate values: the manifest
  * records the original tarball digest, while the installed set records the generated file.
@@ -8,14 +9,12 @@
 
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { SPIRITS_APP_NAME } from "../constants.ts";
+import { applyHostIdentity, OFFICIAL_PI_HOST, type HostDescriptor, type HostPackageJson } from "./host.ts";
 
 /** Official package metadata fields the overlay keeps. */
-interface OfficialPackageJson {
+interface OfficialPackageJson extends HostPackageJson {
 	name?: unknown;
 	version?: unknown;
-	piConfig?: { configDir?: unknown; name?: unknown; [key: string]: unknown };
-	[key: string]: unknown;
 }
 
 /** Result of generating an overlay package.json. */
@@ -63,10 +62,14 @@ function parseOfficialPackage(text: string): OfficialPackageJson {
 /**
  * Produce the overlay package.json.
  *
- * Only `piConfig.name` is added and `configDir` is kept (defaulting to `.pi`). Everything else is
- * carried along so the official name and version remain visible.
+ * The identity fields come from the host descriptor, so what gets written is one host decision
+ * (`piConfig.name` for the official Pi) and everything else is carried along so the official name
+ * and version remain visible.
  */
-export function createOverlayPackageJson(officialText: string): ManagedOverlayResult {
+export function createOverlayPackageJson(
+	officialText: string,
+	host: HostDescriptor = OFFICIAL_PI_HOST,
+): ManagedOverlayResult {
 	const original = parseOfficialPackage(officialText);
 	if (typeof original.name !== "string" || original.name.length === 0) {
 		throw new ManagedOverlayError("The official artifact package.json has no name.");
@@ -74,18 +77,7 @@ export function createOverlayPackageJson(officialText: string): ManagedOverlayRe
 	if (typeof original.version !== "string" || original.version.length === 0) {
 		throw new ManagedOverlayError("The official artifact package.json has no version.");
 	}
-	const configDir =
-		typeof original.piConfig?.configDir === "string" && original.piConfig.configDir.length > 0
-			? original.piConfig.configDir
-			: ".pi";
-	const overlay: OfficialPackageJson = {
-		...original,
-		piConfig: {
-			...(original.piConfig ?? {}),
-			configDir,
-			name: SPIRITS_APP_NAME,
-		},
-	};
+	const overlay = applyHostIdentity(original, host.identity);
 	const content = `${JSON.stringify(overlay, null, "\t")}\n`;
 	return {
 		name: original.name,
@@ -96,7 +88,10 @@ export function createOverlayPackageJson(officialText: string): ManagedOverlayRe
 }
 
 /** Read the official package.json and return the generated overlay content. */
-export async function readAndCreateOverlay(piDir: string): Promise<ManagedOverlayResult> {
+export async function readAndCreateOverlay(
+	piDir: string,
+	host: HostDescriptor = OFFICIAL_PI_HOST,
+): Promise<ManagedOverlayResult> {
 	const path = join(piDir, "package.json");
 	let text: string;
 	try {
@@ -106,12 +101,16 @@ export async function readAndCreateOverlay(piDir: string): Promise<ManagedOverla
 			`Could not read ${path}: ${error instanceof Error ? error.message : String(error)}`,
 		);
 	}
-	return createOverlayPackageJson(text);
+	return createOverlayPackageJson(text, host);
 }
 
 /** Write the overlay package.json into an extracted package and verify its digest. */
-export async function writeOverlayPackage(piDir: string, expectedSha256?: string): Promise<ManagedOverlayResult> {
-	const overlay = await readAndCreateOverlay(piDir);
+export async function writeOverlayPackage(
+	piDir: string,
+	expectedSha256?: string,
+	host: HostDescriptor = OFFICIAL_PI_HOST,
+): Promise<ManagedOverlayResult> {
+	const overlay = await readAndCreateOverlay(piDir, host);
 	if (expectedSha256 !== undefined && overlay.sha256 !== expectedSha256.toLowerCase()) {
 		throw new ManagedOverlayError(
 			`Overlay checksum mismatch: expected ${expectedSha256}, got ${overlay.sha256}.`,

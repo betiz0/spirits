@@ -8,7 +8,14 @@
 
 import { readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { MANAGED_PI_FORK_ROUTE_HINT, MANAGED_PI_PLATFORM, MANAGED_PI_REPAIR_COMMAND } from "../constants.ts";
+import {
+	MANAGED_PI_FORK_ROUTE_HINT,
+	MANAGED_PI_PLATFORM,
+	MANAGED_PI_REPAIR_COMMAND,
+	MANAGED_PI_SET_EXTENSION_NAME,
+	MANAGED_PI_SET_INSTALLED_STATE_NAME,
+} from "../constants.ts";
+import { hostExecutablePath, hostPackageDir, OFFICIAL_PI_HOST, type HostDescriptor } from "./host.ts";
 import { readAndCreateOverlay, sha256Hex } from "./overlay.ts";
 import { loadManagedManifest, type ManagedManifest } from "./manifest.ts";
 import {
@@ -60,13 +67,17 @@ async function fileSha256(path: string): Promise<string> {
 }
 
 /** Write the installed state for a set directory that already contains the files. */
-export async function writeInstalledStateForSet(setDir: string, manifest: ManagedManifest): Promise<void> {
+export async function writeInstalledStateForSet(
+	setDir: string,
+	manifest: ManagedManifest,
+	host: HostDescriptor = OFFICIAL_PI_HOST,
+): Promise<void> {
 	const state: ManagedInstalledState = {
 		schemaVersion: 1,
 		setId: manifest.setId,
-		piExecutableSha256: await fileSha256(join(setDir, "pi", "pi")),
-		extensionSha256: await fileSha256(join(setDir, "spirits-extension.js")),
-		overlaySha256: (await readAndCreateOverlay(join(setDir, "pi"))).sha256,
+		piExecutableSha256: await fileSha256(hostExecutablePath(setDir, host)),
+		extensionSha256: await fileSha256(join(setDir, MANAGED_PI_SET_EXTENSION_NAME)),
+		overlaySha256: (await readAndCreateOverlay(hostPackageDir(setDir, host), host)).sha256,
 	};
 	if (state.extensionSha256 !== manifest.extension.artifact.sha256) {
 		throw new ManagedSetError("The extension bundle does not match the manifest checksum.");
@@ -74,13 +85,17 @@ export async function writeInstalledStateForSet(setDir: string, manifest: Manage
 	if (state.overlaySha256 !== manifest.overlay.sha256) {
 		throw new ManagedSetError("The generated overlay does not match the manifest checksum.");
 	}
-	await Bun.write(join(setDir, "installed.json"), `${JSON.stringify(state, null, "\t")}\n`);
+	await Bun.write(join(setDir, MANAGED_PI_SET_INSTALLED_STATE_NAME), `${JSON.stringify(state, null, "\t")}\n`);
 }
 
 /** Write the installed state after all files have been verified. */
-export async function writeInstalledState(root: string, setId: string): Promise<void> {
+export async function writeInstalledState(
+	root: string,
+	setId: string,
+	host: HostDescriptor = OFFICIAL_PI_HOST,
+): Promise<void> {
 	const manifest = await loadManagedManifest(managedManifestPath(root, setId));
-	await writeInstalledStateForSet(managedSetDir(root, setId), manifest);
+	await writeInstalledStateForSet(managedSetDir(root, setId), manifest, host);
 }
 
 async function readInstalledState(root: string, setId: string): Promise<ManagedInstalledState> {
@@ -110,21 +125,25 @@ async function readInstalledState(root: string, setId: string): Promise<ManagedI
 }
 
 /** Verify every recorded part of a set and return the paths launch needs. */
-export async function verifyManagedSet(root: string, setId: string): Promise<VerifiedManagedSet> {
+export async function verifyManagedSet(
+	root: string,
+	setId: string,
+	host: HostDescriptor = OFFICIAL_PI_HOST,
+): Promise<VerifiedManagedSet> {
 	const manifest = await loadManagedManifest(managedManifestPath(root, setId));
 	if (manifest.setId !== setId) {
 		throw new ManagedSetError(`The installed manifest is for ${manifest.setId}, not ${setId}.`);
 	}
 	const state = await readInstalledState(root, setId);
 	const extensionPath = managedExtensionPath(root, setId);
-	const piExecutable = managedPiExecutable(root, setId);
-	const packageDir = managedPiDir(root, setId);
+	const piExecutable = managedPiExecutable(root, setId, host);
+	const packageDir = managedPiDir(root, setId, host);
 
 	const extensionSha = await fileSha256(extensionPath);
 	if (extensionSha !== manifest.extension.artifact.sha256 || extensionSha !== state.extensionSha256) {
 		throw new ManagedSetError("The installed extension bundle does not match its recorded checksum.");
 	}
-	const overlay = await readAndCreateOverlay(packageDir);
+	const overlay = await readAndCreateOverlay(packageDir, host);
 	if (overlay.sha256 !== manifest.overlay.sha256 || overlay.sha256 !== state.overlaySha256) {
 		throw new ManagedSetError("The installed overlay package.json does not match its recorded checksum.");
 	}

@@ -7,14 +7,7 @@
  */
 
 import { readFile } from "node:fs/promises";
-import {
-	MANAGED_PI_FIRST_ARTIFACT_NAME,
-	MANAGED_PI_FIRST_ARTIFACT_SHA256,
-	MANAGED_PI_FIRST_OVERLAY_SHA256,
-	MANAGED_PI_FIRST_OVERLAY_VERSION,
-	MANAGED_PI_FIRST_PI_VERSION,
-	MANAGED_PI_PLATFORM,
-} from "../constants.ts";
+import { MANAGED_PI_PLATFORM, PINNED_PI } from "../constants.ts";
 
 /** One downloadable artifact with its expected SHA256. */
 export interface ManagedArtifact {
@@ -70,8 +63,16 @@ export class ManagedManifestError extends Error {
 	}
 }
 
+/** Release download origin of the pinned official Pi artifact. */
+const PINNED_PI_RELEASE_ORIGIN = "https://github.com/earendil-works/pi/releases/download";
+
 const SHA256_PATTERN = /^[0-9a-f]{64}$/i;
 const SET_ID_PATTERN = /^[a-z0-9][a-z0-9._-]*$/;
+
+/** Download URL of the pinned official Pi artifact. */
+function pinnedPiArtifactUrl(): string {
+	return `${PINNED_PI_RELEASE_ORIGIN}/v${PINNED_PI.version}/${PINNED_PI.artifactName}`;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -183,21 +184,21 @@ export async function loadManagedManifest(path: string): Promise<ManagedManifest
 }
 
 /**
- * The first supported set (Pi 1.5.0, Linux x64).
+ * The supported set, built from `PINNED_PI` (Pi 1.5.0, Linux x64 today).
  *
- * The extension checksum is filled in by `scripts/build-managed-pi-inputs.ts`; this constant is the
- * code-level description of the official Pi and overlay half so tests and docs can refer to it.
+ * The extension checksum is filled in by `scripts/build-managed-pi-inputs.ts`; this function is the
+ * code-level description of the host and overlay half so tests and docs can refer to it.
  */
 export function firstSupportedManifest(extension: { url: string; sha256: string; version: string }): ManagedManifest {
 	return parseManagedManifest({
 		schemaVersion: 1,
-		setId: `pi-${MANAGED_PI_FIRST_PI_VERSION}`,
+		setId: `pi-${PINNED_PI.version}`,
 		platform: MANAGED_PI_PLATFORM,
 		pi: {
-			version: MANAGED_PI_FIRST_PI_VERSION,
+			version: PINNED_PI.version,
 			artifact: {
-				url: `https://github.com/earendil-works/pi/releases/download/v${MANAGED_PI_FIRST_PI_VERSION}/${MANAGED_PI_FIRST_ARTIFACT_NAME}`,
-				sha256: MANAGED_PI_FIRST_ARTIFACT_SHA256,
+				url: pinnedPiArtifactUrl(),
+				sha256: PINNED_PI.artifactSha256,
 			},
 		},
 		extension: {
@@ -205,8 +206,8 @@ export function firstSupportedManifest(extension: { url: string; sha256: string;
 			artifact: { url: extension.url, sha256: extension.sha256 },
 		},
 		overlay: {
-			version: MANAGED_PI_FIRST_OVERLAY_VERSION,
-			sha256: MANAGED_PI_FIRST_OVERLAY_SHA256,
+			version: PINNED_PI.overlayVersion,
+			sha256: PINNED_PI.overlaySha256,
 		},
 		assets: [],
 	});

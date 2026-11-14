@@ -7,6 +7,7 @@
 
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { MANAGED_PI_SET_EXTENSION_NAME } from "../constants.ts";
 import {
 	assertManagedLaunchArgs,
 	ensureManagedAgentDir,
@@ -14,7 +15,8 @@ import {
 	resolveManagedAgentPaths,
 } from "./agent-dir.ts";
 import { applyChildEnv, computeManagedEnv, type ManagedEnv } from "./environment.ts";
-import { managedRoot, readCurrentSet } from "./layout.ts";
+import { hostExecutablePath, hostPackageDir, OFFICIAL_PI_HOST, type HostDescriptor } from "./host.ts";
+import { managedCurrentPath, managedRoot, readCurrentSet } from "./layout.ts";
 import {
 	assertSupportedManagedPlatform,
 	managedSetFailureMessage,
@@ -48,6 +50,8 @@ export interface LaunchManagedPiOptions {
 	/** Runtime platform and arch, injectable for tests. */
 	platform?: NodeJS.Platform;
 	arch?: string;
+	/** Host the set runs. Defaults to the official Pi. */
+	host?: HostDescriptor;
 }
 
 /** Result of a launch attempt. */
@@ -95,8 +99,9 @@ export async function launchManagedPi(options: LaunchManagedPiOptions): Promise<
 	const root = options.root ?? managedRoot(home);
 	const env = options.env ?? process.env;
 	try {
+		const host = options.host ?? OFFICIAL_PI_HOST;
 		const setId = await resolveLaunchSetId(root, options.setId);
-		const verified = await verifyManagedSet(root, setId);
+		const verified = await verifyManagedSet(root, setId, host);
 		assertSupportedManagedPlatform(
 			verified.manifest.platform,
 			options.platform ?? process.platform,
@@ -113,6 +118,7 @@ export async function launchManagedPi(options: LaunchManagedPiOptions): Promise<
 			sessionDir: paths.sessionDir,
 			cwd: options.cwd,
 			spawn: options.spawn,
+			host,
 		});
 		return { exitCode, launched: true };
 	} catch (error) {
@@ -137,21 +143,27 @@ export interface SpawnManagedSetOptions {
 	sessionDir?: string;
 	cwd?: string;
 	spawn?: ManagedSpawn;
+	/** Host to spawn. Defaults to the official Pi. */
+	host?: HostDescriptor;
 }
 
 /**
  * Spawn the verified managed set through the `current` link.
  *
  * `current` is used so the launched path is exactly the selected set and a concurrent update cannot
- * leave the wrapper using a path that is no longer current. Both routes reach Pi through here, so
- * the command form, the environment sanitize, and the inherited stdio cannot drift apart.
+ * leave the wrapper using a path that is no longer current. Every route reaches the host through
+ * here, so the command form, the environment sanitize, and the inherited stdio cannot drift apart.
+ * The command itself comes from the host descriptor: the executable path and the arguments that
+ * load the spirits bundle.
  */
 export async function spawnManagedSet(options: SpawnManagedSetOptions): Promise<number> {
-	const currentDir = join(options.root, "current");
-	const packageDir = join(currentDir, "pi");
+	const host = options.host ?? OFFICIAL_PI_HOST;
+	const currentDir = managedCurrentPath(options.root);
+	const packageDir = hostPackageDir(currentDir, host);
 	const childEnv: Record<string, string | undefined> = {};
-	applyChildEnv(childEnv, computeManagedEnv({ env: options.env, packageDir, agentDir: options.agentDir, sessionDir: options.sessionDir }));
-	const command = [join(packageDir, "pi"), "-e", join(currentDir, "spirits-extension.js"), ...options.args];
+	applyChildEnv(childEnv, computeManagedEnv({ env: options.env, packageDir, agentDir: options.agentDir, sessionDir: options.sessionDir, host }));
+	const bundle = join(currentDir, MANAGED_PI_SET_EXTENSION_NAME);
+	const command = [hostExecutablePath(currentDir, host), ...host.extensionArgs(bundle), ...options.args];
 	const spawn = options.spawn ?? spawnManagedProcess;
 	return await spawn({
 		command,

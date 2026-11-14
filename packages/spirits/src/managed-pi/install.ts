@@ -9,6 +9,7 @@
 
 import { chmod, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { MANAGED_PI_SET_EXTENSION_NAME, MANAGED_PI_SET_MANIFEST_NAME } from "../constants.ts";
 import { guardTempDir } from "../update/cleanup.ts";
 import { resolveIdleTimeoutMs } from "../update/timeout.ts";
 import type { EnvLike, FetchLike } from "../update/types.ts";
@@ -19,6 +20,7 @@ import {
 	prepareManagedRoot,
 	switchCurrent,
 } from "./layout.ts";
+import { hostExecutablePath, hostPackageDir, OFFICIAL_PI_HOST, type HostDescriptor } from "./host.ts";
 import type { ManagedManifest } from "./manifest.ts";
 import { writeOverlayPackage } from "./overlay.ts";
 import { writeInstalledStateForSet } from "./verify.ts";
@@ -39,6 +41,8 @@ export interface InstallManagedSetOptions {
 	/** Base URL for relative manifest artifact URLs. */
 	baseUrl?: string;
 	io?: ManagedIo;
+	/** Host the set installs. Defaults to the official Pi. */
+	host?: HostDescriptor;
 }
 
 /** Result of an install or update attempt. */
@@ -52,6 +56,9 @@ const DEFAULT_IO: ManagedIo = {
 	out: (line) => console.log(line),
 	err: (line) => console.error(line),
 };
+
+/** Name the host artifact is stored under inside the temporary directory. */
+const HOST_ARCHIVE_NAME = "pi.tar.gz";
 
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
@@ -102,6 +109,7 @@ function assertAssetName(name: string): void {
 export async function installManagedSet(options: InstallManagedSetOptions): Promise<ManagedInstallResult> {
 	const io = options.io ?? DEFAULT_IO;
 	const timeoutMs = options.timeoutMs ?? resolveIdleTimeoutMs(options.env ?? process.env);
+	const host = options.host ?? OFFICIAL_PI_HOST;
 	const setId = options.manifest.setId;
 	await prepareManagedRoot(options.root);
 	const tempDir = managedTempDir(options.root);
@@ -109,7 +117,7 @@ export async function installManagedSet(options: InstallManagedSetOptions): Prom
 	const guard = guardTempDir(tempDir);
 	try {
 		await mkdir(tempDir, { recursive: true });
-		const archivePath = join(tempDir, "pi.tar.gz");
+		const archivePath = join(tempDir, HOST_ARCHIVE_NAME);
 		await downloadManagedArtifact({
 			fetch: options.fetch,
 			artifact: options.manifest.pi.artifact,
@@ -118,11 +126,11 @@ export async function installManagedSet(options: InstallManagedSetOptions): Prom
 			timeoutMs,
 		});
 		await extractTarGz(archivePath, tempDir);
-		await chmod(join(tempDir, "pi", "pi"), 0o755);
+		await chmod(hostExecutablePath(tempDir, host), 0o755);
 
-		await writeOverlayPackage(join(tempDir, "pi"), options.manifest.overlay.sha256);
+		await writeOverlayPackage(hostPackageDir(tempDir, host), options.manifest.overlay.sha256, host);
 
-		const extensionPath = join(tempDir, "spirits-extension.js");
+		const extensionPath = join(tempDir, MANAGED_PI_SET_EXTENSION_NAME);
 		await downloadManagedArtifact({
 			fetch: options.fetch,
 			artifact: options.manifest.extension.artifact,
@@ -144,8 +152,8 @@ export async function installManagedSet(options: InstallManagedSetOptions): Prom
 		}
 
 		const stored = withResolvedArtifactUrls(options.manifest, options.baseUrl);
-		await Bun.write(join(tempDir, "manifest.json"), `${JSON.stringify(stored, null, "\t")}\n`);
-		await writeInstalledStateForSet(tempDir, options.manifest);
+		await Bun.write(join(tempDir, MANAGED_PI_SET_MANIFEST_NAME), `${JSON.stringify(stored, null, "\t")}\n`);
+		await writeInstalledStateForSet(tempDir, options.manifest, host);
 		await commitReleaseDir(options.root, setId, tempDir);
 		await switchCurrent(options.root, setId);
 	} catch (error) {

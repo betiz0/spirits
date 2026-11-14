@@ -461,25 +461,54 @@ export const MANAGED_PI_CURRENT_LINK_NAME = "current";
 /** Only platform the managed route ships for. */
 export const MANAGED_PI_PLATFORM = "linux-x64";
 
-/** First Pi version supported by the managed route. */
-export const MANAGED_PI_FIRST_PI_VERSION = "1.5.0";
+/**
+ * The official Pi host this build is pinned to. Updating a host version means editing this object
+ * and nothing else, and the steps in `docs/spirits-host-upgrade.md` (type mirror check, bundle and
+ * manifest rebuild, official-mode compatibility run) all key off it.
+ *
+ * `artifactSha256` is the trust root of the downloaded artifact, taken from the release `SHA256SUMS`
+ * file. `overlaySha256` is the digest of the generated `package.json` the identity overlay writes
+ * into the extracted artifact, so it changes when the artifact's own `package.json` changes.
+ */
+export const PINNED_PI = {
+	/** Host version the managed set installs. */
+	version: "1.5.0",
+	/** Release asset name of the host artifact for {@link MANAGED_PI_PLATFORM}. */
+	artifactName: "pi-linux-x64.tar.gz",
+	/** SHA256 of the host artifact. */
+	artifactSha256: "df870ba0e344cb7b3358d8d8f19397b8b8d225a8669784736ad68a5c2169d53b",
+	/** Overlay version recorded in the manifest for this pinned Pi version. */
+	overlayVersion: "1.5.0-spirits.1",
+	/** SHA256 of the overlay `package.json` generated from the pinned artifact. */
+	overlaySha256: "883b0b1462dd22bbcfa5c5020aeb79979b74adc39d059d6dbc8fa8318135a6ad",
+} as const;
 
-/** Official Pi release artifact for the first supported set. */
-export const MANAGED_PI_FIRST_ARTIFACT_NAME = "pi-linux-x64.tar.gz";
+/** Pinned Pi version, kept as a name for the manifest and the build scripts. */
+export const MANAGED_PI_FIRST_PI_VERSION = PINNED_PI.version;
 
-/** SHA256 of the official Pi 1.5.0 linux-x64 artifact (from the release SHA256SUMS file). */
-export const MANAGED_PI_FIRST_ARTIFACT_SHA256 =
-	"df870ba0e344cb7b3358d8d8f19397b8b8d225a8669784736ad68a5c2169d53b";
+/** Official Pi release asset for the pinned set. */
+export const MANAGED_PI_FIRST_ARTIFACT_NAME = PINNED_PI.artifactName;
 
-/** SHA256 of the overlay package.json generated from the first official artifact. */
-export const MANAGED_PI_FIRST_OVERLAY_SHA256 =
-	"883b0b1462dd22bbcfa5c5020aeb79979b74adc39d059d6dbc8fa8318135a6ad";
+/** SHA256 of the pinned official Pi artifact. */
+export const MANAGED_PI_FIRST_ARTIFACT_SHA256 = PINNED_PI.artifactSha256;
 
-/** Overlay version recorded for the first supported set. */
-export const MANAGED_PI_FIRST_OVERLAY_VERSION = "1.5.0-spirits.1";
+/** SHA256 of the overlay package.json generated from the pinned artifact. */
+export const MANAGED_PI_FIRST_OVERLAY_SHA256 = PINNED_PI.overlaySha256;
+
+/** Overlay version recorded for the pinned set. */
+export const MANAGED_PI_FIRST_OVERLAY_VERSION = PINNED_PI.overlayVersion;
 
 /** Extension bundle release asset name. */
 export const MANAGED_PI_EXTENSION_ASSET_NAME = "spirits-managed-pi-extension.js";
+
+/** Extension bundle file name inside a release set. */
+export const MANAGED_PI_SET_EXTENSION_NAME = "spirits-extension.js";
+
+/** Manifest file name inside a release set. */
+export const MANAGED_PI_SET_MANIFEST_NAME = "manifest.json";
+
+/** Verification state file name inside a release set. */
+export const MANAGED_PI_SET_INSTALLED_STATE_NAME = "installed.json";
 
 /** Manifest release asset name. */
 export const MANAGED_PI_MANIFEST_ASSET_NAME = "spirits-managed-pi-manifest.json";
