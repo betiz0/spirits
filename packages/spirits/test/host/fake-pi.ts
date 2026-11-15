@@ -258,9 +258,19 @@ export function asExtensionApi(fake: object): ExtensionAPI {
 	return asHost<ExtensionAPI>(fake);
 }
 
-/** The system message pi keeps in front of a conversation. */
-export function systemMessage(text: string, extra: Partial<Extract<AgentMessage, { role: "system" }>> = {}) {
-	return { role: "system" as const, content: text, timestamp: 0, ...extra };
+/**
+ * The system message pi keeps in front of a conversation.
+ *
+ * The return type is written out: bun's isolated install places the host's transitive `pi-ai` under
+ * `node_modules/.bun/...`, and the inferred type of this literal names `TextContent` there, which
+ * `tsc` refuses to write into a declaration (TS2883). Naming the host's own system-message role keeps
+ * the helper's contract the same.
+ */
+export function systemMessage(
+	text: string,
+	extra: Partial<Extract<AgentMessage, { role: "system" }>> = {},
+): Extract<AgentMessage, { role: "system" }> {
+	return { role: "system", content: text, timestamp: 0, ...extra };
 }
 
 /**

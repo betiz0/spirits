@@ -1,7 +1,17 @@
 #!/usr/bin/env node
+/**
+ * Lockfile gate for the pre-commit hook.
+ *
+ * `bun.lock` is the only lockfile this repository has: `package-lock.json` and the per-package
+ * `bun.lock` went with the Pi tree, so one gate watching one file replaced the npm-specific check.
+ * A resolution change is a dependency change, so it needs an explicit decision:
+ * `PI_ALLOW_LOCKFILE_CHANGE=1`. A commit that only moves the workspace package's own entry (a version
+ * bump) is not a dependency change and passes.
+ */
 
 import { execFileSync } from "node:child_process";
 
+const LOCKFILE = "bun.lock";
 const allowValue = process.env.PI_ALLOW_LOCKFILE_CHANGE;
 const allowed = allowValue === "1" || allowValue === "true" || allowValue === "yes";
 
@@ -9,69 +19,73 @@ function git(args) {
 	return execFileSync("git", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 }
 
-function readJsonFromGit(ref) {
+function readFromGit(ref) {
 	try {
-		return JSON.parse(git(["show", ref]));
+		return git(["show", ref]);
 	} catch {
 		return undefined;
 	}
 }
 
-function packageNameFromLockPath(lockPath) {
-	const marker = "node_modules/";
-	const index = lockPath.lastIndexOf(marker);
-	if (index === -1) return lockPath || "<root>";
-	const parts = lockPath.slice(index + marker.length).split("/");
-	return parts[0]?.startsWith("@") ? `${parts[0]}/${parts[1]}` : parts[0];
+/**
+ * Package name to resolved versions, read out of the `packages` section.
+ *
+ * bun.lock carries trailing commas, so it is not JSON. The entry form is stable:
+ * `"key": ["name@version", "", { ... }, "integrity"]`.
+ */
+function resolvedVersions(text) {
+	const start = text.indexOf('"packages": {');
+	const body = start === -1 ? text : text.slice(start);
+	const out = new Map();
+	const pattern = /"([^"]+)":\s*\["([^"]+)"/g;
+	let match;
+	while ((match = pattern.exec(body)) !== null) {
+		const spec = match[2];
+		const at = spec.lastIndexOf("@");
+		if (at <= 0) continue;
+		const name = spec.slice(0, at);
+		const version = spec.slice(at + 1).replace(/\(.*\)$/, "");
+		if (!out.has(name)) out.set(name, new Set());
+		out.get(name).add(version);
+	}
+	return out;
 }
 
-function packageLabel(lockPath, entry) {
-	const name = entry?.name ?? packageNameFromLockPath(lockPath);
-	return entry?.version ? `${name}@${entry.version}` : name;
+/** Package names this repository owns, read from the lockfile's own workspaces section. */
+function workspaceNames(text) {
+	const workspacesStart = text.indexOf('"workspaces": {');
+	const packagesStart = text.indexOf('"packages": {');
+	if (workspacesStart === -1) return new Set();
+	const body = text.slice(workspacesStart, packagesStart === -1 ? undefined : packagesStart);
+	const names = new Set();
+	const pattern = /"name":\s*"([^"]+)"/g;
+	let match;
+	while ((match = pattern.exec(body)) !== null) names.add(match[1]);
+	return names;
 }
 
-function getLockfilePackageChanges() {
-	const before = readJsonFromGit("HEAD:package-lock.json");
-	const after = readJsonFromGit(":package-lock.json");
-	if (!before?.packages || !after?.packages) return undefined;
-
+function diffLockfiles(beforeText, afterText) {
+	const own = workspaceNames(afterText);
 	const changes = [];
-	const paths = new Set([...Object.keys(before.packages), ...Object.keys(after.packages)]);
-	for (const lockPath of [...paths].sort()) {
-		const oldEntry = before.packages[lockPath];
-		const newEntry = after.packages[lockPath];
-		if (JSON.stringify(oldEntry) !== JSON.stringify(newEntry)) {
-			changes.push({ lockPath, oldEntry, newEntry });
+	const before = beforeText === undefined ? new Map() : resolvedVersions(beforeText);
+	const after = resolvedVersions(afterText);
+	for (const name of [...new Set([...before.keys(), ...after.keys()])].sort()) {
+		if (own.has(name)) continue;
+		const oldVersions = before.get(name);
+		const newVersions = after.get(name);
+		if (!oldVersions && newVersions) {
+			changes.push(`added ${name}@${[...newVersions].join(", ")}`);
+		} else if (oldVersions && !newVersions) {
+			changes.push(`removed ${name}@${[...oldVersions].join(", ")}`);
+		} else if (oldVersions && newVersions) {
+			const moved = [...newVersions].filter((version) => !oldVersions.has(version));
+			const gone = [...oldVersions].filter((version) => !newVersions.has(version));
+			if (moved.length > 0 || gone.length > 0) {
+				changes.push(`changed ${name} ${[...oldVersions].join(", ")} -> ${[...newVersions].join(", ")}`);
+			}
 		}
 	}
 	return changes;
-}
-
-function isWorkspacePackagePath(lockPath) {
-	return lockPath.startsWith("packages/");
-}
-
-function hasOnlyWorkspacePackageChanges(changes) {
-	return changes.length > 0 && changes.every((change) => isWorkspacePackagePath(change.lockPath));
-}
-
-function summarizeLockfileChange(changes) {
-	const nodeModuleChanges = changes.filter((change) => change.lockPath.includes("node_modules/"));
-	const summary = [];
-	for (const { lockPath, oldEntry, newEntry } of nodeModuleChanges) {
-		if (!oldEntry && newEntry) {
-			summary.push(`added ${packageLabel(lockPath, newEntry)}`);
-		} else if (oldEntry && !newEntry) {
-			summary.push(`removed ${packageLabel(lockPath, oldEntry)}`);
-		} else if (oldEntry?.version !== newEntry?.version) {
-			summary.push(
-				`changed ${packageNameFromLockPath(lockPath)} ${oldEntry?.version ?? "<none>"} -> ${newEntry?.version ?? "<none>"}`,
-			);
-		} else {
-			summary.push(`changed ${packageLabel(lockPath, newEntry)}`);
-		}
-	}
-	return summary;
 }
 
 const stagedFiles = git(["diff", "--cached", "--name-only"])
@@ -79,39 +93,37 @@ const stagedFiles = git(["diff", "--cached", "--name-only"])
 	.map((line) => line.trim())
 	.filter(Boolean);
 
-if (!stagedFiles.includes("package-lock.json")) {
+if (!stagedFiles.includes(LOCKFILE)) {
 	process.exit(0);
 }
+
+const before = readFromGit("HEAD:bun.lock");
+const after = readFromGit(":bun.lock");
+const changes = after === undefined ? [] : diffLockfiles(before, after ?? "");
 
 if (allowed) {
-	console.error("package-lock.json is staged; PI_ALLOW_LOCKFILE_CHANGE is set, allowing commit.");
+	console.error(`bun.lock is staged; PI_ALLOW_LOCKFILE_CHANGE is set, allowing commit.`);
+	if (changes.length > 0) {
+		console.error("");
+		console.error("Resolved versions moving:");
+		for (const line of changes.slice(0, 40)) console.error(`  - ${line}`);
+		if (changes.length > 40) console.error(`  ... ${changes.length - 40} more`);
+	}
 	process.exit(0);
 }
 
-const changes = getLockfilePackageChanges();
-if (changes && hasOnlyWorkspacePackageChanges(changes)) {
-	console.error("package-lock.json only updates workspace package metadata; allowing commit.");
-	process.exit(0);
-}
-
-console.error("package-lock.json is staged.");
+console.error("bun.lock is staged.");
 console.error("");
 console.error("Review lockfile changes before committing:");
-console.error("  - confirm every new/updated package is intentional");
-console.error("  - confirm npm age gates were active for resolution");
+console.error("  - confirm every added package is intentional and pinned where this repo declares it");
+console.error("  - confirm the host packages stay at the versions pinned in packages/spirits");
 console.error("  - review any new lifecycle scripts in the dependency tree");
-console.error("  - regenerate/check coding-agent install lock if release deps changed");
 
-const summary = changes ? summarizeLockfileChange(changes) : [];
-if (summary.length > 0) {
+if (changes.length > 0) {
 	console.error("");
-	console.error("Detected package version changes:");
-	for (const change of summary.slice(0, 40)) {
-		console.error(`  - ${change}`);
-	}
-	if (summary.length > 40) {
-		console.error(`  ... ${summary.length - 40} more`);
-	}
+	console.error("Resolved versions moving:");
+	for (const line of changes.slice(0, 40)) console.error(`  - ${line}`);
+	if (changes.length > 40) console.error(`  ... ${changes.length - 40} more`);
 }
 
 console.error("");

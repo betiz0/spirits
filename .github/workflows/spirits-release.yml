@@ -26,7 +26,8 @@ jobs:
         with:
           bun-version: 1.4.2
 
-      - name: Install root dependencies
+      # One workspace, one lockfile.
+      - name: Install dependencies
         run: bun install --frozen-lockfile
 
       # No Pi build step: the host is the pinned official artifact, so a release needs nothing but
@@ -35,7 +36,6 @@ jobs:
         run: |
           set -euo pipefail
           cd packages/spirits
-          bun install --frozen-lockfile
           bun test
           bun run check
 

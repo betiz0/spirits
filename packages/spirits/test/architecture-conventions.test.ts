@@ -5,8 +5,9 @@
  * timeout (design decision 5).
  */
 import { beforeAll, expect, test } from "bun:test";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { checkArchitectureConventions, type CheckReport } from "./architecture/check.ts";
+import { hostLayerFor } from "./architecture/layers.ts";
 import { findRepoRoot } from "./architecture/repo.ts";
 import { loadRegistry } from "./architecture/registry.ts";
 import { REPORTABLE_RULE_IDS } from "./architecture/rules.ts";
@@ -43,12 +44,21 @@ test("real repo: every reportable rule id exists in the registry", () => {
 }, 30_000);
 
 test("real repo: the host resolves to the pinned package, not to a source tree", () => {
-	// The boundary is only real when the checker resolves the host where the runtime does:
-	// the package installed for `packages/spirits`, never a source directory of the repo.
-	for (const specifier of ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"]) {
-		const target = resolveInternalSpecifier(REAL_ROOT, join(REAL_ROOT, "packages/spirits/src/index.ts"), specifier);
+	// The boundary is only real when the checker resolves the host where the runtime does: the
+	// installed package, never a source directory of this repo. The single workspace install keeps the
+	// files under `node_modules/.bun/@earendil-works+<name>@<version>/node_modules/@earendil-works/<name>`
+	// and links them into `packages/spirits/node_modules`, so the assertion names the package path
+	// instead of one layout, and the layer classifier has to reach the same verdict.
+	for (const name of ["pi-coding-agent", "pi-tui"]) {
+		const target = resolveInternalSpecifier(
+			REAL_ROOT,
+			join(REAL_ROOT, "packages/spirits/src/index.ts"),
+			`@earendil-works/${name}`,
+		);
 		expect(target).toBeDefined();
-		expect(target!.startsWith(join(REAL_ROOT, "packages/spirits/node_modules/@earendil-works/"))).toBe(true);
+		expect(target!.includes(join("node_modules", "@earendil-works", name))).toBe(true);
+		expect(target!.startsWith(`${join(REAL_ROOT, "packages")}/`)).toBe(false);
+		expect(hostLayerFor(relative(REAL_ROOT, target!))).toBe(`host:${name}`);
 	}
 }, 30_000);
 

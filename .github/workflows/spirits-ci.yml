@@ -51,14 +51,9 @@ jobs:
         with:
           bun-version: 1.4.2
 
-      - name: Install root dependencies
+      # One workspace, one lockfile: the root install brings the pinned host packages with it.
+      - name: Install dependencies
         run: bun install --frozen-lockfile
-
-      - name: Install spirits dependencies
-        run: |
-          set -euo pipefail
-          cd packages/spirits
-          bun install --frozen-lockfile
 
       # The host comes from the packages pinned in packages/spirits, so nothing here builds or
       # hydrates Pi: the type check and the tests read the published host types and the real host.
