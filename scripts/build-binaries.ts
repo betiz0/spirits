@@ -73,9 +73,7 @@ function describeFromGit(): string {
 		stderr: "pipe",
 	});
 	if (proc.exitCode !== 0) {
-		throw new Error(
-			"Cannot determine version: pass --version, set SPIRITS_VERSION, or create a spirits-v* tag",
-		);
+		throw new Error("Cannot determine version: pass --version, set SPIRITS_VERSION, or create a spirits-v* tag");
 	}
 	const described = proc.stdout.toString().trim();
 	if (!described.startsWith(GIT_TAG_PREFIX)) {

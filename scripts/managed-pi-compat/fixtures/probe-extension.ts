@@ -11,10 +11,10 @@
  * Commands that report state write JSON to `MANAGED_PI_COMPAT_PROBE_RESULT`.
  */
 
-import { VERSION } from "@earendil-works/pi-coding-agent";
-import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { VERSION } from "@earendil-works/pi-coding-agent";
 import { identifyRuntime } from "../evidence.ts";
 
 const STATE_ENV = "MANAGED_PI_COMPAT_PROBE_STATE";
@@ -151,7 +151,10 @@ function readClearState(ctx: ExtensionCommandContext) {
 				type: entry.type,
 				...(customType === undefined ? {} : { customType }),
 				role: (entry as { message?: { role?: unknown } }).message?.role,
-				text: JSON.stringify((entry as { message?: unknown }).message ?? customType ?? "").slice(0, BRANCH_TEXT_LIMIT),
+				text: JSON.stringify((entry as { message?: unknown }).message ?? customType ?? "").slice(
+					0,
+					BRANCH_TEXT_LIMIT,
+				),
 			};
 		}),
 		// The compaction entries in the session, oldest first. `get_entries` over RPC leaves them out,
@@ -368,7 +371,10 @@ export default function probeExtension(pi: ExtensionAPI): void {
 			}
 			const state = readClearState(ctx);
 			writeJson(path, {
-				purposeStates: { ...readStoredStates(path), navigate: { ...state, targetId, moved, ...(error ? { error } : {}) } },
+				purposeStates: {
+					...readStoredStates(path),
+					navigate: { ...state, targetId, moved, ...(error ? { error } : {}) },
+				},
 			});
 		},
 	});

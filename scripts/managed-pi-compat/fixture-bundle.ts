@@ -14,10 +14,19 @@
 
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { managedExtensionPath, managedManifestPath, managedPiDir, managedSetDir } from "../../packages/spirits/src/managed-pi/layout.ts";
+import {
+	managedExtensionPath,
+	managedManifestPath,
+	managedPiDir,
+	managedSetDir,
+} from "../../packages/spirits/src/managed-pi/layout.ts";
 import { loadManagedManifest, type ManagedManifest } from "../../packages/spirits/src/managed-pi/manifest.ts";
 import { sha256Hex } from "../../packages/spirits/src/managed-pi/overlay.ts";
-import { verifyManagedSet, writeInstalledStateForSet, type VerifiedManagedSet } from "../../packages/spirits/src/managed-pi/verify.ts";
+import {
+	type VerifiedManagedSet,
+	verifyManagedSet,
+	writeInstalledStateForSet,
+} from "../../packages/spirits/src/managed-pi/verify.ts";
 
 /** The extension the staged set runs, with the digest the set records for it. */
 export interface StagedBundle {

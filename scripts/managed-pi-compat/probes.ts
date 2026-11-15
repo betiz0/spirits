@@ -5,7 +5,7 @@
  * Pi artifact. The process layer feeds real observations into these functions.
  */
 
-import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, relative, resolve } from "node:path";
 import type { CompatState } from "./runner.ts";
 
@@ -58,7 +58,10 @@ export interface EnvObservation {
 }
 
 /** Verify agent-dir precedence and package-dir pinning. */
-export function classifyEnv(observation: EnvObservation, expected: { agentDir: string; version: string }): {
+export function classifyEnv(
+	observation: EnvObservation,
+	expected: { agentDir: string; version: string },
+): {
 	state: CompatState;
 	detail: string;
 } {
@@ -89,7 +92,10 @@ export function allPathsUnder(paths: readonly string[], home: string): boolean {
 }
 
 /** Check that help wrote nothing outside the isolated home. */
-export function classifyHelpSideEffects(paths: readonly string[], home: string): {
+export function classifyHelpSideEffects(
+	paths: readonly string[],
+	home: string,
+): {
 	state: CompatState;
 	detail: string;
 } {
@@ -131,7 +137,10 @@ export function classifyWrittenMarkdown(path: string): { state: CompatState; det
 }
 
 /** Check that the host reports the artifact version, not a bundled SDK version. */
-export function classifyHostVersion(reported: string | undefined, artifactVersion: string): {
+export function classifyHostVersion(
+	reported: string | undefined,
+	artifactVersion: string,
+): {
 	state: CompatState;
 	detail: string;
 } {
@@ -155,4 +164,3 @@ export function listFiles(dir: string): string[] {
 	}
 	return files;
 }
-

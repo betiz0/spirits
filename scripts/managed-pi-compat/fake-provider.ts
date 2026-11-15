@@ -141,9 +141,7 @@ function toolCallEvents(toolCall: FakeToolCall, chunks: number): string[] {
 	for (let index = 0; index < serialized.length; index += size) {
 		parts.push(serialized.slice(index, index + size));
 	}
-	const events: string[] = [
-		chunk("fake-chunk-1", { role: "assistant", content: null }, null),
-	];
+	const events: string[] = [chunk("fake-chunk-1", { role: "assistant", content: null }, null)];
 	parts.forEach((part, index) => {
 		const delta: Record<string, unknown> = {
 			tool_calls: [

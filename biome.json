@@ -25,16 +25,10 @@
 	},
 	"files": {
 		"includes": [
-			"packages/*/src/**/*.ts",
-			"packages/*/test/**/*.ts",
-			"packages/coding-agent/examples/**/*.ts",
-			"packages/agent/examples/**/*.ts",
+			"scripts/**/*.ts",
+			"scripts/**/*.mjs",
 			"!**/node_modules/**/*",
-			"!packages/spirits",
-			"!**/test-sessions.ts",
-			"!**/models.generated.ts",
-			"!**/*.models.ts",
-			"!packages/mom/data/**/*",
+			"!scripts/managed-pi-compat/fixtures/redacted-agent",
 			"!!**/node_modules"
 		]
 	}

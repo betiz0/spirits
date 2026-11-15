@@ -228,9 +228,7 @@ export async function runStagedRpcProbe(options: StagedRpcProbeOptions): Promise
 				if (record.type === "response" && record.id) expected.delete(record.id);
 			}
 			const satisfied =
-				stage.waitFor === undefined
-					? expected.size === 0
-					: records.length > since && stage.waitFor(records, since);
+				stage.waitFor === undefined ? expected.size === 0 : records.length > since && stage.waitFor(records, since);
 			if (satisfied || ended || Date.now() >= deadline) break;
 			await sleep(STAGE_POLL_MS);
 		}
@@ -360,20 +358,20 @@ export async function runAbortRpcProbe(options: AbortRpcProbeOptions): Promise<R
 			} catch {
 				// The process may already have exited.
 			}
-			};
-			sendPoll(`${poll.request.id}-1`);
-			pollAttempts = 1;
-			pollTimer = setInterval(() => {
-				if (pollFinished) return;
-				if (poll.until?.() === true || Date.now() - pollStartedAt >= poll.timeoutMs) {
-					pollFinished = true;
-					sendPoll(`${poll.request.id}-final`);
-					return;
-				}
-				pollAttempts += 1;
-				sendPoll(`${poll.request.id}-${pollAttempts}`);
-			}, poll.intervalMs);
 		};
+		sendPoll(`${poll.request.id}-1`);
+		pollAttempts = 1;
+		pollTimer = setInterval(() => {
+			if (pollFinished) return;
+			if (poll.until?.() === true || Date.now() - pollStartedAt >= poll.timeoutMs) {
+				pollFinished = true;
+				sendPoll(`${poll.request.id}-final`);
+				return;
+			}
+			pollAttempts += 1;
+			sendPoll(`${poll.request.id}-${pollAttempts}`);
+		}, poll.intervalMs);
+	};
 	let resolved = false;
 	while (!resolved && Date.now() < deadline) {
 		const remaining = Math.max(1, deadline - Date.now());
@@ -406,9 +404,7 @@ export async function runAbortRpcProbe(options: AbortRpcProbeOptions): Promise<R
 			eventTimer = setTimeout(sendAbort, options.abortAfterEventMs ?? 0);
 		}
 		if (!aborted && delayElapsed) sendAbort();
-		const abortSeen = records.some(
-			(record) => record.type === "response" && record.command === "abort",
-		);
+		const abortSeen = records.some((record) => record.type === "response" && record.command === "abort");
 		// An outstanding poll holds the probe open: the reads after the abort are the measurement.
 		const pollOutstanding = options.poll !== undefined && !pollFinished;
 		const responsesComplete = expected.size === 0 && (aborted || abortSeen) && !pollOutstanding;

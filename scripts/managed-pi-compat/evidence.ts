@@ -239,10 +239,14 @@ export const OBSERVATION_EVIDENCE: Readonly<Record<string, string>> = {
 	"api key and proxy survive": "the fake API key and proxy reached the managed process",
 	"bundled SKILL.md is raw markdown": "the session wrote a SKILL.md that is raw Markdown",
 	"host version": "the managed host reported the official artifact version",
-	[HOST_VERIFICATION_ITEM]: "the artifact tarball, the extracted executable, and the measured bundle digest were checked before any launch",
-	"startup art colours resolve distinctly": "the theme files the launched host ships resolve every colour token the startup art paints, to distinct colours",
-	"system prompt keeps pi defaults and spirits additions": "the prompt the fake provider received carries pi's own tool list and rule and the entries and guidelines the declared spirits tools report",
-	"rlm child model comes from the answering response": "the model the rlm child asked its provider for is the model the host recorded on the answering assistant entry",
+	[HOST_VERIFICATION_ITEM]:
+		"the artifact tarball, the extracted executable, and the measured bundle digest were checked before any launch",
+	"startup art colours resolve distinctly":
+		"the theme files the launched host ships resolve every colour token the startup art paints, to distinct colours",
+	"system prompt keeps pi defaults and spirits additions":
+		"the prompt the fake provider received carries pi's own tool list and rule and the entries and guidelines the declared spirits tools report",
+	"rlm child model comes from the answering response":
+		"the model the rlm child asked its provider for is the model the host recorded on the answering assistant entry",
 	"managed tsrepl simple cell": "a cell returning 2 ran on the managed Pi",
 	"managed tsrepl Bun.Transpiler cell": "a TypeScript cell ran through Bun.Transpiler on the managed Pi",
 	"managed tsrepl node:vm cell": "a node:vm cell returned a value on the managed Pi",
@@ -255,12 +259,16 @@ export const OBSERVATION_EVIDENCE: Readonly<Record<string, string>> = {
 		"abort request sent, abort reaching the parent cell, the child's provider request closing, and the rlm_usage abort record at settle or after the stop",
 	"existing agent dir untouched":
 		"the seeded existing agent dir kept its content and modification times across every launch",
-	"rlm auto parent": "the child's own request named a physical model, and the run returned a final answer and an rlm_usage record",
-	"auth read compatibility": "the provider auth status came from the dedicated Pi runtime reading the copied agent dir",
-	"external extension read compatibility": "an extension in the copied agent dir was visible through the dedicated Pi runtime",
+	"rlm auto parent":
+		"the child's own request named a physical model, and the run returned a final answer and an rlm_usage record",
+	"auth read compatibility":
+		"the provider auth status came from the dedicated Pi runtime reading the copied agent dir",
+	"external extension read compatibility":
+		"an extension in the copied agent dir was visible through the dedicated Pi runtime",
 	"data read compatibility": "settings and sessions were read through the dedicated Pi",
 	"dedicated Pi write path": "session, model, and thinking level were written and read back through the dedicated Pi",
-	"existing agent dir write-back compatibility": "a write through the dedicated Pi was proven to land in an existing agent dir copy",
+	"existing agent dir write-back compatibility":
+		"a write through the dedicated Pi was proven to land in an existing agent dir copy",
 	"role/clear/model matrix": "each role/clear/model purpose came from a dedicated-Pi behaviour observation",
 	[CLEAR_BOUNDARY_ITEMS.automaticCompaction]:
 		"a compaction written after the boundary carries the clear note and the extension hook, in 0 summarization requests, and the following request omits the cleared marker",
@@ -272,8 +280,10 @@ export const OBSERVATION_EVIDENCE: Readonly<Record<string, string>> = {
 		"the extension API moved the leaf to before the boundary and the cleared marker came back into the request",
 	[CLEAR_BOUNDARY_ITEMS.resume]:
 		"the session reopened in another process sent a request that still left the cleared marker out",
-	"direct execute probe is auxiliary": "the managed tool inventory showed tsrepl; a direct execute would report bypassedPiHooks",
-	"settings write compatibility": "a persistent settings write through the Pi extension API was attempted and read back",
+	"direct execute probe is auxiliary":
+		"the managed tool inventory showed tsrepl; a direct execute would report bypassedPiHooks",
+	"settings write compatibility":
+		"a persistent settings write through the Pi extension API was attempted and read back",
 };
 
 /** True when the runner processed every recorded item (see `RUNNER_COMPLETED_DEFINITION`). */
@@ -315,20 +325,11 @@ export function buildObservationEvidence(results: readonly CompatResult[]): Obse
 }
 
 /** The five result states, in the order every breakdown prints them. */
-export const COMPAT_STATE_LABELS: readonly CompatState[] = [
-	"confirmed",
-	"limited",
-	"unavailable",
-	"not-run",
-	"failed",
-];
+export const COMPAT_STATE_LABELS: readonly CompatState[] = ["confirmed", "limited", "unavailable", "not-run", "failed"];
 
 /** State counts by state name, used by the human-readable summary. */
 export function countStates(results: readonly CompatResult[]): Record<CompatState, number> {
-	const counts = Object.fromEntries(COMPAT_STATE_LABELS.map((state) => [state, 0])) as Record<
-		CompatState,
-		number
-	>;
+	const counts = Object.fromEntries(COMPAT_STATE_LABELS.map((state) => [state, 0])) as Record<CompatState, number>;
 	for (const result of results) counts[result.state] += 1;
 	return counts;
 }
@@ -353,12 +354,10 @@ export const ROLE_CLEAR_MODEL_ITEM = "role/clear/model matrix";
  * only thing that separates "2 of 9 purposes seen" from "all 9 seen". Undefined when the item never
  * recorded purposes, so the summary never prints a count it did not measure.
  */
-export function matrixPurposeCounts(
-	results: readonly CompatResult[],
-): { observed: number; total: number } | undefined {
-	const purposes = (results.find((result) => result.name === ROLE_CLEAR_MODEL_ITEM)?.data as
-		| { purposes?: unknown }
-		| undefined)?.purposes;
+export function matrixPurposeCounts(results: readonly CompatResult[]): { observed: number; total: number } | undefined {
+	const purposes = (
+		results.find((result) => result.name === ROLE_CLEAR_MODEL_ITEM)?.data as { purposes?: unknown } | undefined
+	)?.purposes;
 	if (!Array.isArray(purposes)) return undefined;
 	const observed = purposes.filter(
 		(purpose) => (purpose as { state?: unknown } | undefined)?.state !== "not-run",
@@ -429,8 +428,14 @@ export function redactSecrets(text: string): string {
 	return text
 		.replace(/\b(sk-[A-Za-z0-9_-]{8,})\b/g, "sk-***")
 		.replace(/\b(Bearer\s+)[A-Za-z0-9._~+/=-]{6,}/g, "$1***")
-		.replace(/\b((?:ANTHROPIC|OPENAI|GOOGLE|GEMINI|AWS|AZURE)[A-Z0-9_]*API_KEY|API_KEY|TOKEN|SECRET|PASSWORD)=([^\s&"']+)/g, "$1=***")
-		.replace(/\b((?:ANTHROPIC|OPENAI|GOOGLE|GEMINI)[A-Z0-9_]*API_KEY|TOKEN|SECRET|PASSWORD)\s*:\s*([^\s&"',}]+)/g, "$1: ***")
+		.replace(
+			/\b((?:ANTHROPIC|OPENAI|GOOGLE|GEMINI|AWS|AZURE)[A-Z0-9_]*API_KEY|API_KEY|TOKEN|SECRET|PASSWORD)=([^\s&"']+)/g,
+			"$1=***",
+		)
+		.replace(
+			/\b((?:ANTHROPIC|OPENAI|GOOGLE|GEMINI)[A-Z0-9_]*API_KEY|TOKEN|SECRET|PASSWORD)\s*:\s*([^\s&"',}]+)/g,
+			"$1: ***",
+		)
 		.replace(/(https?:\/\/)([^/\s:@]+):([^/\s@]+)@/g, "$1***:***@")
 		.replace(/("x-api-key"\s*:\s*")[^"]+(")/gi, "$1***$2")
 		.replace(/("authorization"\s*:\s*")[^"]+(")/gi, "$1***$2")

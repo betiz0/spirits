@@ -20,69 +20,26 @@ import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { computeManagedEnv } from "../../packages/spirits/src/managed-pi/environment.ts";
 import { managedRoot, readCurrentSet } from "../../packages/spirits/src/managed-pi/layout.ts";
-import { managedSetFailureMessage, verifyManagedSet } from "../../packages/spirits/src/managed-pi/verify.ts";
-import { sha256Hex, writeOverlayPackage } from "../../packages/spirits/src/managed-pi/overlay.ts";
 import type { ManagedManifest } from "../../packages/spirits/src/managed-pi/manifest.ts";
+import { sha256Hex, writeOverlayPackage } from "../../packages/spirits/src/managed-pi/overlay.ts";
+import { managedSetFailureMessage, verifyManagedSet } from "../../packages/spirits/src/managed-pi/verify.ts";
 import {
-	classifyEnv,
-	classifyExtensionLoad,
-	classifyHelpSideEffects,
-	classifyHostVersion,
-	classifyPreservedEnv,
-	classifyWrittenMarkdown,
-	listFiles,
-} from "./probes.ts";
-import type { CompatResult, CompatState } from "./runner.ts";
-import {
-	clearPurposeObservations,
-	deriveRows,
-	modelPurposeObservations,
-	rolePurposeObservations,
-	validateMatrix,
-	validatePurposeObservations,
-	type ClearStateRecord,
-	type PurposeObservation,
-} from "./matrix.ts";
-import {
-	compactionRecords,
-	forkTargetOf,
-	NO_AUTOMATIC_COMPACTION,
+	type BoundaryJudgement,
+	type BoundaryProvider,
 	type BranchRecord,
 	type CompactionRecord,
+	compactionRecords,
+	forkTargetOf,
 	judgeAutomaticCompaction,
 	judgeFork,
 	judgeManualCompaction,
 	judgeResume,
 	judgeTreeMove,
+	type ManualCompactionAttempt,
+	NO_AUTOMATIC_COMPACTION,
 	startBoundaryProvider,
 	treeTargetOf,
-	type BoundaryProvider,
-	type ManualCompactionAttempt,
-	type BoundaryJudgement,
 } from "./clear-boundary.ts";
-import { createCompatRunner, type CompatRunner } from "./runner.ts";
-import { reasoningEffortFor, requestFakeToolCall, startFakeProvider } from "./fake-provider.ts";
-import type { FakeProviderRequest, FakeReply, FakeToolCall } from "./fake-provider.ts";
-import {
-	classifyAuxiliaryProbe,
-	classifyCellFailure,
-	classifyCellOutcome,
-	classifyNormalToolPath,
-	createProbeTsreplTool,
-	executeCapturedTsrepl,
-	simpleReturnValue,
-} from "./tsrepl.ts";
-import {
-	findResponse,
-	runAbortRpcProbe,
-	runCommandProbe,
-	runRpcProbe,
-	runStagedRpcProbe,
-	type RpcProbeOptions,
-	type RpcRecord,
-	type RpcStep,
-	type StagedRpcProbeOptions,
-} from "./rpc.ts";
 import {
 	classifyAuthRead,
 	classifyDedicatedRead,
@@ -93,19 +50,17 @@ import {
 	seedRedactedAgentFixture,
 } from "./data.ts";
 import {
-	classifyAutoChild,
-	classifyChildAbort,
-	classifyChildModelSource,
-	classifyChildAnswer,
-	classifyChildCreation,
-	classifyChildUsage,
-	classifyPhysicalChild,
-	fixtureProvidesChildTarget,
-	rlmUsageOutcome,
-	writeRlmFixture,
-	type ChildAbortObservation,
-	type RlmChildObservation,
-} from "./rlm.ts";
+	buildRunnerProvenance,
+	buildRuntimeEvidence,
+	CLEAR_BOUNDARY_ITEMS,
+	countStates,
+	formatStateCounts,
+	HOST_VERIFICATION_ITEM,
+	identifyRuntime,
+} from "./evidence.ts";
+import type { FakeProviderRequest, FakeReply, FakeToolCall } from "./fake-provider.ts";
+import { reasoningEffortFor, requestFakeToolCall, startFakeProvider } from "./fake-provider.ts";
+import { stageFixtureBundle } from "./fixture-bundle.ts";
 import {
 	classifySystemPrompt,
 	classifyThemeArtColours,
@@ -114,15 +69,15 @@ import {
 	readArtColorTokens,
 } from "./host-surfaces.ts";
 import {
-	buildRunnerProvenance,
-	buildRuntimeEvidence,
-	CLEAR_BOUNDARY_ITEMS,
-	HOST_VERIFICATION_ITEM,
-	countStates,
-	formatStateCounts,
-	identifyRuntime,
-} from "./evidence.ts";
-import { stageFixtureBundle } from "./fixture-bundle.ts";
+	type ClearStateRecord,
+	clearPurposeObservations,
+	deriveRows,
+	modelPurposeObservations,
+	type PurposeObservation,
+	rolePurposeObservations,
+	validateMatrix,
+	validatePurposeObservations,
+} from "./matrix.ts";
 import {
 	assertOfficialBundleSha,
 	buildOfficialIdentity,
@@ -130,10 +85,55 @@ import {
 	createOfficialLaunchVerifier,
 	loadOfficialArtifact,
 	managedInputsPaths,
-	OfficialArtifactError,
 	type OfficialArtifact,
+	OfficialArtifactError,
 } from "./official.ts";
-import { parseSubstitutedHost, substitutedIdentity, type SubstitutedHost } from "./substituted-host.ts";
+import {
+	classifyEnv,
+	classifyExtensionLoad,
+	classifyHelpSideEffects,
+	classifyHostVersion,
+	classifyPreservedEnv,
+	classifyWrittenMarkdown,
+	listFiles,
+} from "./probes.ts";
+import {
+	type ChildAbortObservation,
+	classifyAutoChild,
+	classifyChildAbort,
+	classifyChildAnswer,
+	classifyChildCreation,
+	classifyChildModelSource,
+	classifyChildUsage,
+	classifyPhysicalChild,
+	fixtureProvidesChildTarget,
+	type RlmChildObservation,
+	rlmUsageOutcome,
+	writeRlmFixture,
+} from "./rlm.ts";
+import {
+	findResponse,
+	type RpcProbeOptions,
+	type RpcRecord,
+	type RpcStep,
+	runAbortRpcProbe,
+	runCommandProbe,
+	runRpcProbe,
+	runStagedRpcProbe,
+	type StagedRpcProbeOptions,
+} from "./rpc.ts";
+import type { CompatResult } from "./runner.ts";
+import { type CompatRunner, createCompatRunner } from "./runner.ts";
+import { parseSubstitutedHost, type SubstitutedHost, substitutedIdentity } from "./substituted-host.ts";
+import {
+	classifyAuxiliaryProbe,
+	classifyCellFailure,
+	classifyCellOutcome,
+	classifyNormalToolPath,
+	createProbeTsreplTool,
+	executeCapturedTsrepl,
+	simpleReturnValue,
+} from "./tsrepl.ts";
 
 interface CliOptions {
 	mode: "fixture" | "official";
@@ -187,7 +187,10 @@ const MODEL_PURPOSE_PROMPT = "compat thinking level prompt answer ok";
  */
 const PURPOSE_SETTLE_MS = 1500;
 /** Real provider credentials never reach a managed Pi launch started by this harness. */
-const noRealCredentials: Record<string, string | undefined> = { ANTHROPIC_API_KEY: undefined, OPENAI_API_KEY: undefined };
+const noRealCredentials: Record<string, string | undefined> = {
+	ANTHROPIC_API_KEY: undefined,
+	OPENAI_API_KEY: undefined,
+};
 const RPC_TIMEOUT_MS = 60_000;
 const RLM_ABORT_AFTER_MS = 3000;
 /** Wait this long after the cell tool starts, so the abort lands while the child session runs. */
@@ -284,7 +287,10 @@ interface ProbeResult {
 }
 
 /** Model the fake provider received for the first request whose messages carry `marker`. */
-function modelUsedFor(provider: { requests: Array<{ body?: unknown; model?: string }> }, marker: string): string | undefined {
+function modelUsedFor(
+	provider: { requests: Array<{ body?: unknown; model?: string }> },
+	marker: string,
+): string | undefined {
 	for (const request of provider.requests) {
 		const body = request.body as { messages?: unknown } | undefined;
 		if (!body || !JSON.stringify(body.messages ?? "").includes(marker)) continue;
@@ -409,7 +415,7 @@ function toolResultText(record: RpcRecord | undefined): string {
 	if (!record?.result || typeof record.result !== "object") return "";
 	const content = (record.result as { content?: Array<{ type?: string; text?: string }> }).content;
 	if (!Array.isArray(content)) return "";
-	return content.map((part) => (part.type === "text" ? part.text ?? "" : "")).join("");
+	return content.map((part) => (part.type === "text" ? (part.text ?? "") : "")).join("");
 }
 
 async function readProbeState(path: string): Promise<ProbeState | undefined> {
@@ -470,7 +476,9 @@ function usageReadsOf(records: readonly RpcRecord[]): Array<{ id: string; entrie
  * answered a turn and how the turn ended. Nothing else in the entry matters to that resolution, so
  * nothing else is read here.
  */
-function assistantRecordOf(records: readonly RpcRecord[]): { provider?: string; model?: string; stopReason?: string } | undefined {
+function assistantRecordOf(
+	records: readonly RpcRecord[],
+): { provider?: string; model?: string; stopReason?: string } | undefined {
 	const entries = records
 		.filter((record) => record.type === "response" && record.command === "get_entries" && record.success === true)
 		.flatMap((record) => (record.data as { entries?: Array<Record<string, unknown>> } | undefined)?.entries ?? []);
@@ -708,7 +716,8 @@ async function main(): Promise<number> {
 					if (options.mode !== "official") {
 						return {
 							state: "not-run" as const,
-							detail: "the run measured the installed managed set; no fixed artifact was extracted and no bundle was asserted against a manifest",
+							detail:
+								"the run measured the installed managed set; no fixed artifact was extracted and no bundle was asserted against a manifest",
 						};
 					}
 					const identity = runner.evidence;
@@ -737,7 +746,11 @@ async function main(): Promise<number> {
 				// `--no-extensions` keeps unrelated code out of every measurement. The one item that asks
 				// whether an external extension in the agent dir gets loaded drops it, because that flag is
 				// exactly what stops the host from reading those files.
-				const launchCommand = (extraExtensions: readonly string[] = [], agentExtensions = false, sessionFile?: string) => [
+				const launchCommand = (
+					extraExtensions: readonly string[] = [],
+					agentExtensions = false,
+					sessionFile?: string,
+				) => [
 					managedPi,
 					"--mode",
 					"rpc",
@@ -852,7 +865,7 @@ async function main(): Promise<number> {
 								...classifyWrittenMarkdown(skill),
 								data: { isolatedAgentDir: runner.agentDir, bundledSkillFiles: bundled, firstSkillFile: skill },
 							}
-							: { state: "not-run", detail: "the session did not write a bundled SKILL.md" };
+						: { state: "not-run", detail: "the session did not write a bundled SKILL.md" };
 				});
 				await run("host version", async () =>
 					state
@@ -915,7 +928,11 @@ async function main(): Promise<number> {
 				};
 				await cell("managed tsrepl simple cell", "return 1 + 1", 2);
 				await cell("managed tsrepl Bun.Transpiler cell", "const n: number = 2; return n", 2);
-				await cell("managed tsrepl node:vm cell", "const vm = await use('node:vm'); return vm.runInNewContext('1 + 2')", 3);
+				await cell(
+					"managed tsrepl node:vm cell",
+					"const vm = await use('node:vm'); return vm.runInNewContext('1 + 2')",
+					3,
+				);
 				await run("cell failure is not reported as a load failure", async () => {
 					const failureProvider = startFakeProvider({
 						name: "tsrepl",
@@ -1024,9 +1041,15 @@ async function main(): Promise<number> {
 				});
 				// The dedicated Pi write path says nothing about writing back into an existing agent dir, so
 				// that stays its own item and never inherits a verdict from the write path above.
-				await run("existing agent dir write-back compatibility", async () => classifyWriteBackCompatibility({ proven: false }));
+				await run("existing agent dir write-back compatibility", async () =>
+					classifyWriteBackCompatibility({ proven: false }),
+				);
 				await run("settings write compatibility", async () => {
-					const { probe, log } = await probeOnce("settings-write-1", "/compat-settings-write", "settings-write.json");
+					const { probe, log } = await probeOnce(
+						"settings-write-1",
+						"/compat-settings-write",
+						"settings-write.json",
+					);
 					return {
 						...classifySettingsWrite({
 							available: probe?.available === true,
@@ -1106,7 +1129,10 @@ async function main(): Promise<number> {
 							piTools: PI_OWN_TOOLS,
 							piRule: PI_OWN_RULE,
 							sectionMarker: SPIRITS_SECTION_MARKER,
-							reason: request === undefined ? "the fake provider recorded no request around the tool call" : undefined,
+							reason:
+								request === undefined
+									? "the fake provider recorded no request around the tool call"
+									: undefined,
 						});
 					});
 
@@ -1115,12 +1141,6 @@ async function main(): Promise<number> {
 					// model-to-tool path; `rlm_usage` is read back through the dedicated Pi's entries.
 					const physicalModel = { provider: "compat-fake", modelId: "fake-model" };
 					const autoModel = { provider: "spirits", modelId: "auto" };
-					const rlmEntriesFrom = (records: readonly RpcRecord[]): Array<Record<string, unknown>> => {
-						const response = findResponse(records, "get_entries");
-						const entries =
-							(response?.data as { entries?: Array<Record<string, unknown>> } | undefined)?.entries ?? [];
-						return entries.filter((entry) => entry.type === "custom" && entry.customType === "rlm_usage");
-					};
 					interface RlmCellRun {
 						text: string;
 						isError: boolean;
@@ -1161,44 +1181,45 @@ async function main(): Promise<number> {
 						const command = launchCommand([PROVIDER_EXTENSION, launch.extensionPath]);
 						const result =
 							options.abortAfterMs !== undefined
-							? await abortProbe({
-								command,
-								cwd: runner.workRoot,
-								env,
-								requests,
-								abortRequest: { id: "abort-rlm", type: "abort" },
-								abortAfterMs: options.abortAfterMs,
-								abortAfterEventMs: options.abortAfterEventMs,
-								abortWhen: (records) => records.some((record) => record.type === "tool_execution_start"),
-								timeoutMs: RPC_TIMEOUT_MS,
-								// A run that was cut short keeps writing after `agent_settled`, so the reads
-								// continue until the child's own provider request closes or the poll window ends.
-								// Only a run that can create a child polls: a fixture host never does.
-								poll:
-									options.childStopped === undefined
-									? undefined
-									: {
-										request: { id: "entries-poll", type: "get_entries" },
-										intervalMs: RLM_ABORT_POLL_INTERVAL_MS,
-										timeoutMs: RLM_ABORT_POLL_MS,
-										until: options.childStopped,
-									},
-							})
-							: await rpcProbe({
-								command,
-								cwd: runner.workRoot,
-								env,
-								requests,
-								timeoutMs: RPC_TIMEOUT_MS,
-								waitFor: (records) => modelEvents(records, "agent_settled").length > 0,
-								settleRequests,
-							});
+								? await abortProbe({
+										command,
+										cwd: runner.workRoot,
+										env,
+										requests,
+										abortRequest: { id: "abort-rlm", type: "abort" },
+										abortAfterMs: options.abortAfterMs,
+										abortAfterEventMs: options.abortAfterEventMs,
+										abortWhen: (records) => records.some((record) => record.type === "tool_execution_start"),
+										timeoutMs: RPC_TIMEOUT_MS,
+										// A run that was cut short keeps writing after `agent_settled`, so the reads
+										// continue until the child's own provider request closes or the poll window ends.
+										// Only a run that can create a child polls: a fixture host never does.
+										poll:
+											options.childStopped === undefined
+												? undefined
+												: {
+														request: { id: "entries-poll", type: "get_entries" },
+														intervalMs: RLM_ABORT_POLL_INTERVAL_MS,
+														timeoutMs: RLM_ABORT_POLL_MS,
+														until: options.childStopped,
+													},
+									})
+								: await rpcProbe({
+										command,
+										cwd: runner.workRoot,
+										env,
+										requests,
+										timeoutMs: RPC_TIMEOUT_MS,
+										waitFor: (records) => modelEvents(records, "agent_settled").length > 0,
+										settleRequests,
+									});
 						const endRecord = modelEvents(result.records, "tool_execution_end").find(
 							(record) => record.toolName === "tsrepl",
 						);
 						const fileResult = await readProbeResult(resultPath);
 						const abortResponse = result.records.find(
-							(record) => record.type === "response" && (record.command === "abort" || record.id === "abort-rlm"),
+							(record) =>
+								record.type === "response" && (record.command === "abort" || record.id === "abort-rlm"),
 						);
 						return {
 							text: toolResultText(endRecord),
@@ -1212,9 +1233,11 @@ async function main(): Promise<number> {
 							...(options.abortAfterMs === undefined
 								? {}
 								: {
-									abortSent: result.abortSent === true,
-									...(abortResponse === undefined ? {} : { abortAccepted: abortResponse.success !== false }),
-								}),
+										abortSent: result.abortSent === true,
+										...(abortResponse === undefined
+											? {}
+											: { abortAccepted: abortResponse.success !== false }),
+									}),
 						};
 					};
 
@@ -1305,7 +1328,8 @@ async function main(): Promise<number> {
 							abortAfterEventMs: RLM_ABORT_AFTER_TOOL_MS,
 							// A fixture host emits fixed events and never creates a child, so it has no child
 							// stop to wait for and no product behaviour to measure here.
-							childStopped: runner.mode === "official" ? childStoppedFor(() => abortProvider.requests) : undefined,
+							childStopped:
+								runner.mode === "official" ? childStoppedFor(() => abortProvider.requests) : undefined,
 						});
 					} finally {
 						abortProvider.stop();
@@ -1319,7 +1343,8 @@ async function main(): Promise<number> {
 						...(abortRun?.abortAccepted === undefined ? {} : { abortAccepted: abortRun.abortAccepted }),
 						cellAborted: abortRun?.isError === true && cellReportsAbort(abortRun.text),
 						childSeen: abortChildren.length > 0,
-						childStopped: abortChildren.length > 0 && abortChildren.every((request) => request.closedAt !== undefined),
+						childStopped:
+							abortChildren.length > 0 && abortChildren.every((request) => request.closedAt !== undefined),
 						usageAtSettled: abortedUsageCount(abortRun?.usageAtSettled ?? []),
 						usageAfterStop: abortedUsageCount(abortRun?.usageReads.at(-1)?.entries ?? []),
 						pollWindowMs: RLM_ABORT_POLL_MS,
@@ -1342,7 +1367,7 @@ async function main(): Promise<number> {
 								id: read.id,
 								entries: read.entries.length,
 								outcomes: read.entries.map((entry) => rlmUsageOutcome(entry)),
-							})), 
+							})),
 							providerRequests: providerLog(abortProvider.requests),
 						},
 						log: { command: rlmCommand, stdout: abortRun?.text, stderr: abortRun?.stderr },
@@ -1377,9 +1402,18 @@ async function main(): Promise<number> {
 						stdout: physicalRun?.text,
 						stderr: physicalRun?.stderr,
 					};
-					await run("rlm child creation", async () => ({ ...classifyChildCreation(physicalObservation), log: physicalLog }));
-					await run("rlm child answer", async () => ({ ...classifyChildAnswer(physicalObservation), log: physicalLog }));
-					await run("rlm child usage", async () => ({ ...classifyChildUsage(physicalObservation), log: physicalLog }));
+					await run("rlm child creation", async () => ({
+						...classifyChildCreation(physicalObservation),
+						log: physicalLog,
+					}));
+					await run("rlm child answer", async () => ({
+						...classifyChildAnswer(physicalObservation),
+						log: physicalLog,
+					}));
+					await run("rlm child usage", async () => ({
+						...classifyChildUsage(physicalObservation),
+						log: physicalLog,
+					}));
 					await run("rlm physical model child", async () => ({
 						...classifyPhysicalChild(physicalObservation),
 						data: { usageEntries: physicalUsage.length, providerRequests: providerLog(physicalRequests) },
@@ -1393,11 +1427,7 @@ async function main(): Promise<number> {
 					let autoRequests: FakeProviderRequest[] = [];
 					let autoRun: RlmCellRun | undefined;
 					try {
-						autoRun = await runRlmCell(
-							autoModel,
-							autoProvider,
-							join(runner.workRoot, "rlm-auto.json"),
-						);
+						autoRun = await runRlmCell(autoModel, autoProvider, join(runner.workRoot, "rlm-auto.json"));
 					} finally {
 						autoRequests = [...autoProvider.requests];
 						autoProvider.stop();
@@ -1472,19 +1502,29 @@ async function main(): Promise<number> {
 								timeoutMs: RPC_TIMEOUT_MS,
 							},
 							{
-								requests: [promptCommand("strong-1", `${SKILL_COMMAND_PREFIX}${STRONG_PHASE_SKILL} ${STRONG_PROMPT}`)],
+								requests: [
+									promptCommand("strong-1", `${SKILL_COMMAND_PREFIX}${STRONG_PHASE_SKILL} ${STRONG_PROMPT}`),
+								],
 								waitFor: (records, since) => modelEvents(records.slice(since), "agent_settled").length > 0,
 								timeoutMs: RPC_TIMEOUT_MS,
 							},
 							// The pin is a separate command, so it is measured separately: the selection stays
 							// `spirits/auto` and only the role changes, and the very next request has to follow it.
-							{ requests: [promptCommand("pin-strong", "/spirits-role strong")], waitFor: () => false, timeoutMs: PURPOSE_SETTLE_MS },
+							{
+								requests: [promptCommand("pin-strong", "/spirits-role strong")],
+								waitFor: () => false,
+								timeoutMs: PURPOSE_SETTLE_MS,
+							},
 							{
 								requests: [promptCommand("pinned-1", PINNED_PROMPT)],
 								waitFor: (records, since) => modelEvents(records.slice(since), "agent_settled").length > 0,
 								timeoutMs: RPC_TIMEOUT_MS,
 							},
-							{ requests: [promptCommand("pin-normal", "/spirits-role normal")], waitFor: () => false, timeoutMs: PURPOSE_SETTLE_MS },
+							{
+								requests: [promptCommand("pin-normal", "/spirits-role normal")],
+								waitFor: () => false,
+								timeoutMs: PURPOSE_SETTLE_MS,
+							},
 							{
 								requests: [promptCommand("unpinned-1", UNPINNED_PROMPT)],
 								waitFor: (records, since) => modelEvents(records.slice(since), "agent_settled").length > 0,
@@ -1499,7 +1539,9 @@ async function main(): Promise<number> {
 								timeoutMs: PURPOSE_SETTLE_MS,
 							},
 							{
-								requests: [promptCommand("step-run", `${SKILL_COMMAND_PREFIX}${STRONG_PHASE_SKILL} ${STEP_PROMPT}`)],
+								requests: [
+									promptCommand("step-run", `${SKILL_COMMAND_PREFIX}${STRONG_PHASE_SKILL} ${STEP_PROMPT}`),
+								],
 								waitFor: (records, since) => modelEvents(records.slice(since), "agent_settled").length > 0,
 								timeoutMs: RPC_TIMEOUT_MS,
 							},
@@ -1519,7 +1561,9 @@ async function main(): Promise<number> {
 						strongRequestModel: modelUsedFor(roleProvider, STRONG_PROMPT),
 						expectedNormalModel: FAKE_MODEL_ID,
 						expectedStrongModel: STRONG_MODEL_ID,
-						reason: roleRun.records.some((record) => record.type === "response" && record.id === "auto-model" && record.success === false)
+						reason: roleRun.records.some(
+							(record) => record.type === "response" && record.id === "auto-model" && record.success === false,
+						)
 							? "the dedicated Pi refused the spirits/auto selection"
 							: undefined,
 						roleVocabulary: {
@@ -1540,13 +1584,14 @@ async function main(): Promise<number> {
 						// The step setting is read the same way the routing is: the model that served the step's
 						// request. Normal means the setting beat the step list's strong default.
 						stepSettingsApplied: modelUsedFor(roleProvider, STEP_PROMPT) === FAKE_MODEL_ID,
-						roleBadge: statusSetRecords(roleRun.records).length > 0
-							? {
-									observed: true,
-									state: "limited",
-									detail: `the extension asked the host to draw ${statusSetRecords(roleRun.records).length} role status line(s) over RPC, which is the extension status line, not the core footer badge`,
-								}
-							: { observed: false, detail: "the extension never asked the host to set status text" },
+						roleBadge:
+							statusSetRecords(roleRun.records).length > 0
+								? {
+										observed: true,
+										state: "limited",
+										detail: `the extension asked the host to draw ${statusSetRecords(roleRun.records).length} role status line(s) over RPC, which is the extension status line, not the core footer badge`,
+									}
+								: { observed: false, detail: "the extension never asked the host to set status text" },
 						// The status report reaches the user as a notice, and a notice is an RPC call the harness
 						// can read. The last one is the report the `status` line asked for.
 						statusReport: notifyRecords(roleRun.records).at(-1),
@@ -1570,12 +1615,19 @@ async function main(): Promise<number> {
 					const modelRun = await stagedProbe({
 						command: launchCommand([PROVIDER_EXTENSION, launch.extensionPath]),
 						cwd: runner.workRoot,
-						env: { ...baseEnv, [PROBE_RESULT_ENV]: modelPurposePath, ...noRealCredentials, [FAKE_PROVIDER_ENV]: levelProvider.baseUrl },
+						env: {
+							...baseEnv,
+							[PROBE_RESULT_ENV]: modelPurposePath,
+							...noRealCredentials,
+							[FAKE_PROVIDER_ENV]: levelProvider.baseUrl,
+						},
 						stages: [
 							// Both settings first: a request can only carry what the reloaded runtime can read, and each
 							// of these lines reloads the extension on its own.
 							{
-								requests: [promptCommand("mp-target", `/spirits-role normal model ${COMPAT_PROVIDER}/${FAKE_MODEL_ID}`)],
+								requests: [
+									promptCommand("mp-target", `/spirits-role normal model ${COMPAT_PROVIDER}/${FAKE_MODEL_ID}`),
+								],
 								waitFor: () => false,
 								timeoutMs: PURPOSE_SETTLE_MS,
 							},
@@ -1586,7 +1638,9 @@ async function main(): Promise<number> {
 							},
 							// The routing model is what applies them. A physical selection would leave the level to pi.
 							{
-								requests: [{ id: "mp-auto", type: "set_model", provider: ROUTING_PROVIDER, modelId: ROUTING_MODEL }],
+								requests: [
+									{ id: "mp-auto", type: "set_model", provider: ROUTING_PROVIDER, modelId: ROUTING_MODEL },
+								],
 							},
 							{
 								requests: [promptCommand("mp-run", MODEL_PURPOSE_PROMPT)],
@@ -1602,7 +1656,8 @@ async function main(): Promise<number> {
 									{ id: "mp-state", type: "get_state" },
 									promptCommand("mp-read", "/compat-purpose-readback"),
 								],
-								waitFor: (records, since) => records.slice(since).some((record) => record.type === "response" && record.id === "mp-read"),
+								waitFor: (records, since) =>
+									records.slice(since).some((record) => record.type === "response" && record.id === "mp-read"),
 								timeoutMs: RPC_TIMEOUT_MS,
 							},
 						],
@@ -1623,7 +1678,9 @@ async function main(): Promise<number> {
 						...modelPurposeObservations({
 							attempted: modelReadback !== undefined,
 							reason:
-								modelReadback === undefined ? `the readback reported nothing (${modelRun.stderr.trim().slice(0, 160)})` : undefined,
+								modelReadback === undefined
+									? `the readback reported nothing (${modelRun.stderr.trim().slice(0, 160)})`
+									: undefined,
 							requestedLevel: MODEL_PURPOSE_LEVEL,
 							observedLevel: reasoningEffortFor(levelProvider, MODEL_PURPOSE_PROMPT),
 							roleModelSaved: modelReadback?.defaults?.normal === savedTarget,
@@ -1636,7 +1693,7 @@ async function main(): Promise<number> {
 				} finally {
 					levelProvider.stop();
 				}
-// /spirits-clear: the session state is recorded around the command, and the conversation
+				// /spirits-clear: the session state is recorded around the command, and the conversation
 				// purpose is decided from the request the provider received — the session file keeps every
 				// message on purpose, so only the request can show what left the model's context.
 				const todoToolCall: FakeToolCall = {
@@ -1671,7 +1728,11 @@ async function main(): Promise<number> {
 							OPENAI_API_KEY: undefined,
 						},
 						stages: [
-							{ requests: [{ id: "clear-model", type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID }] },
+							{
+								requests: [
+									{ id: "clear-model", type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID },
+								],
+							},
 							{
 								requests: [promptCommand("todo-1", "compat seed a todo")],
 								waitFor: (records, since) => modelEvents(records.slice(since), "tool_execution_end").length > 0,
@@ -1682,9 +1743,21 @@ async function main(): Promise<number> {
 								waitFor: (records, since) => modelEvents(records.slice(since), "agent_settled").length > 0,
 								timeoutMs: RPC_TIMEOUT_MS,
 							},
-							{ requests: [promptCommand("clear-before", "/compat-purpose-state before")], waitFor: () => false, timeoutMs: PURPOSE_SETTLE_MS },
-							{ requests: [promptCommand("clear-run", "/spirits-clear")], waitFor: () => false, timeoutMs: PURPOSE_SETTLE_MS },
-							{ requests: [promptCommand("clear-after", "/compat-purpose-state after")], waitFor: () => false, timeoutMs: PURPOSE_SETTLE_MS },
+							{
+								requests: [promptCommand("clear-before", "/compat-purpose-state before")],
+								waitFor: () => false,
+								timeoutMs: PURPOSE_SETTLE_MS,
+							},
+							{
+								requests: [promptCommand("clear-run", "/spirits-clear")],
+								waitFor: () => false,
+								timeoutMs: PURPOSE_SETTLE_MS,
+							},
+							{
+								requests: [promptCommand("clear-after", "/compat-purpose-state after")],
+								waitFor: () => false,
+								timeoutMs: PURPOSE_SETTLE_MS,
+							},
 							{
 								requests: [promptCommand("clear-marker-after", clearAfterMarker)],
 								waitFor: (records, since) => modelEvents(records.slice(since), "agent_settled").length > 0,
@@ -1714,7 +1787,9 @@ async function main(): Promise<number> {
 											? `the request after the command still carried the conversation from before it (${clearBeforeMarker})`
 											: `the request after the command carried ${clearAfterMarker} and not ${clearBeforeMarker}, while the session file kept every message entry`,
 									},
-						reason: clearRun.stderr.includes("unknown command") ? "the host rejected /spirits-clear on the RPC surface" : undefined,
+						reason: clearRun.stderr.includes("unknown command")
+							? "the host rejected /spirits-clear on the RPC surface"
+							: undefined,
 					};
 				} finally {
 					clearProvider.stop();
@@ -1780,7 +1855,16 @@ async function main(): Promise<number> {
 							provider,
 							sessionFile,
 							stages: [
-								{ requests: [{ id: `${purpose}-model`, type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID }] },
+								{
+									requests: [
+										{
+											id: `${purpose}-model`,
+											type: "set_model",
+											provider: COMPAT_PROVIDER,
+											modelId: FAKE_MODEL_ID,
+										},
+									],
+								},
 								boundaryPrompt(`${purpose}-before`, `${markers.before} answer ok`),
 								boundaryCommand(`${purpose}-clear`, "/spirits-clear"),
 								boundaryPrompt(`${purpose}-after`, `${markers.after} answer ok`),
@@ -1796,11 +1880,17 @@ async function main(): Promise<number> {
 				/** A stage set whose provider never answered measured nothing, whatever the host wrote. */
 				const noRequestSeen = (provider: BoundaryProvider): BoundaryJudgement | undefined =>
 					provider.requests.length === 0
-						? { state: "not-run", detail: "the fake provider received no request, so the compat model never answered" }
+						? {
+								state: "not-run",
+								detail: "the fake provider received no request, so the compat model never answered",
+							}
 						: undefined;
 
 				await run(CLEAR_BOUNDARY_ITEMS.automaticCompaction, async () => {
-					const markers = { before: `compat-clear-auto-before-${Date.now()}`, after: `compat-clear-auto-after-${Date.now()}` };
+					const markers = {
+						before: `compat-clear-auto-before-${Date.now()}`,
+						after: `compat-clear-auto-after-${Date.now()}`,
+					};
 					// The threshold has to be crossed by the turn that follows the clear. Pi checks it when a
 					// turn ends, so triggering on the conversation before the boundary would compact before
 					// the command and measure pi's own summary instead of the takeover.
@@ -1810,7 +1900,16 @@ async function main(): Promise<number> {
 							purpose: "boundary-auto",
 							provider,
 							stages: [
-								{ requests: [{ id: "auto-model", type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID }] },
+								{
+									requests: [
+										{
+											id: "auto-model",
+											type: "set_model",
+											provider: COMPAT_PROVIDER,
+											modelId: FAKE_MODEL_ID,
+										},
+									],
+								},
 								boundaryPrompt("auto-before", `${markers.before} answer ok`),
 								boundaryCommand("auto-clear", "/spirits-clear"),
 								boundaryPrompt("auto-after", `${markers.after} answer ok`),
@@ -1846,16 +1945,26 @@ async function main(): Promise<number> {
 				});
 
 				await run(CLEAR_BOUNDARY_ITEMS.manualCompaction, async () => {
-					const markers = { before: `compat-clear-manual-before-${Date.now()}`, after: `compat-clear-manual-after-${Date.now()}` };
-					const attempt = async (purpose: string, stages: readonly RpcStep[]): Promise<ManualCompactionAttempt> => {
+					const markers = {
+						before: `compat-clear-manual-before-${Date.now()}`,
+						after: `compat-clear-manual-after-${Date.now()}`,
+					};
+					const attempt = async (
+						purpose: string,
+						stages: readonly RpcStep[],
+					): Promise<ManualCompactionAttempt> => {
 						const provider = startBoundaryProvider(NO_AUTOMATIC_COMPACTION);
 						try {
 							const probed = await boundaryStage({ purpose, provider, stages });
-							const response = probed.records.find((record) => record.type === "response" && record.command === "compact");
+							const response = probed.records.find(
+								(record) => record.type === "response" && record.command === "compact",
+							);
 							const entry = compactionRecords((await boundaryStates(purpose))?.observed).at(-1);
 							return {
 								ran: response?.success === true,
-								error: response?.error ?? (provider.requests.length === 0 ? "the fake provider received no request" : undefined),
+								error:
+									response?.error ??
+									(provider.requests.length === 0 ? "the fake provider received no request" : undefined),
 								summary: (response?.data as { summary?: string } | undefined)?.summary ?? entry?.summary,
 								fromHook: entry?.fromHook,
 								summarizationRequests: provider.summarizationRequests(),
@@ -1865,7 +1974,9 @@ async function main(): Promise<number> {
 						}
 					};
 					const seed = (purpose: string): RpcStep => ({
-						requests: [{ id: `${purpose}-model`, type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID }],
+						requests: [
+							{ id: `${purpose}-model`, type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID },
+						],
 					});
 					// Cleared conversation sits inside the span pi is about to summarize.
 					const clearedSpan = await attempt("boundary-manual-cleared", [
@@ -1892,12 +2003,18 @@ async function main(): Promise<number> {
 				});
 
 				await run(CLEAR_BOUNDARY_ITEMS.fork, async () => {
-					const markers = { before: `compat-clear-fork-before-${Date.now()}`, after: `compat-clear-fork-after-${Date.now()}` };
+					const markers = {
+						before: `compat-clear-fork-before-${Date.now()}`,
+						after: `compat-clear-fork-after-${Date.now()}`,
+					};
 					const seeded = await seedBoundarySession("boundary-fork", markers);
 					const target = forkTargetOf(seeded?.branch ?? []);
 					if (seeded?.sessionFile === undefined || target === undefined) {
 						return {
-							...judgeFork({ attempted: false, reason: "the seeded session reported no boundary and no message after it" }),
+							...judgeFork({
+								attempted: false,
+								reason: "the seeded session reported no boundary and no message after it",
+							}),
 							data: { branch: seeded?.branch },
 						};
 					}
@@ -1908,14 +2025,25 @@ async function main(): Promise<number> {
 							provider,
 							sessionFile: seeded.sessionFile,
 							stages: [
-								{ requests: [{ id: "fork-model", type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID }] },
+								{
+									requests: [
+										{
+											id: "fork-model",
+											type: "set_model",
+											provider: COMPAT_PROVIDER,
+											modelId: FAKE_MODEL_ID,
+										},
+									],
+								},
 								{ requests: [{ id: "fork-run", type: "fork", entryId: target.id }] },
 								boundaryCommand("fork-state", "/compat-purpose-state forked"),
 								boundaryPrompt("fork-prompt", "forked answer ok"),
 							],
 						});
 						const forked = (await boundaryStates("boundary-fork-run"))?.forked;
-						const response = probed.records.find((record) => record.type === "response" && record.id === "fork-run");
+						const response = probed.records.find(
+							(record) => record.type === "response" && record.id === "fork-run",
+						);
 						return {
 							...(noRequestSeen(provider) ??
 								judgeFork({
@@ -1927,7 +2055,11 @@ async function main(): Promise<number> {
 									followingRequest: provider.bodyWith("forked answer ok"),
 									beforeMarker: markers.before,
 								})),
-							data: { forkTarget: target.id, parentSessionFile: seeded.sessionFile, forkedSessionFile: forked?.sessionFile },
+							data: {
+								forkTarget: target.id,
+								parentSessionFile: seeded.sessionFile,
+								forkedSessionFile: forked?.sessionFile,
+							},
 						};
 					} finally {
 						provider.stop();
@@ -1935,12 +2067,18 @@ async function main(): Promise<number> {
 				});
 
 				await run(CLEAR_BOUNDARY_ITEMS.treeMove, async () => {
-					const markers = { before: `compat-clear-tree-before-${Date.now()}`, after: `compat-clear-tree-after-${Date.now()}` };
+					const markers = {
+						before: `compat-clear-tree-before-${Date.now()}`,
+						after: `compat-clear-tree-after-${Date.now()}`,
+					};
 					const seeded = await seedBoundarySession("boundary-tree", markers);
 					const target = treeTargetOf(seeded?.branch ?? [], markers.before);
 					if (seeded?.sessionFile === undefined || target === undefined) {
 						return {
-							...judgeTreeMove({ attempted: false, reason: "the seeded session reported no reply that carried the cleared message" }),
+							...judgeTreeMove({
+								attempted: false,
+								reason: "the seeded session reported no reply that carried the cleared message",
+							}),
 							data: { branch: seeded?.branch },
 						};
 					}
@@ -1951,7 +2089,16 @@ async function main(): Promise<number> {
 							provider,
 							sessionFile: seeded.sessionFile,
 							stages: [
-								{ requests: [{ id: "tree-model", type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID }] },
+								{
+									requests: [
+										{
+											id: "tree-model",
+											type: "set_model",
+											provider: COMPAT_PROVIDER,
+											modelId: FAKE_MODEL_ID,
+										},
+									],
+								},
 								boundaryCommand("tree-move", `/compat-purpose-navigate ${target.id}`),
 								boundaryPrompt("tree-prompt", "moved answer ok"),
 							],
@@ -1974,10 +2121,16 @@ async function main(): Promise<number> {
 				});
 
 				await run(CLEAR_BOUNDARY_ITEMS.resume, async () => {
-					const markers = { before: `compat-clear-resume-before-${Date.now()}`, after: `compat-clear-resume-after-${Date.now()}` };
+					const markers = {
+						before: `compat-clear-resume-before-${Date.now()}`,
+						after: `compat-clear-resume-after-${Date.now()}`,
+					};
 					const seeded = await seedBoundarySession("boundary-resume", markers);
 					if (seeded?.sessionFile === undefined) {
-						return judgeResume({ attempted: false, reason: "the seeded session reported no session file to reopen" });
+						return judgeResume({
+							attempted: false,
+							reason: "the seeded session reported no session file to reopen",
+						});
 					}
 					const provider = startBoundaryProvider(NO_AUTOMATIC_COMPACTION);
 					try {
@@ -1986,7 +2139,16 @@ async function main(): Promise<number> {
 							provider,
 							sessionFile: seeded.sessionFile,
 							stages: [
-								{ requests: [{ id: "resume-model", type: "set_model", provider: COMPAT_PROVIDER, modelId: FAKE_MODEL_ID }] },
+								{
+									requests: [
+										{
+											id: "resume-model",
+											type: "set_model",
+											provider: COMPAT_PROVIDER,
+											modelId: FAKE_MODEL_ID,
+										},
+									],
+								},
 								boundaryCommand("resume-state", "/compat-purpose-state resumed"),
 								boundaryPrompt("resume-prompt", "resumed answer ok"),
 							],
@@ -2023,7 +2185,8 @@ async function main(): Promise<number> {
 							? `confirmed here means observed on the dedicated Pi, including ${unavailablePurposes.length} purpose(s) observed as unavailable; ${observedPurposes.length} of ${purposes.length} purposes observed, rows derive from those observations`
 							: "no role/clear/model purpose could be observed on this host",
 					data: {
-						confirmedMeans: "a purpose behaviour was observed on the dedicated Pi; unavailable is an observation too",
+						confirmedMeans:
+							"a purpose behaviour was observed on the dedicated Pi; unavailable is an observation too",
 						rows,
 						purposes,
 						clearAttempt,

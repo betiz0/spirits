@@ -68,7 +68,9 @@ export function observeThemeArtColours(packageDir: string, tokens: readonly stri
 	const themeDir = join(packageDir, THEME_DIR_NAME);
 	if (!existsSync(themeDir)) return [];
 	const observations: ThemeObservation[] = [];
-	for (const name of readdirSync(themeDir).filter((file) => file.endsWith(".json")).sort()) {
+	for (const name of readdirSync(themeDir)
+		.filter((file) => file.endsWith(".json"))
+		.sort()) {
 		const path = join(themeDir, name);
 		let parsed: { vars?: unknown; colors?: unknown };
 		try {
@@ -118,10 +120,12 @@ export function classifyThemeArtColours(
 			const key = (colour.resolved ?? "").replace(/\s+/g, "");
 			byColour.set(key, [...(byColour.get(key) ?? []), colour.token]);
 		}
-		const collided = [...byColour.entries()].filter((([, names]) => names.length > 1));
+		const collided = [...byColour.entries()].filter(([, names]) => names.length > 1);
 		if (collided.length > 0) {
 			problems.push(
-				collided.map(([colour, names]) => `${theme.name} paints ${names.join(" and ")} the same (${colour})`).join("; "),
+				collided
+					.map(([colour, names]) => `${theme.name} paints ${names.join(" and ")} the same (${colour})`)
+					.join("; "),
 			);
 		}
 		readings.push(`${theme.name}: ${theme.colours.map((colour) => `${colour.token}=${colour.resolved}`).join(" ")}`);
@@ -245,7 +249,12 @@ export function classifySystemPrompt(observation: SystemPromptObservation): {
 			problems.push(`the host reported no prompt declaration for ${name}`);
 			continue;
 		}
-		if (declaration.snippet !== undefined && declaration.snippet !== "" && entry !== undefined && entry !== declaration.snippet) {
+		if (
+			declaration.snippet !== undefined &&
+			declaration.snippet !== "" &&
+			entry !== undefined &&
+			entry !== declaration.snippet
+		) {
 			problems.push(`the tools-section entry of ${name} is not the snippet it declared`);
 		}
 		for (const guideline of declaration.guidelines) {

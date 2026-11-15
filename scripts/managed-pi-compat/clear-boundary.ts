@@ -11,7 +11,7 @@
  */
 
 import { CLEAR_COMPACTION_SUMMARY, CLEAR_ENTRY_TYPE } from "../../packages/spirits/src/constants.ts";
-import { startFakeProvider, type FakeProviderRequest, type FakeUsage } from "./fake-provider.ts";
+import { type FakeProviderRequest, type FakeUsage, startFakeProvider } from "./fake-provider.ts";
 import type { CompatState } from "./runner.ts";
 
 /**
@@ -78,7 +78,11 @@ export function startBoundaryProvider(trigger: string): BoundaryProvider {
 				const body = bodyOf(request);
 				return SUMMARIZATION_MARKERS.some((marker) => body.includes(marker));
 			}).length,
-		bodyWith: (marker) => [...provider.requests].reverse().map(bodyOf).find((body) => body.includes(marker)),
+		bodyWith: (marker) =>
+			[...provider.requests]
+				.reverse()
+				.map(bodyOf)
+				.find((body) => body.includes(marker)),
 		stop: provider.stop,
 	};
 }
@@ -151,9 +155,13 @@ export interface AutomaticCompactionObservation {
 export function judgeAutomaticCompaction(o: AutomaticCompactionObservation): BoundaryJudgement {
 	if (!o.attempted) return notRun(o.reason ?? "the automatic compaction was not attempted");
 	if (o.compactions.length === 0) {
-		return notRun(`${o.reason ?? "the context never crossed the threshold"}; no compaction entry was written after the boundary`);
+		return notRun(
+			`${o.reason ?? "the context never crossed the threshold"}; no compaction entry was written after the boundary`,
+		);
 	}
-	const takeover = o.compactions.find((entry) => entry.fromHook === true && (entry.summary ?? "") === CLEAR_COMPACTION_SUMMARY);
+	const takeover = o.compactions.find(
+		(entry) => entry.fromHook === true && (entry.summary ?? "") === CLEAR_COMPACTION_SUMMARY,
+	);
 	if (takeover === undefined) {
 		const summary = o.compactions.at(-1)?.summary ?? "";
 		return {
@@ -168,7 +176,10 @@ export function judgeAutomaticCompaction(o: AutomaticCompactionObservation): Bou
 		};
 	}
 	if (summaryCarries(o.compactions, o.beforeMarker)) {
-		return { state: "failed", detail: `a compaction summary carried the conversation cleared at the boundary (${o.beforeMarker})` };
+		return {
+			state: "failed",
+			detail: `a compaction summary carried the conversation cleared at the boundary (${o.beforeMarker})`,
+		};
 	}
 	if (o.followingRequest === undefined) {
 		return notRun("no request followed the compaction, so the filtered context was not observed");
@@ -232,7 +243,10 @@ export function judgeManualCompaction(o: ManualCompactionObservation): BoundaryJ
 		};
 	}
 	if ((o.cleanSpan.summary ?? "").startsWith(CLEAR_COMPACTION_SUMMARY)) {
-		return { state: "failed", detail: "a compaction with nothing cleared behind the boundary was taken over, replacing pi's summary" };
+		return {
+			state: "failed",
+			detail: "a compaction with nothing cleared behind the boundary was taken over, replacing pi's summary",
+		};
 	}
 	if (o.cleanSpan.summarizationRequests === 0) {
 		return { state: "failed", detail: "pi wrote no summary for a span that holds nothing the boundary removed" };
@@ -274,9 +288,13 @@ export function judgeFork(o: ForkObservation): BoundaryJudgement {
 	if (!o.attempted) return notRun(o.reason ?? "the fork was not attempted");
 	if (!o.forked) return notRun(`${o.reason ?? "the host refused the fork"}; the forked session was never observed`);
 	if (o.sessionFile === undefined || o.sessionFile === o.parentSessionFile) {
-		return { state: "failed", detail: `the fork reported success but kept the session file ${String(o.sessionFile)}` };
+		return {
+			state: "failed",
+			detail: `the fork reported success but kept the session file ${String(o.sessionFile)}`,
+		};
 	}
-	if (o.followingRequest === undefined) return notRun("the forked session sent no request, so its context was not observed");
+	if (o.followingRequest === undefined)
+		return notRun("the forked session sent no request, so its context was not observed");
 	if (o.followingRequest.includes(o.beforeMarker)) {
 		return { state: "failed", detail: `the forked session sent ${o.beforeMarker} again` };
 	}
@@ -306,8 +324,12 @@ export type TreeMoveObservation = BoundaryNotAttempted | TreeMoveDone;
  */
 export function judgeTreeMove(o: TreeMoveObservation): BoundaryJudgement {
 	if (!o.attempted) return notRun(o.reason ?? "the tree move was not attempted");
-	if (!o.moved) return notRun(`${o.reason ?? "the extension API refused the move"}; the branch below the boundary was never observed`);
-	if (o.followingRequest === undefined) return notRun("no request followed the move, so the branch content was not observed");
+	if (!o.moved)
+		return notRun(
+			`${o.reason ?? "the extension API refused the move"}; the branch below the boundary was never observed`,
+		);
+	if (o.followingRequest === undefined)
+		return notRun("no request followed the move, so the branch content was not observed");
 	if (!o.followingRequest.includes(o.beforeMarker)) {
 		return {
 			state: "failed",
@@ -338,7 +360,8 @@ export function judgeResume(o: ResumeObservation): BoundaryJudgement {
 	if (o.openedSessionFile === undefined || o.openedSessionFile !== o.sessionFile) {
 		return notRun(`the resume opened ${String(o.openedSessionFile)} instead of ${String(o.sessionFile)}`);
 	}
-	if (o.followingRequest === undefined) return notRun("the resumed session sent no request, so its context was not observed");
+	if (o.followingRequest === undefined)
+		return notRun("the resumed session sent no request, so its context was not observed");
 	if (o.followingRequest.includes(o.beforeMarker)) {
 		return { state: "failed", detail: `the resumed session sent ${o.beforeMarker} again` };
 	}

@@ -81,7 +81,10 @@ export function assertOfficialArtifactSha(manifestSha256: string | undefined): v
 }
 
 /** Compare the requested bundle with the extension digest the manifest records. */
-export function classifyOfficialBundleSha(manifest: ManagedManifest, bundleSha256: string): {
+export function classifyOfficialBundleSha(
+	manifest: ManagedManifest,
+	bundleSha256: string,
+): {
 	state: CompatState;
 	detail: string;
 } {
@@ -207,7 +210,9 @@ export function createBundleVerifier(bundlePath: string, bundleSha256: string): 
  * launch detects a staged executable that changed after extraction. A mismatch throws, so the
  * runner neither spawns Pi nor writes a result.
  */
-export function createOfficialLaunchVerifier(artifact: Pick<OfficialArtifact, "executablePath" | "executableSha256">): () => Promise<void> {
+export function createOfficialLaunchVerifier(
+	artifact: Pick<OfficialArtifact, "executablePath" | "executableSha256">,
+): () => Promise<void> {
 	return async () => {
 		const current = await fileSha256(artifact.executablePath);
 		if (current !== artifact.executableSha256) {

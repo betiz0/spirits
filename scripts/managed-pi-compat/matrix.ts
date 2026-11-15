@@ -60,16 +60,20 @@ export const ROLE_PURPOSES: readonly PurposeDefinition[] = [
 		feature: "role",
 		purpose: "Set the role and thinking level of one workflow step",
 		currentMechanism: "none",
-		alternative: "/spirits-role <step> role <role> and /spirits-role <step> thinking <level>, writing models.steps.<name>",
-		difference: "The step list decides which names exist; an unknown name is ignored and reported by /spirits-role status",
+		alternative:
+			"/spirits-role <step> role <role> and /spirits-role <step> thinking <level>, writing models.steps.<name>",
+		difference:
+			"The step list decides which names exist; an unknown name is ignored and reported by /spirits-role status",
 	},
 	{
 		id: "role-status-report",
 		feature: "role",
 		purpose: "Read how the routing is running: the lock, the step, and both roles' targets",
 		currentMechanism: "none",
-		alternative: "/spirits-role status: one report listing the routing state, the lock, the running step, the last request, and what each role resolves to",
-		difference: "pi shows a selection, never a routing: this report is the only surface that names the target a role answered with",
+		alternative:
+			"/spirits-role status: one report listing the routing state, the lock, the running step, the last request, and what each role resolves to",
+		difference:
+			"pi shows a selection, never a routing: this report is the only surface that names the target a role answered with",
 	},
 ];
 
@@ -120,14 +124,16 @@ export const MODEL_PURPOSES: readonly PurposeDefinition[] = [
 		currentMechanism: "Core /model parser and default save keys",
 		alternative:
 			"/spirits-role <role> model <ref>: a merge-write of models.<role> into pi's global settings.json, under pi's file lock, read back after the reload",
-		difference: "The selection is the target of a role, not the session's model; pi's own selection stays where /model put it",
+		difference:
+			"The selection is the target of a role, not the session's model; pi's own selection stays where /model put it",
 	},
 	{
 		id: "session-model-selection",
 		feature: "model",
 		purpose: "Choose the session's model and read the choice back",
 		currentMechanism: "Core /model selector and the session model it saves",
-		alternative: "pi's own set_model RPC read back with the session state; spirits routes requests and never selects the session's model",
+		alternative:
+			"pi's own set_model RPC read back with the session state; spirits routes requests and never selects the session's model",
 		difference:
 			"The routing model is one of the choices: selecting it puts every request through the routing, and selecting a physical model takes them out of it",
 	},
@@ -302,13 +308,19 @@ export function clearPurposeObservations(attempt: ClearAttempt): PurposeObservat
 	if (before === undefined || after === undefined) {
 		for (const definition of definitions) {
 			if (definition.id === "conversation-clear") continue;
-			observations.push(purposeNotRun(definition, attempt.reason ?? "the probe reported no session state around the attempt"));
+			observations.push(
+				purposeNotRun(definition, attempt.reason ?? "the probe reported no session state around the attempt"),
+			);
 		}
 		return observations;
 	}
 	observations.push(
 		after.sessionId === before.sessionId
-			? observePurposeState(definitionFor("clear", "same-session-id"), "available", `the session kept the ID ${after.sessionId}`)
+			? observePurposeState(
+					definitionFor("clear", "same-session-id"),
+					"available",
+					`the session kept the ID ${after.sessionId}`,
+				)
 			: observePurposeState(
 					definitionFor("clear", "same-session-id"),
 					"unavailable",
@@ -366,7 +378,9 @@ export interface ModelPurposeAttempt {
  */
 export function modelPurposeObservations(attempt: ModelPurposeAttempt): PurposeObservation[] {
 	if (!attempt.attempted) {
-		return purposesFor("model").map((definition) => purposeNotRun(definition, attempt.reason ?? "no model-purpose attempt was made"));
+		return purposesFor("model").map((definition) =>
+			purposeNotRun(definition, attempt.reason ?? "no model-purpose attempt was made"),
+		);
 	}
 	const level = definitionFor("model", "thinking-level");
 	const asked = attempt.requestedLevel;
@@ -380,7 +394,7 @@ export function modelPurposeObservations(attempt: ModelPurposeAttempt): PurposeO
 						"available",
 						`the run asked for ${asked} and the provider received ${saw}, which is the role's own setting rather than pi's /thinking selection`,
 					)
-					: observePurposeState(
+				: observePurposeState(
 						level,
 						"unavailable",
 						`the run asked for ${asked} and the provider received ${String(saw)}, so the role's setting did not reach the request`,
@@ -394,7 +408,10 @@ export function modelPurposeObservations(attempt: ModelPurposeAttempt): PurposeO
 					"available",
 					"the role's model was written and read back through the reloaded runtime, which selects a role's target and not the session's model",
 				)
-				: purposeNotRun(roleModel, attempt.reason ?? "the role's model was not read back, so no role target was saved");
+			: purposeNotRun(
+					roleModel,
+					attempt.reason ?? "the role's model was not read back, so no role target was saved",
+				);
 
 	// The session's own selection, which the routing model shares a surface with but does not own: pi's
 	// `set_model` is what moves it, and reading it back is the only way to tell a selection from a request
@@ -407,17 +424,17 @@ export function modelPurposeObservations(attempt: ModelPurposeAttempt): PurposeO
 					session,
 					`${attempt.reason ?? "the run selected a model over RPC"}; the session state reported no model to read the selection back from`,
 				)
-				: chosen.requested !== undefined && chosen.requested !== chosen.readBack
-					? observePurposeState(
-							session,
-							"unavailable",
-							`set_model reported ${chosen.requested} and the session state reported ${chosen.readBack}, so the selection did not stick`,
-						)
-					: observePurposeState(
-							session,
-							"available",
-							`set_model selected ${chosen.readBack} and the session state read it back, which is the session's own choice and not the target of a role`,
-						);
+			: chosen.requested !== undefined && chosen.requested !== chosen.readBack
+				? observePurposeState(
+						session,
+						"unavailable",
+						`set_model reported ${chosen.requested} and the session state reported ${chosen.readBack}, so the selection did not stick`,
+					)
+				: observePurposeState(
+						session,
+						"available",
+						`set_model selected ${chosen.readBack} and the session state read it back, which is the session's own choice and not the target of a role`,
+					);
 
 	return [
 		levelObservation,
@@ -472,7 +489,11 @@ export function roleStatusObservation(report: string | undefined): PurposeObserv
 	}
 	const missing = STATUS_REPORT_MARKERS.filter((marker) => !report.includes(marker));
 	if (missing.length > 0) {
-		return observePurposeState(definition, "unavailable", `the report left out ${missing.join(", ")}: ${report.replace(/\s+/g, " ")}`);
+		return observePurposeState(
+			definition,
+			"unavailable",
+			`the report left out ${missing.join(", ")}: ${report.replace(/\s+/g, " ")}`,
+		);
 	}
 	return observePurposeState(definition, "available", report.replace(/\s+/g, " ").slice(0, 240));
 }
@@ -566,7 +587,9 @@ export function rolePurposeObservations(attempt: StrongPhaseAttempt): PurposeObs
  */
 export function deriveRows(observations: readonly PurposeObservation[]): MatrixRow[] {
 	return PURPOSE_DEFINITIONS.map((definition) => {
-		const observation = observations.find((entry) => entry.feature === definition.feature && entry.purposeId === definition.id);
+		const observation = observations.find(
+			(entry) => entry.feature === definition.feature && entry.purposeId === definition.id,
+		);
 		return {
 			...definition,
 			state: observation?.state ?? "not-run",
@@ -576,7 +599,10 @@ export function deriveRows(observations: readonly PurposeObservation[]): MatrixR
 }
 
 /** Rows for one feature. Without observations every row is `not-run`. */
-export function matrixRows(feature: MatrixRow["feature"], observations: readonly PurposeObservation[] = []): MatrixRow[] {
+export function matrixRows(
+	feature: MatrixRow["feature"],
+	observations: readonly PurposeObservation[] = [],
+): MatrixRow[] {
 	return deriveRows(observations).filter((row) => row.feature === feature);
 }
 

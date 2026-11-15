@@ -8,11 +8,11 @@
  * the auxiliary item stays `not-run` with a reason and never depends on capturing a registration.
  */
 
-import type { AnyToolDefinition } from "../../packages/spirits/src/types/host.ts";
 import { createTsreplTool } from "../../packages/spirits/src/tools.ts";
+import type { AnyToolDefinition } from "../../packages/spirits/src/types/host.ts";
 import { erasedToolContext } from "../../packages/spirits/test/host/fake-pi.ts";
-import type { CompatState } from "./runner.ts";
 import type { RpcRecord } from "./rpc.ts";
+import type { CompatState } from "./runner.ts";
 
 /** Result of one probe cell. */
 export interface CellProbeResult {
@@ -28,13 +28,7 @@ export async function executeCapturedTsrepl(
 	code: string,
 	cwd: string,
 ): Promise<CellProbeResult> {
-	const result = await tool.execute(
-		"compat-probe",
-		{ code },
-		undefined,
-		() => {},
-		erasedToolContext(tool, { cwd }),
-	);
+	const result = await tool.execute("compat-probe", { code }, undefined, () => {}, erasedToolContext(tool, { cwd }));
 	const text = result.content.map((part) => (part.type === "text" ? part.text : "")).join("");
 	return { text, isError: result.isError === true, details: result.details, bypassedPiHooks: true };
 }

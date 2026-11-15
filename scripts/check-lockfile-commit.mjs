@@ -38,15 +38,17 @@ function resolvedVersions(text) {
 	const body = start === -1 ? text : text.slice(start);
 	const out = new Map();
 	const pattern = /"([^"]+)":\s*\["([^"]+)"/g;
-	let match;
-	while ((match = pattern.exec(body)) !== null) {
+	let match = pattern.exec(body);
+	while (match !== null) {
 		const spec = match[2];
 		const at = spec.lastIndexOf("@");
-		if (at <= 0) continue;
-		const name = spec.slice(0, at);
-		const version = spec.slice(at + 1).replace(/\(.*\)$/, "");
-		if (!out.has(name)) out.set(name, new Set());
-		out.get(name).add(version);
+		if (at > 0) {
+			const name = spec.slice(0, at);
+			const version = spec.slice(at + 1).replace(/\(.*\)$/, "");
+			if (!out.has(name)) out.set(name, new Set());
+			out.get(name).add(version);
+		}
+		match = pattern.exec(body);
 	}
 	return out;
 }
@@ -59,8 +61,11 @@ function workspaceNames(text) {
 	const body = text.slice(workspacesStart, packagesStart === -1 ? undefined : packagesStart);
 	const names = new Set();
 	const pattern = /"name":\s*"([^"]+)"/g;
-	let match;
-	while ((match = pattern.exec(body)) !== null) names.add(match[1]);
+	let match = pattern.exec(body);
+	while (match !== null) {
+		names.add(match[1]);
+		match = pattern.exec(body);
+	}
 	return names;
 }
 

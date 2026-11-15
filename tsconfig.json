@@ -1,58 +1,44 @@
 {
+	// The repository view, for editors and `tsserver`: every TypeScript file in the repo, resolved the
+	// way the product resolves it. The checks themselves run the two narrow projects, because they want
+	// different option sets and different failure messages: `tsconfig.scripts.json` for `scripts/`
+	// (`npm run check:scripts`) and `packages/spirits/tsconfig.json` for the product
+	// (`npm run check:spirits`).
 	"extends": "./tsconfig.base.json",
 	"compilerOptions": {
 		"noEmit": true,
 		"module": "NodeNext",
 		"moduleResolution": "NodeNext",
+		"types": ["bun"],
+		// Bun's types are installed for packages/spirits, and this config lives at the root.
+		"typeRoots": [
+			"./packages/spirits/node_modules/@types",
+			"./node_modules/@types"
+		],
+		// The host is the official package pinned in packages/spirits, and only that package's install
+		// tree contains it: `bun.lock` has no host entry for the root workspace. Naming the package
+		// here is what keeps a file opened at the root from resolving the host somewhere else.
+		// The host's ./rpc-entry export ships no type declaration, so it is deliberately absent.
 		"paths": {
-			"@earendil-works/chord": ["./packages/chord/src/index.ts"],
-			"@earendil-works/chord/bundler": ["./packages/chord/src/bundler.ts"],
-			"@earendil-works/chord/context": ["./packages/chord/src/context/index.ts"],
-			"@earendil-works/chord/delta": ["./packages/chord/src/delta/index.ts"],
-			"@earendil-works/chord/node": ["./packages/chord/src/node.ts"],
-			"@earendil-works/pi-telemetry": ["./packages/telemetry/src/index.ts"],
-			"@earendil-works/pi-telemetry/testing": ["./packages/telemetry/src/testing/index.ts"],
-			"@earendil-works/pi-codemode": ["./packages/codemode/src/index.ts"],
-			"@earendil-works/pi-codemode/declarations": ["./packages/codemode/src/declarations.ts"],
-			"@earendil-works/pi-codemode/source": ["./packages/codemode/src/source.ts"],
-			"@earendil-works/pi-codemode/worker": ["./packages/codemode/src/runtime/worker.ts"],
-			"@earendil-works/pi-mcp": ["./packages/mcp/src/index.ts"],
-			"@earendil-works/pi-mcp/oauth": ["./packages/mcp/src/oauth/index.ts"],
-			"@earendil-works/pi-mcp/testing": ["./packages/mcp/src/testing/index.ts"],
-			"@earendil-works/pi-ai": ["./packages/ai/src/index.ts"],
-			"@earendil-works/pi-ai/oauth": ["./packages/ai/src/oauth.ts"],
-			"@earendil-works/pi-ai/*": ["./packages/ai/src/*.ts", "./packages/ai/src/providers/*.ts"],
-			"@earendil-works/pi-ai/dist/*": ["./packages/ai/src/*"],
-			"@earendil-works/pi-durable": ["./packages/durable/src/index.ts"],
-			"@earendil-works/pi-durable/testing": ["./packages/durable/src/testing/index.ts"],
-			"@earendil-works/pi-durable/*": [
-				"./packages/durable/src/*.ts",
-				"./packages/durable/src/*/index.ts",
-				"./packages/durable/src/*"
+			"@earendil-works/pi-coding-agent": [
+				"./packages/spirits/node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"
 			],
-			"@earendil-works/pi-env": ["./packages/env/src/index.ts"],
-			"@earendil-works/pi-agent-core": ["./packages/agent/src/index.ts"],
-			"@earendil-works/pi-coding-agent": ["./packages/coding-agent/src/index.ts"],
-			"@earendil-works/pi-coding-agent/experimental/plugin": [
-				"./packages/coding-agent/src/experimental/plugin.ts"
-			],
-			"@earendil-works/pi-coding-agent/hooks": ["./packages/coding-agent/src/core/hooks/index.ts"],
-			"@earendil-works/pi-coding-agent/*": ["./packages/coding-agent/src/*"],
-			"@earendil-works/pi-protocol": ["./packages/protocol/src/index.ts"],
-			"@earendil-works/pi-protocol/*": ["./packages/protocol/src/*"],
-			"@earendil-works/pi-client": ["./packages/client/src/index.ts"],
-			"@earendil-works/pi-client/unix": ["./packages/client/src/unix.ts"],
-			"@earendil-works/pi-client/*": ["./packages/client/src/*"],
-			"@earendil-works/pi-server": ["./packages/server/src/index.ts"],
-			"@earendil-works/pi-server/unix": ["./packages/server/src/transports/unix/index.ts"],
-			"@earendil-works/pi-server/*": ["./packages/server/src/*"],
-			"typebox": ["./node_modules/typebox"],
-			"@earendil-works/pi-tui": ["./packages/tui/src/index.ts"],
-			"@earendil-works/pi-tui/*": ["./packages/tui/src/*"],
-			"@earendil-works/pi-agent-old": ["./packages/agent-old/src/index.ts"],
-			"@earendil-works/pi-agent-old/*": ["./packages/agent-old/src/*"]
+			"@earendil-works/pi-tui": [
+				"./packages/spirits/node_modules/@earendil-works/pi-tui/dist/index.d.ts"
+			]
 		}
 	},
-	"include": ["packages/*/src/**/*", "packages/*/test/**/*", "packages/coding-agent/examples/**/*", "packages/agent/examples/**/*"],
-	"exclude": ["**/dist/**", "packages/coding-agent/examples/extensions/gondolin/**", "packages/spirits/**"]
+	"include": [
+		"packages/spirits/src/**/*.ts",
+		"packages/spirits/test/**/*.ts",
+		"packages/spirits/bin/**/*.ts",
+		"scripts/**/*.ts"
+	],
+	"exclude": [
+		"**/node_modules/**",
+		"**/dist/**",
+		"packages/spirits/test/fixtures/architecture",
+		// Redacted user data copied into a temporary agent dir by the data observations: measured input.
+		"scripts/managed-pi-compat/fixtures/redacted-agent/**"
+	]
 }

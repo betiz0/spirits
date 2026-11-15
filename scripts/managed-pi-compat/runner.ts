@@ -9,29 +9,26 @@
 import { lstat, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import {
-	ensureManagedAgentDir,
-	resolveManagedAgentPaths,
-} from "../../packages/spirits/src/managed-pi/agent-dir.ts";
+import { ensureManagedAgentDir, resolveManagedAgentPaths } from "../../packages/spirits/src/managed-pi/agent-dir.ts";
 import {
 	buildObservationEvidence,
 	COMPATIBILITY_MET_DEFINITION,
+	type CompatEvidence,
 	computeCompatibilityMet,
 	computeRunnerCompleted,
-	type CompatEvidence,
 	countStates,
 	formatStateCounts,
 	identifyRuntime,
 	matrixPurposeCounts,
 	modeLabel,
 	nonRequiredIssues,
+	REQUIRED_OBSERVATIONS,
 	ROLE_CLEAR_MODEL_ITEM,
-	SUMMARY_READING_NOTES,
-	requiredObservationsNotMet,
+	RUNNER_COMPLETED_DEFINITION,
 	type RunMode,
 	redactSecrets,
-	REQUIRED_OBSERVATIONS,
-	RUNNER_COMPLETED_DEFINITION,
+	requiredObservationsNotMet,
+	SUMMARY_READING_NOTES,
 } from "./evidence.ts";
 
 /** Result state of one compatibility item. */
@@ -163,10 +160,7 @@ export interface CompatRunner {
 	setMode(mode: RunMode): void;
 	setEvidence(evidence: Partial<CompatEvidence>): void;
 	/** Record one item's command/output for the evidence log. */
-	recordLog(
-		item: string,
-		entry: { command?: readonly string[]; stdout?: string; stderr?: string },
-	): void;
+	recordLog(item: string, entry: { command?: readonly string[]; stdout?: string; stderr?: string }): void;
 	/** Build the full evidence object from the recorded results. */
 	buildEvidence(): CompatEvidence;
 	/** Write the redacted result JSON and the summary next to it. */
@@ -209,7 +203,7 @@ function renderSummary(evidence: CompatEvidence, results: readonly CompatResult[
 			: [
 					`- Substituted host: ${evidence.substitutedHost.label} (${evidence.substitutedHost.executable}, package dir ${evidence.substitutedHost.packageDir}, pi ${evidence.substitutedHost.piVersion})`,
 					"- Not fixed-artifact compatibility: a substituted host never reports compatibility met.",
-			  ]),
+				]),
 		`- Runner completed: ${evidence.runnerCompleted} (${RUNNER_COMPLETED_DEFINITION})`,
 		`- Compatibility met: ${evidence.compatibilityMet} (${COMPATIBILITY_MET_DEFINITION})`,
 		`- Results: ${formatStateCounts(counts)}`,
@@ -363,16 +357,16 @@ export async function createCompatRunner(options: { workRoot?: string; mode?: Ru
 			return await recordRun(EXISTING_AGENT_DIR_ITEM, async () =>
 				unchanged
 					? {
-						state: "confirmed" as const,
-						detail:
-							"the seeded existing agent dir kept its content and modification times across every launch",
-						data: { existingAgentDir },
-					}
+							state: "confirmed" as const,
+							detail:
+								"the seeded existing agent dir kept its content and modification times across every launch",
+							data: { existingAgentDir },
+						}
 					: {
-						state: "failed" as const,
-						detail: `a managed launch changed ${existingAgentDir}; the managed route must never write there`,
-						data: { existingAgentDir },
-					}
+							state: "failed" as const,
+							detail: `a managed launch changed ${existingAgentDir}; the managed route must never write there`,
+							data: { existingAgentDir },
+						},
 			);
 		},
 		results() {

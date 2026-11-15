@@ -121,7 +121,7 @@ export async function buildManagedInputs(options: BuildManagedInputsOptions): Pr
 		}
 	}
 	if (bundle.includes('with { type: "text" }')) {
-		throw new Error("The bundle still contains a with { type: \"text\" } import.");
+		throw new Error('The bundle still contains a with { type: "text" } import.');
 	}
 	assertEmbeddedVersion(bundle, options.version);
 	const bundleSha256 = sha256Hex(bundle);

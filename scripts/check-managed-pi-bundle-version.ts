@@ -34,22 +34,16 @@ export interface BundleVersionCheck {
 }
 
 /** Compare a built bundle and its manifest against the version the release is publishing. */
-export function checkManagedBundleVersion(
-	bundle: string,
-	manifestValue: unknown,
-	version: string,
-): BundleVersionCheck {
+export function checkManagedBundleVersion(bundle: string, manifestValue: unknown, version: string): BundleVersionCheck {
 	const reasons: string[] = [];
-	let manifest;
+	let manifest: ReturnType<typeof parseManagedManifest> | undefined;
 	try {
 		manifest = parseManagedManifest(manifestValue);
 	} catch (error) {
 		reasons.push(error instanceof Error ? error.message : String(error));
 	}
 	if (manifest !== undefined && manifest.extension.version !== version) {
-		reasons.push(
-			`the manifest records extension version ${manifest.extension.version}, not ${version}`,
-		);
+		reasons.push(`the manifest records extension version ${manifest.extension.version}, not ${version}`);
 	}
 	try {
 		assertEmbeddedVersion(bundle, version);

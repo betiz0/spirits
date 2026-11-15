@@ -63,7 +63,12 @@ export function isVirtualRequestedModel(model?: string): boolean {
  * `pi.appendEntry("rlm_usage", data)` stores the payload under `entry.data`, so a check that reads
  * `entry.outcome` never matches and silently turns a recorded abort into an unobserved one.
  */
-export function rlmUsageOutcome(entry: { type?: string; customType?: string; data?: unknown; outcome?: unknown }): string | undefined {
+export function rlmUsageOutcome(entry: {
+	type?: string;
+	customType?: string;
+	data?: unknown;
+	outcome?: unknown;
+}): string | undefined {
 	const data: unknown = entry.data;
 	if (data !== null && typeof data === "object") {
 		const outcome = (data as { outcome?: unknown }).outcome;
@@ -289,11 +294,18 @@ export interface ChildModelSourceObservation {
 const UNSUCCESSFUL_STOP_REASONS = ["aborted", "error"];
 
 /** Decide the child-model inheritance from the entry the host wrote and the model the child asked for. */
-export function classifyChildModelSource(observation: ChildModelSourceObservation): { state: CompatState; detail: string } {
+export function classifyChildModelSource(observation: ChildModelSourceObservation): {
+	state: CompatState;
+	detail: string;
+} {
 	if (!observation.hostCanRequestProvider) {
-		return { state: "not-run", detail: "the host answers fixed events, so no child request carries an inherited model" };
+		return {
+			state: "not-run",
+			detail: "the host answers fixed events, so no child request carries an inherited model",
+		};
 	}
-	if (!observation.attempted) return { state: "not-run", detail: observation.reason ?? "the auto-parent run reached no child" };
+	if (!observation.attempted)
+		return { state: "not-run", detail: observation.reason ?? "the auto-parent run reached no child" };
 	const recorded = observation.recorded;
 	const fields = `provider=${recorded?.provider ?? "none"}, model=${recorded?.model ?? "none"}, stopReason=${recorded?.stopReason ?? "none"}`;
 	if (recorded?.provider === undefined || recorded.model === undefined) {
@@ -310,7 +322,10 @@ export function classifyChildModelSource(observation: ChildModelSourceObservatio
 	}
 	const answered = `${recorded.provider}/${recorded.model}`;
 	if (observation.childRequestedModel === undefined) {
-		return { state: "not-run", detail: `the child sent no request, so the inherited model was never observed (${fields})` };
+		return {
+			state: "not-run",
+			detail: `the child sent no request, so the inherited model was never observed (${fields})`,
+		};
 	}
 	// A provider request may carry the bare model id or the qualified `provider/id`. Stripping the
 	// answering provider's own prefix keeps both shapes comparable while a request aimed at another
@@ -379,7 +394,10 @@ export function classifyAutoChild(observation: AutoChildObservation): {
 	if (!observation.childCreated) missing.push("no child session was created");
 	if (!observation.finalAnswer) missing.push("no final answer");
 	if (!observation.usageRecorded) missing.push("no rlm_usage record");
-	return { state: "failed", detail: withError(`the auto parent did not complete a physical-model child (${missing.join(", ")})`) };
+	return {
+		state: "failed",
+		detail: withError(`the auto parent did not complete a physical-model child (${missing.join(", ")})`),
+	};
 }
 
 export interface RlmFixtureOptions {

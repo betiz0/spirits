@@ -4,6 +4,9 @@
 		"module": "NodeNext",
 		"moduleResolution": "NodeNext",
 		"types": ["bun"],
+		// The extension is bundled by bun, so this project never emits. Writing it here keeps an editor
+		// or a bare `tsc` from placing build output next to the sources.
+		"noEmit": true
 	},
 	"include": ["src/**/*.ts", "test/**/*.ts", "bin/**/*.ts"],
 	"exclude": ["test/fixtures/architecture"]

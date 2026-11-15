@@ -6,15 +6,23 @@
 		"moduleResolution": "NodeNext",
 		"types": ["bun"],
 		// Bun's types are installed for packages/spirits only, and this config lives at the root.
-		"typeRoots": ["./packages/spirits/node_modules/@types", "./node_modules/@types"],
-		// The scripts measure the host the extension is typed against, which is the official package
-		// pinned in packages/spirits, not this checkout's copy of the same package name. Without these
-		// entries a script under scripts/ resolves through the root workspace link and gets checked
-		// against the fork's sources. The host's ./rpc-entry export ships no type declaration, so it
-		// is deliberately absent: a script that imported it would fail to check.
+		"typeRoots": [
+			"./packages/spirits/node_modules/@types",
+			"./node_modules/@types"
+		],
+		// The scripts measure the host the extension is typed against: the official package pinned in
+		// packages/spirits, which is the only place this repository installs it (`bun.lock` has no host
+		// entry for the root workspace, and the root has no `paths` indirection left). Naming the package
+		// here is what makes a script under scripts/ resolve the host where the product does. The host's
+		// ./rpc-entry export ships no type declaration, so it is deliberately absent: a script that
+		// imported it would fail to check.
 		"paths": {
-			"@earendil-works/pi-coding-agent": ["./packages/spirits/node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"],
-			"@earendil-works/pi-tui": ["./packages/spirits/node_modules/@earendil-works/pi-tui/dist/index.d.ts"]
+			"@earendil-works/pi-coding-agent": [
+				"./packages/spirits/node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts"
+			],
+			"@earendil-works/pi-tui": [
+				"./packages/spirits/node_modules/@earendil-works/pi-tui/dist/index.d.ts"
+			]
 		}
 	},
 	"include": [

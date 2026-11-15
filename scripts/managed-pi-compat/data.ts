@@ -78,10 +78,10 @@ export interface AuthStatusEvidence {
  * reports the stored credential as configured from stored credentials while the control stays
  * unconfigured, because that difference can only come from the copied `auth.json`.
  */
-export function classifyAuthRead(observation: {
-	stored?: AuthStatusEvidence;
-	control?: AuthStatusEvidence;
-}): { state: CompatState; detail: string } {
+export function classifyAuthRead(observation: { stored?: AuthStatusEvidence; control?: AuthStatusEvidence }): {
+	state: CompatState;
+	detail: string;
+} {
 	const stored = observation.stored;
 	if (stored === undefined) {
 		return { state: "not-run", detail: "the dedicated Pi reported no provider auth status" };
@@ -111,10 +111,10 @@ export function classifyAuthRead(observation: {
  * Classify the external-extension read. The extension sits in the copied agent dir and registers a
  * command; seeing that command through the dedicated Pi means the runtime read the extension.
  */
-export function classifyExternalExtensionRead(observation: {
-	commandObserved: boolean;
-	commandName: string;
-}): { state: CompatState; detail: string } {
+export function classifyExternalExtensionRead(observation: { commandObserved: boolean; commandName: string }): {
+	state: CompatState;
+	detail: string;
+} {
 	return observation.commandObserved
 		? { state: "confirmed", detail: `the extension copied into the agent dir registered /${observation.commandName}` }
 		: {
@@ -181,7 +181,8 @@ export function classifySettingsWrite(observation: SettingsWriteObservation): {
 	if (!observation.available) {
 		return {
 			state: "not-run",
-			detail: "the Pi extension API does not expose a persistent settings write; Node file writes are not a substitute",
+			detail:
+				"the Pi extension API does not expose a persistent settings write; Node file writes are not a substitute",
 		};
 	}
 	if (observation.error) {
