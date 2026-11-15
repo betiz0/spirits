@@ -1,0 +1,5 @@
+# bun は .npmrc の min-release-age を読まない (実測: 極端な値を書いても install が通る)。
+# なので公開からの経過日数の門は bun 側の設定に置く。単位は秒。
+# 2 日 = 172800 秒。旧 .npmrc の min-release-age=2 と同じ意図。
+[install]
+minimumReleaseAge = 172800

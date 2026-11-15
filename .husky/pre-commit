@@ -1,26 +1,17 @@
 #!/bin/sh
 
-# Get list of staged files before running check
-STAGED_FILES=$(git diff --cached --name-only)
-
+# 依存の版が意図せず動くのは lockfile の変更だけで検出する。
 node scripts/check-lockfile-commit.mjs
 if [ $? -ne 0 ]; then
   exit 1
 fi
 
-# Run the check script (formatting, linting, and type checking)
-echo "Running formatting, linting, and type checking..."
-npm run check
+# check はファイルを書き換えない。書き換えが必要なら `bun run fix` を別に実行する。
+echo "Running lint, format check, and type checking..."
+bun run check
 if [ $? -ne 0 ]; then
-  echo "❌ Checks failed. Please fix the errors before committing."
+  echo "Checks failed. Fix them, or run 'bun run fix' and review the diff, before committing."
   exit 1
 fi
 
-# Restage files that were previously staged and may have been modified by formatting
-for file in $STAGED_FILES; do
-  if [ -f "$file" ]; then
-    git add "$file"
-  fi
-done
-
-echo "✅ All pre-commit checks passed!"
+echo "All pre-commit checks passed."

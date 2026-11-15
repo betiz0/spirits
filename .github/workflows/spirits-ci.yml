@@ -58,7 +58,7 @@ jobs:
       # The host comes from the packages pinned in packages/spirits, so nothing here builds or
       # hydrates Pi: the type check and the tests read the published host types and the real host.
       - name: Check the repository
-        run: npm run check
+        run: bun run check
 
       - name: Test spirits
         run: |

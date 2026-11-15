@@ -7,10 +7,11 @@
 		"packages/spirits"
 	],
 	"scripts": {
-		"check": "biome check --write --error-on-warnings . && npm run check:scripts && npm run check:spirits",
+		"check": "biome check --error-on-warnings . && bun run check:scripts && bun run check:spirits",
 		"check:scripts": "tsc -p tsconfig.scripts.json --noEmit",
-		"check:spirits": "npm --prefix packages/spirits run check",
-		"test": "npm --prefix packages/spirits run test",
+		"check:spirits": "cd packages/spirits && bun run check",
+		"fix": "biome check --write --error-on-warnings .",
+		"test": "cd packages/spirits && bun run test",
 		"prepare": "husky"
 	},
 	"devDependencies": {
@@ -20,6 +21,7 @@
 		"typescript": "7.0.2"
 	},
 	"engines": {
-		"node": ">=22.19.0"
+		"bun": ">=1.4.0",
+		"node": ">=16.20.0"
 	}
 }
