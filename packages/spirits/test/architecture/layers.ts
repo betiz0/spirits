@@ -52,9 +52,9 @@ export interface AssignedLayers {
 
 /**
  * Dev files are excluded from layer judgment and duplication counting. The definition
- * follows the convention registry exactly: anything under a package's `test/` or
- * `examples/` directory, `packages/<dir>/*.config.ts`, `packages/ai/scripts/`, the
- * root `scripts/`, and root-level files. Paths outside `packages/` that are none of
+ * follows the convention registry exactly: anything under a package's `test/`,
+ * `examples/` or `scripts/` directory, `packages/<dir>/*.config.ts`, the root
+ * `scripts/`, and root-level files. Paths outside `packages/` that are none of
  * those (e.g. `docs/`) are not dev, but they are never scan targets either, so they
  * are never layer-judged (verify2 G-3).
  */
@@ -63,7 +63,7 @@ export function isDevFile(repoRelativePath: string): boolean {
 	if (parts[0] !== "packages") return parts[0] === "scripts" || parts.length === 1;
 	if (parts.length >= 4 && (parts[2] === "test" || parts[2] === "examples")) return true;
 	if (parts.length === 3 && parts[2].endsWith(".config.ts")) return true;
-	if (parts[1] === "ai" && parts[2] === "scripts") return true;
+	if (parts.length >= 4 && parts[2] === "scripts") return true;
 	return false;
 }
 
@@ -102,31 +102,6 @@ export function hostLayers(repoRoot: string): string[] {
 	return [...layers].sort();
 }
 
-/**
- * Repository directories that are forks of the pinned host packages. They are not
- * repository members for the check: no file inside them is scanned, layer-judged,
- * counted as a duplicate, or allowed as a cycle.
- */
-export function pinnedHostDirs(repoRoot: string): string[] {
-	const spirits = readManifestObject(join(repoRoot, "packages", "spirits", "package.json"));
-	if (!spirits) return [];
-	const pinned = new Set(
-		manifestDependencyNames(spirits)
-			.filter((name) => name.startsWith("@earendil-works/"))
-			.map((name) => name.slice("@earendil-works/".length)),
-	);
-	if (pinned.size === 0) return [];
-	const packagesDir = join(repoRoot, "packages");
-	if (!existsSync(packagesDir) || !statSync(packagesDir).isDirectory()) return [];
-	const dirs: string[] = [];
-	for (const dir of readdirSync(packagesDir).sort()) {
-		const name = readManifestObject(join(packagesDir, dir, "package.json"))?.["name"];
-		if (typeof name !== "string" || !name.startsWith("@earendil-works/")) continue;
-		if (pinned.has(name.slice("@earendil-works/".length))) dirs.push(`packages/${dir}`);
-	}
-	return dirs;
-}
-
 /** Host layer for a repo-relative path inside an installed host package. */
 export function hostLayerFor(repoRelativePath: string): string | undefined {
 	const parts = repoRelativePath.split("/");
@@ -140,10 +115,8 @@ export function hostLayerFor(repoRelativePath: string): string | undefined {
 export function listPackages(repoRoot: string): PackageInfo[] {
 	const packagesDir = join(repoRoot, "packages");
 	if (!existsSync(packagesDir) || !statSync(packagesDir).isDirectory()) return [];
-	const forks = new Set(pinnedHostDirs(repoRoot));
 	const packages: PackageInfo[] = [];
 	for (const dir of readdirSync(packagesDir).sort()) {
-		if (forks.has(`packages/${dir}`)) continue;
 		const manifestPath = join(packagesDir, dir, "package.json");
 		if (!existsSync(manifestPath) || !statSync(manifestPath).isFile()) continue;
 		let manifest: {

@@ -8,9 +8,8 @@
 
 - **ホスト**: `packages/spirits` の依存として固定した公開パッケージ (`@earendil-works/*`)。spirits はホストを、その package.json が `exports` に載る specifier (載らない場合は `types` / `main`) でのみ import する。解決は importer から `node_modules` をたどって見つけたパッケージの package.json でおこなう。root の `tsconfig.json` の `paths` はホストの解決に使わない。
 - **ホスト層**: `node_modules/@earendil-works/<name>` の内のファイルは層 `host:<name>` に属す。許可表はこれを依存先として載せられる。ホスト自身の内部は走査しない。
-- **ホストの fork**: `packages/spirits` の依存に名前が載る `@earendil-works/*` を自分の `name` とする `packages/<ディレクトリ>` は、公開ホストパッケージの fork でありリポジトリの部ではない。走査対象・層・循環・重複の数え入れない。
-- **走査対象**: root の `tsconfig.json` と `packages/spirits/tsconfig.json` の `rootFiles` から `.d.ts` と `.json` とホストの fork を除いたファイル。
-- **dev ファイル**: `packages/*/test/` と `packages/*/examples/` 配下、`packages/*/*.config.ts`、`packages/ai/scripts/` 配下、リポジトリルートの `scripts/` 配下とルート直下のファイル。dev ファイルを起点とする import は層の判定をしない。
+- **走査対象**: root の `tsconfig.json` と `packages/spirits/tsconfig.json` の `rootFiles` から `.d.ts` と `.json` を除いたファイル。
+- **dev ファイル**: `packages/*/test/` と `packages/*/examples/` 配下、`packages/*/*.config.ts`、`packages/*/scripts/` 配下、リポジトリルートの `scripts/` 配下とルート直下のファイル。dev ファイルを起点とする import は層の判定をしない。
 - **src**: 走査対象のうち dev ファイルでないもの。
 - **基数**: 重複の ratchet でこの文書に記録する、重複ハッシュ群の件数。
 
@@ -26,7 +25,6 @@
 
 ```json registry:layers
 {
-  "packages/evals": ["packages/ai"],
   "spirits:repl": ["host:pi-coding-agent", "host:pi-tui"],
   "spirits:shared": ["spirits:repl", "host:pi-coding-agent", "host:pi-tui"],
   "spirits:rlm": ["spirits:repl", "spirits:shared", "host:pi-coding-agent", "host:pi-tui"],
@@ -63,30 +61,16 @@
     "packages/spirits/src/branding/"
   ],
   "spirits:entry": ["packages/spirits/src/index.ts"],
-  "spirits:bin": ["packages/spirits/bin/"],
-  "packages/evals": ["packages/evals/"]
+  "spirits:bin": ["packages/spirits/bin/"]
 }
 ```
 
 ```json registry:cycles
-[
-  [
-    "packages/chord/src/delta/diff.ts",
-    "packages/chord/src/delta/index.ts",
-    "packages/chord/src/delta/tracker.ts"
-  ],
-  [
-    "packages/durable/src/harness/compaction.ts",
-    "packages/durable/src/harness/generation.ts",
-    "packages/durable/src/harness/live.ts",
-    "packages/durable/src/harness/submissions.ts",
-    "packages/durable/src/harness/tool.ts"
-  ]
-]
+[]
 ```
 
 ```json registry:duplication
-{ "baseline": 7 }
+{ "baseline": 0 }
 ```
 
 ## 記録(検査なし)
@@ -153,7 +137,7 @@
 
 - **強度**: SHALL
 - **内容**: 層の値依存グラフ(src を起点とする値の辺から作る)は非循環でなければならない。ファイル単位の値依存グラフ(走査対象の全ファイルの値の辺から作る)の強連結成分のうち 2 ファイル以上のもの、または自己 import を持つものを循環とし、`registry:cycles` の要素とファイル集合が完全に一致する循環だけを通す。
-- **例外**: 登録済みの循環はリポジトリ内の既存のもの(`chord` 1 件、`durable` 1 件)に限る。ホストの fork は数え入れない。新規・拡大・解消済みの残存はいずれも失敗する。既存の強連結成分の内側で辺が増えるだけの変更は検出しない(受け入れる制限)。
+- **例外**: 登録済みの循環は 0 件 (`remove-pi-fork` §12 で `chord` と `durable` の循環はフォークごと消え、残った 0 件を `registry:cycles` に記録した)。新規・拡大・解消済みの残存はいずれも失敗する。既存の強連結成分の内側で辺が増えるだけの変更は検出しない(受け入れる制限)。
 - **判定方法**: 層グラフに閉路があれば層の閉路を報告する。強連結成分を求め、許可リストに無い循環・対応する循環が無い許可リスト要素を規約 ID とファイル集合を付けて報告する。型の辺と動的 import(非リテラルを除く)は辺に含めるが、循環の検査は値の辺だけを使う。
 - **根拠**: 循環はリファクタリングを妨げ、上流 merge で競合を増やす。design decision 6・10・11。
 

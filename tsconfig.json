@@ -38,7 +38,10 @@
 		"**/node_modules/**",
 		"**/dist/**",
 		"packages/spirits/test/fixtures/architecture",
-		// Redacted user data copied into a temporary agent dir by the data observations: measured input.
-		"scripts/managed-pi-compat/fixtures/redacted-agent/**"
+		// Loaded *inside* the host: the compatibility runner copies these extension sources into a
+		// temporary managed set and the host resolves `@earendil-works/*` from its own install, so they
+		// are not files of this repository's import graph. `tsconfig.scripts.json` still type-checks them
+		// against the pinned host types.
+		"scripts/managed-pi-compat/fixtures/**"
 	]
 }

@@ -7,7 +7,7 @@
  * startup failure can be reproduced without touching the filesystem.
  */
 import { join, relative } from "node:path";
-import { assignLayers, buildLayerModel, layerForPath, listPackages, pinnedHostDirs } from "./layers.ts";
+import { assignLayers, buildLayerModel, layerForPath, listPackages } from "./layers.ts";
 import { loadRegistry, type Violation } from "./registry.ts";
 import { REPORTABLE_RULE_IDS, runRules } from "./rules.ts";
 import { scanRepository, type LaunchAnalyzer } from "./scan.ts";
@@ -59,14 +59,9 @@ export async function checkArchitectureConventions(
 		return { ...emptyReport(registry), violations: [{ message: scan.error }] };
 	}
 
-	// A working-tree package that `packages/spirits` pins as its host is a fork of the
-	// published host package. Nothing inside it is a spirits convention: it is scanned
-	// only because the repository still holds it, and the check ignores it entirely.
-	const forks = pinnedHostDirs(repoRoot).map((dir) => `${join(repoRoot, dir)}/`);
-	const outsideForks = (file: string): boolean => !forks.some((prefix) => file.startsWith(prefix));
-	const files = scan.files.filter(outsideForks);
-	const edges = scan.edges.filter((edge) => outsideForks(edge.from));
-	const dupNodes = scan.dupNodes.filter((node) => outsideForks(node.file));
+	const files = scan.files;
+	const edges = scan.edges;
+	const dupNodes = scan.dupNodes;
 
 	const model = buildLayerModel(repoRoot, registry);
 	if (model.registryViolations.length > 0) {
