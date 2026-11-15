@@ -3,7 +3,7 @@
 - フェーズ: M3 / 版 v1.1 / 2026-10-08
 - 前提文書: spirits 設計書 v0.4(§4.3)、M1 設計書
 - 実装確定: `openspec/changes/add-rlm/`(proposal / design / specs / tasks)
-- SDK 検証: `docs/spikes/sdk-agent-session.md`
+- SDK 検証: スパイク記録 `docs/spikes/sdk-agent-session.md` は `remove-pi-fork` で削除 (`git show spirits-fork-final:docs/spikes/sdk-agent-session.md`)
 
 ## 1. 目的
 
@@ -97,7 +97,7 @@ REPL セル内から子エージェントを同期的に起動できる `rlm()` 
 
 ## 5. SDK 検証タスク(M3 冒頭で実施)
 
-`docs/spikes/sdk-agent-session.md` に、Bun 1.4.2 + 実プロバイダで次を確認して記録した(すべて成功。Pi 上流コアへの変更は不要)。
+上記の SDK 検証記録に、Bun 1.4.2 + 実プロバイダで次を確認したと書いた(すべて成功。Pi のソースへの変更は不要)。
 
 1. 拡張内から子 AgentSession を生成し、custom tsrepl を登録して prompt を実行できる
 2. 子の usage を `getSessionStats()` で取得できる

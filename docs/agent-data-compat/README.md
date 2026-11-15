@@ -4,6 +4,8 @@
 spirits 拡張 bundle)が相互に読み書きできるかを、製品コード・ガードを変えずに実測した
 調査。実データ・実認証・実 provider は使わず、隔離 HOME とローカル fake provider のみで動かす。
 
+> **fork 側の記録は歴史的資料**。この実測に使う fork バイナリと `scripts/agent-data-compat/` は `remove-pi-fork` で削除した (fork の最終コミットはタグ `spirits-fork-final`)。残っているのは測定結果と判定であり、`~/.spirits/agent` の形式が fork 期から不変であることを示す証拠として読む。現在の managed 経路の起動・検証は `docs/spirits-managed-pi.md` と `docs/spirits-host-upgrade.md`。
+
 - 実行結果の一覧: `summary.md`(判定表・フェーズ終了状態・ツリー差分・settings.json の中身)
 - 機械可読の全証拠: `result.json`(項目ごとに方向別判定・detail・データ)
 - フェーズ単位のツリー・スナップショット: `snapshots/*.json`

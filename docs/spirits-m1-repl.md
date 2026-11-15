@@ -84,7 +84,7 @@ Pi 拡張として「永続 TypeScript REPL ツール」を単体で動作させ
 - 動く → Phase 2 実装の選択肢として記録(M5 の判断材料)
 - 動かない → Phase 1 方式を継続採用。設計書 §4.2 の該当記述を「検証済み・不採用」に更新
 
-スパイク結果は `docs/spikes/vm-esm.md` に記録する。
+スパイク結果は `docs/spikes/vm-esm.md` に記録した。スパイク記録は `remove-pi-fork` で repo から削除し、fork 最終タグに残す (`git show spirits-fork-final:docs/spikes/vm-esm.md`)。
 
 ## 8. テスト計画(bun test)
 

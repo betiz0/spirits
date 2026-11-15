@@ -1,5 +1,7 @@
 # managed 経路で spirits の機能をどう実現するか（調査・設計提案）
 
+> **この文書の fork との比較は歴史的資料**。書かれた当時は fork 経路と managed 経路の 2 経路を比較していたが、`remove-pi-fork` で fork 経路と Pi のソースツリーを削除し、managed 単一経路になった。現在の挙動は `docs/spirits-managed-pi.md`、ホストの版更新は `docs/spirits-host-upgrade.md` を読む。コア差分 16 件の一覧は `docs/spirits-core-diffs.md` に同じ理由で廃止し、git 履歴に残す。
+
 対象: `feat/add-managed-pi-route` / 公式 Pi 1.5.0 (`v1.5.0` = `f9a2636`)
 この文書は調査と設計提案のみ。実装・ハーネス拡張・OpenSpec change・commit は行っていない。
 

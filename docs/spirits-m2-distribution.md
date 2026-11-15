@@ -85,14 +85,14 @@ owner/repo(`betiz0/spirits`)、API 基底 URL、ダウンロード基底 URL は
 
 ## 7. スパイクタスク(M2 冒頭で実施)
 
-コンパイルバイナリで以下を実機確認し `docs/spikes/compiled-extensions.md` に記録:
+コンパイルバイナリで以下を実機確認した (記録先だった `docs/spikes/compiled-extensions.md` は `remove-pi-fork` で削除。`git show spirits-fork-final:docs/spikes/compiled-extensions.md`):
 
 1. spirits 拡張(バンドル済み)が仮想モジュール経路でロードされる
 2. `~/.spirits/agent/extensions/` に置いた外部 TS 拡張がロードされる
 3. 外部拡張からバンドル済み pi パッケージを import できる
 4. 外部拡張に独自 node_modules 依存が必要な場合の挙動(依存不足は拡張パス付きエラーで exit 1。`pi -ne` の案内が stderr に出る)
 
-結果は `docs/spikes/compiled-extensions.md` に記録する。
+結果は上記のスパイク記録に残した。
 
 不達の場合: 2/3 が壊れるなら bin エントリ側のロード順を調整、4 は仕様上の制約として README に明記して許容。
 
