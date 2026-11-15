@@ -243,8 +243,20 @@ export function judgeManualCompaction(o: ManualCompactionObservation): BoundaryJ
 	};
 }
 
-export interface ForkObservation {
-	attempted: boolean;
+/**
+ * What a boundary item reports when the run never reached the operation.
+ *
+ * The fields that judge an operation only exist once the run reached it, so a gap record carries a
+ * reason and nothing else. Saying `attempted: false` rather than leaving the rest out keeps a judge
+ * from deciding on absent data.
+ */
+export interface BoundaryNotAttempted {
+	attempted: false;
+	reason?: string;
+}
+
+export interface ForkTaken {
+	attempted: true;
 	reason?: string;
 	/** Whether the host accepted the fork. */
 	forked: boolean;
@@ -254,6 +266,8 @@ export interface ForkObservation {
 	followingRequest?: string;
 	beforeMarker: string;
 }
+
+export type ForkObservation = BoundaryNotAttempted | ForkTaken;
 
 /** Decide a fork taken from a session that carries a boundary. */
 export function judgeFork(o: ForkObservation): BoundaryJudgement {
@@ -272,14 +286,16 @@ export function judgeFork(o: ForkObservation): BoundaryJudgement {
 	};
 }
 
-export interface TreeMoveObservation {
-	attempted: boolean;
+export interface TreeMoveDone {
+	attempted: true;
 	reason?: string;
 	/** Whether the extension API moved the leaf. */
 	moved: boolean;
 	followingRequest?: string;
 	beforeMarker: string;
 }
+
+export type TreeMoveObservation = BoundaryNotAttempted | TreeMoveDone;
 
 /**
  * Decide a move to before the boundary.
@@ -304,8 +320,8 @@ export function judgeTreeMove(o: TreeMoveObservation): BoundaryJudgement {
 	};
 }
 
-export interface ResumeObservation {
-	attempted: boolean;
+export interface ResumeDone {
+	attempted: true;
 	reason?: string;
 	sessionFile?: string;
 	/** The session file the run opened. */
@@ -313,6 +329,8 @@ export interface ResumeObservation {
 	followingRequest?: string;
 	beforeMarker: string;
 }
+
+export type ResumeObservation = BoundaryNotAttempted | ResumeDone;
 
 /** Decide a session reopened in another process. */
 export function judgeResume(o: ResumeObservation): BoundaryJudgement {

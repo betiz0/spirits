@@ -147,7 +147,13 @@ export function classifyAuxiliaryProbe(observation: AuxiliaryObservation): {
 }
 
 /** Parse the returned value from a simple `return` cell result. */
-export function simpleReturnValue(result: CellProbeResult): unknown {
+/**
+ * Read the value a cell returned.
+ *
+ * The direct probe reports `bypassedPiHooks: true`; a cell that ran through pi's tool path reports
+ * nothing about hooks. Only the text and the error flag decide the value, so the parameter says that.
+ */
+export function simpleReturnValue(result: { text: string; isError: boolean }): unknown {
 	if (result.isError) return undefined;
 	const text = result.text.startsWith("[value]\n") ? result.text.slice("[value]\n".length) : result.text;
 	try {

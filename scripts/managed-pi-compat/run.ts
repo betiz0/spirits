@@ -271,6 +271,11 @@ interface ProbeResult {
 	levelChanged?: boolean;
 	setModelResult?: boolean;
 	defaultsChanged?: boolean;
+	/** What `/compat-settings-write` reported about a persistent settings write. */
+	available?: boolean;
+	written?: boolean;
+	detail?: string;
+	error?: string;
 	[key: string]: unknown;
 }
 
@@ -868,12 +873,9 @@ async function main(): Promise<number> {
 								(record) => record.toolName === "tsrepl",
 							);
 							const text = toolResultText(end);
-							const value = simpleReturnValue({
-								text,
-								isError: end?.isError === true,
-								details: undefined,
-								bypassedPiHooks: false,
-							});
+							// The cell ran through pi's tool path, so there is no bypass to report and the
+							// reader takes only what it uses.
+							const value = simpleReturnValue({ text, isError: end?.isError === true });
 							return classifyCellOutcome({
 								value,
 								expected,

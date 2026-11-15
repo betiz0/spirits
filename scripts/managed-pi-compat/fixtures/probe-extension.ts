@@ -12,7 +12,7 @@
  */
 
 import { VERSION } from "@earendil-works/pi-coding-agent";
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { identifyRuntime } from "../evidence.ts";
@@ -144,13 +144,16 @@ function readClearState(ctx: ExtensionCommandContext) {
 		todoEntries: entries.filter((entry) => entry.type === "custom" && entry.customType === TODO_ENTRY_TYPE).length,
 		// The branch, not the entry list: an observation that moves the leaf has to pick an entry that
 		// lies on the path the next request will read.
-		branch: ctx.sessionManager.getBranch().map((entry) => ({
-			id: entry.id ?? "",
-			type: entry.type,
-			...(entry.type === "custom" ? { customType: entry.customType } : {}),
-			role: (entry as { message?: { role?: unknown } }).message?.role,
-			text: JSON.stringify((entry as { message?: unknown }).message ?? entry.customType ?? "").slice(0, BRANCH_TEXT_LIMIT),
-		})),
+		branch: ctx.sessionManager.getBranch().map((entry) => {
+			const customType = entry.type === "custom" ? entry.customType : undefined;
+			return {
+				id: entry.id ?? "",
+				type: entry.type,
+				...(customType === undefined ? {} : { customType }),
+				role: (entry as { message?: { role?: unknown } }).message?.role,
+				text: JSON.stringify((entry as { message?: unknown }).message ?? customType ?? "").slice(0, BRANCH_TEXT_LIMIT),
+			};
+		}),
 		// The compaction entries in the session, oldest first. `get_entries` over RPC leaves them out,
 		// so the summary and its author are read where they are written.
 		compactions: entries
@@ -167,7 +170,9 @@ function readClearState(ctx: ExtensionCommandContext) {
 }
 
 export default function probeExtension(pi: ExtensionAPI): void {
-	const readModel = (ctx: ExtensionCommandContext) =>
+	// Both the event context and the command context carry the model, so the reader takes the wider
+	// one and the callers do not have to know which hook they were registered in.
+	const readModel = (ctx: ExtensionContext) =>
 		ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined;
 
 	pi.on("session_start", (_event, ctx) => {
@@ -219,7 +224,7 @@ export default function probeExtension(pi: ExtensionAPI): void {
 	 */
 	pi.registerCommand("compat-auxiliary", {
 		description: "Report whether tsrepl is registered and whether a definition is reachable",
-		handler: (_args: string, _ctx: ExtensionCommandContext) => {
+		handler: async (_args: string, _ctx: ExtensionCommandContext) => {
 			writeJson(process.env[RESULT_ENV], {
 				toolRegistered: pi.getAllTools().some((tool) => tool.name === "tsrepl"),
 				direct: null,
@@ -229,7 +234,7 @@ export default function probeExtension(pi: ExtensionAPI): void {
 
 	pi.registerCommand("compat-data-read", {
 		description: "Read settings and sessions through the dedicated Pi API",
-		handler: (_args: string, ctx: ExtensionCommandContext) => {
+		handler: async (_args: string, ctx: ExtensionCommandContext) => {
 			const settings = pi.getSettings();
 			writeJson(process.env[RESULT_ENV], {
 				settingsKeys: Object.keys(settings),
@@ -334,7 +339,7 @@ export default function probeExtension(pi: ExtensionAPI): void {
 	 */
 	pi.registerCommand("compat-purpose-state", {
 		description: "Record the session ID, conversation size, and TODO entries under a label",
-		handler: (args: string, ctx: ExtensionCommandContext) => {
+		handler: async (args: string, ctx: ExtensionCommandContext) => {
 			const label = args.trim() === "" ? "current" : args.trim();
 			// Merge from the file rather than module memory: a command that resets the session can
 			// reload this extension, and the state recorded before it must survive for the comparison.
@@ -375,7 +380,7 @@ export default function probeExtension(pi: ExtensionAPI): void {
 	 */
 	pi.registerCommand("compat-purpose-readback", {
 		description: "Report the current model, thinking level, and saved default keys",
-		handler: (_args: string, ctx: ExtensionCommandContext) => {
+		handler: async (_args: string, ctx: ExtensionCommandContext) => {
 			writeJson(process.env[RESULT_ENV], {
 				level: pi.getThinkingLevel(),
 				model: readModel(ctx),

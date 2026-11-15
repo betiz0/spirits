@@ -5,14 +5,15 @@
  * Two models are registered so a strong-phase route is distinguishable from the normal one.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 
 /** Model the normal route serves. */
 const FAKE_MODEL_ID = "fake-model";
 /** Model `models.strong` points at, so a strong-phase request is visible in the request body. */
 const FAKE_STRONG_MODEL_ID = "fake-strong";
 
-function model(id: string, name: string) {
+/** One model of the local fake provider, typed so the host's `input` vocabulary is checked here. */
+function model(id: string, name: string): ProviderModelConfig {
 	return {
 		id,
 		name,
