@@ -10,19 +10,8 @@
  * or prompt templates. Aborts are forwarded to the child, and model-issued tool calls are capped.
  */
 
-import {
-	createAgentSession,
-	DefaultResourceLoader,
-	getAgentDir,
-	SessionManager,
-	type AgentSession,
-	type AgentSessionEvent,
-	type CreateAgentSessionOptions,
-	type PiModel,
-	type SessionStats,
-	type ThinkingLevel,
-	type ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import { createAgentSession, DefaultResourceLoader, getAgentDir, SessionManager, type AgentSession, type AgentSessionEvent, type CreateAgentSessionOptions, type SessionStats } from "@earendil-works/pi-coding-agent";
+import type { BuiltTool, PiModel, ThinkingLevel } from "../types/host.ts";
 import type { TsreplDetails, TsreplParameters } from "../tools.ts";
 import { RLM_MAX_TOOL_CALLS, countsAgainstToolBudget, isToolBudgetExceeded } from "./depth.ts";
 
@@ -56,8 +45,13 @@ export interface SpawnParams {
 	model: PiModel;
 	thinkingLevel?: ThinkingLevel;
 	signal: AbortSignal;
-	/** Depth +1 tsrepl tool the child session runs. */
-	childTool: ToolDefinition<TsreplParameters, TsreplDetails>;
+	/**
+	 * Depth +1 tsrepl tool the child session runs.
+	 *
+	 * A child session takes its tools as a list, and the host's list holds the erased definition, so the
+	 * tool arrives in the paired form `defineTool()` produces rather than as its concrete schema alone.
+	 */
+	childTool: BuiltTool<TsreplParameters, TsreplDetails>;
 }
 
 /** Options spirits passes to the restricted child resource loader. */

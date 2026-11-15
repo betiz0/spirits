@@ -3,6 +3,7 @@ import type { ModelRoute, PiModel, SessionEntry, ThinkingLevel } from "@earendil
 import {
 	MODEL_ROLE_NORMAL,
 	MODEL_ROLE_STRONG,
+	ROLE_STATUS_KEY,
 	ROUTING_MODEL_ID,
 	ROUTING_PROVIDER_ID,
 	STEP_ENTRY_TYPE,
@@ -18,6 +19,7 @@ import {
 	makeMessageEntry,
 	makeRequest,
 	makeSettledEvent,
+	registerReportedRouting,
 } from "./routing/fake-pi.ts";
 
 /** All pi thinking levels: the router passes the selection through and pi clamps it. */
@@ -39,7 +41,7 @@ function routingSettings(defaultRole?: string): Record<string, unknown> {
 function harness(options: { defaultRole?: string; model?: PiModel; branch?: readonly SessionEntry[] } = {}) {
 	const pi = new FakePi();
 	pi.settings = routingSettings(options.defaultRole);
-	const routing = registerDualModelRouting(pi);
+	const routing = registerReportedRouting(pi);
 	const { ctx, notices } = fakeCatalog({
 		available: [SONNET, OPUS],
 		authedProviders: ["anthropic"],
@@ -53,8 +55,8 @@ function harness(options: { defaultRole?: string; model?: PiModel; branch?: read
 		phase: routing.phase,
 		/** `"<role>:<routed model id>"` for one request, the way the footer and the router see it. */
 		decision: () => {
-			const route = pi.route()(makeRequest(), ctx) as ModelRoute;
-			return `${route.role}:${route.model.id}`;
+			const route = pi.route()(makeRequest(), ctx) as { model: PiModel };
+			return `${routing.lastRole()}:${route.model.id}`;
 		},
 		start: (reason: string) => pi.fire("session_start", { type: "session_start", reason }, ctx),
 	};
@@ -93,8 +95,11 @@ test("routes through the registered model after a reload", async () => {
 	const registrations = pi.registrations.map((model) => `${model.provider}/${model.id}`);
 	expect(registrations).toEqual([`${ROUTING_PROVIDER_ID}/${ROUTING_MODEL_ID}`, `${ROUTING_PROVIDER_ID}/${ROUTING_MODEL_ID}`]);
 
-	const { ctx } = fakeCatalog({ available: [SONNET], authedProviders: ["anthropic"] });
-	expect(pi.route()(makeRequest(), ctx)).toMatchObject({ model: SONNET, role: "normal" });
+	const { ctx, statuses } = fakeCatalog({ available: [SONNET], authedProviders: ["anthropic"] });
+	expect(pi.route()(makeRequest(), ctx)).toMatchObject({ model: SONNET });
+	// The role the replaced routing answered with reaches the user the way the host shows it: the report
+	// the route made went to the extension's own status line.
+	expect(statuses.get(ROLE_STATUS_KEY)).toBe(`[${MODEL_ROLE_NORMAL}]`);
 });
 
 // spec "dual-model-routing / ロールの記録と復元": 既定ロールで開始する。The default role is a setting, so
@@ -179,7 +184,7 @@ test("a tree move takes the step of the branch it lands on", async () => {
 		defaultModel: "claude-sonnet-4-5",
 		models: { strong: "anthropic/claude-opus-4-7", steps: { "opsx-propose": { role: "strong" } } },
 	};
-	const routing = registerDualModelRouting(pi);
+	const routing = registerReportedRouting(pi);
 	const landed = fakeCatalog({
 		available: [SONNET, OPUS],
 		authedProviders: ["anthropic"],
@@ -190,7 +195,8 @@ test("a tree move takes the step of the branch it lands on", async () => {
 	await pi.fire("session_tree", { type: "session_tree", newLeafId: "leaf-b", oldLeafId: "leaf-a" }, landed.ctx);
 
 	expect(routing.phase.step()?.name).toBe("opsx-propose");
-	expect((pi.route()(makeRequest(), landed.ctx) as ModelRoute).role).toBe(MODEL_ROLE_STRONG);
+	pi.route()(makeRequest(), landed.ctx);
+	expect(routing.lastRole()).toBe(MODEL_ROLE_STRONG);
 });
 
 // The other half of the same rule: a branch whose newest record says the step ended, or that records
@@ -203,7 +209,7 @@ test("a tree move onto a branch with no open step ends it", async () => {
 		models: { strong: "anthropic/claude-opus-4-7", steps: { "opsx-propose": { role: "strong" } } },
 	};
 	pi.slashCommands = [{ name: "skill:openspec-propose", source: "skill" }];
-	const routing = registerDualModelRouting(pi);
+	const routing = registerReportedRouting(pi);
 	const running = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"], model: AUTO_SELECTION });
 
 	await pi.fire("session_start", { type: "session_start", reason: "startup" }, running.ctx);
@@ -222,7 +228,8 @@ test("a tree move onto a branch with no open step ends it", async () => {
 	await pi.fire("session_tree", { type: "session_tree", newLeafId: "leaf-c", oldLeafId: "leaf-b" }, landed.ctx);
 
 	expect(routing.phase.step()).toBeUndefined();
-	expect((pi.route()(makeRequest(), landed.ctx) as ModelRoute).role).toBe(MODEL_ROLE_NORMAL);
+	pi.route()(makeRequest(), landed.ctx);
+	expect(routing.lastRole()).toBe(MODEL_ROLE_NORMAL);
 });
 
 // spec scenario "振り分けの失敗では記録を更新しない": the role reaches a report only through a request that

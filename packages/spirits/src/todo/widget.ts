@@ -12,15 +12,8 @@
  */
 
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import type {
-	Component,
-	ExtensionAPI,
-	ExtensionMode,
-	ExtensionUIContext,
-	ReadonlySessionManager,
-	Theme,
-	TUI,
-} from "@earendil-works/pi-coding-agent";
+import type { Component, ExtensionMode, ReadonlySessionManager, TUI } from "../types/host.ts";
+import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { TodoConfig } from "../config.ts";
 import { resolveTodoSnapshot, type TodoSnapshot } from "./state.ts";
 

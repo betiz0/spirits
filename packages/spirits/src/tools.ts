@@ -7,7 +7,9 @@
  */
 
 import { Type } from "typebox";
-import type { AgentToolResult, ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { defineTool } from "@earendil-works/pi-coding-agent";
+import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { BuiltTool } from "./types/host.ts";
 import { BASH_PIPE_ALLOW_FILTERS, TSREPL_CELL_ENTRY_TYPE } from "./constants.ts";
 import { DEFAULT_SYNC_WATCHDOG, MAX_TIMEOUT, MIN_TIMEOUT, Repl } from "./repl/cell.ts";
 import { OUTPUT_LIMIT } from "./repl/format.ts";
@@ -114,7 +116,7 @@ function buildToolDescription(hostFns: readonly HostFnEntry[] | undefined): stri
 	return [TSREPL_DESCRIPTION, ...extras].join("\n\n");
 }
 
-export function createTsreplTool(options: CreateTsreplToolOptions = {}): ToolDefinition<TsreplParameters, TsreplDetails> {
+export function createTsreplTool(options: CreateTsreplToolOptions = {}): BuiltTool<TsreplParameters, TsreplDetails> {
 	const registry = new HostFnRegistry(createBuiltinHostFns());
 	for (const entry of options.hostFns ?? []) {
 		registry.register(entry);
@@ -122,7 +124,9 @@ export function createTsreplTool(options: CreateTsreplToolOptions = {}): ToolDef
 	const repl = new Repl(registry);
 	const devLog = createDevLogger(options.dev);
 
-	return {
+	// Built through `defineTool()` so the definition keeps its concrete schema here and still travels as
+	// one of the host's erased lists, which is where a child session takes it.
+	return defineTool({
 		name: "tsrepl",
 		label: "TypeScript REPL",
 		description: buildToolDescription(options.hostFns),
@@ -160,7 +164,7 @@ export function createTsreplTool(options: CreateTsreplToolOptions = {}): ToolDef
 				isError: result.isError,
 			};
 		},
-	};
+	});
 }
 
 /** Copy the measurement into entry data, so later mutation of the cell cannot rewrite the log. */

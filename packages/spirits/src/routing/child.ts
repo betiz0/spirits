@@ -11,7 +11,8 @@
  * child session that never had a chance to route.
  */
 
-import type { ExtensionModelRegistry, ExtensionToolContext, PiModel, ThinkingLevel } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionModelRegistry, PiModel, ThinkingLevel } from "../types/host.ts";
 import {
 	MODEL_ROLE_NORMAL,
 	MODEL_ROLE_STRONG,

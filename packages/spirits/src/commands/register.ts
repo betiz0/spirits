@@ -15,7 +15,8 @@
  * so a test can drive the whole surface without pi.
  */
 
-import type { AutocompleteItem, ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { AutocompleteItem } from "../types/host.ts";
 import { readIgnoredSettings, readRoutingSettings } from "../config.ts";
 import type { RoutingSettings } from "../config.ts";
 import {
@@ -286,7 +287,7 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 
 	pi.registerCommand(COMMAND_SPIRITS_CLEAR, {
 		description: "Drop the conversation before this point from the model context",
-		handler: (_args, ctx) => {
+		handler: async (_args, ctx) => {
 			if (alreadyCleared(ctx.sessionManager.getBranch())) {
 				ctx.ui.notify("already cleared: nothing new to drop from the context", "info");
 				return;

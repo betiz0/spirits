@@ -9,6 +9,7 @@
  * (design Decision 1).
  */
 
+import type { KeyId } from "./types/host.ts";
 import {
 	DEFAULT_MEMORY_FILE_LINE_LIMIT,
 	DEFAULT_MEMORY_INJECTION_CHAR_LIMIT,
@@ -60,7 +61,7 @@ export interface TodoConfig {
 	/** TODO item lines shown before the counts line. Unit: lines. */
 	maxLines: number;
 	/** Key that collapses and expands the panel, in pi's `ctrl+shift+l` spelling. */
-	toggleKey: string;
+	toggleKey: KeyId;
 	/** True only when the settings file sets `todo.startCollapsed` to the boolean `true`. */
 	startCollapsed: boolean;
 }
@@ -360,11 +361,23 @@ export function readStepSettings(settings: unknown): Record<string, StepSettings
  */
 const TOGGLE_KEY_PATTERN = /^(?:(?:ctrl|shift|alt|super)\+)*(?:[a-z0-9]+|[!-*,-/:-@[-`{-~])$/;
 
-/** Normalize a toggle key candidate to lowercase without surrounding space, or unset it. */
-function readToggleKey(value: unknown): string | undefined {
+/**
+ * Normalize a toggle key candidate to lowercase without surrounding space, or unset it.
+ *
+ * `KeyId` is pi's key grammar written as a type, and the pattern above is that grammar: modifiers in
+ * pi's order, then one base key pi splits out on `+`. Whether the base key names a key pi-tui knows is
+ * not checked here and pi does not check it either, so a candidate the pattern accepts is a key id in
+ * the only sense the host uses.
+ */
+function readToggleKey(value: unknown): KeyId | undefined {
 	if (typeof value !== "string") return undefined;
 	const normalized = value.trim().toLowerCase();
-	return TOGGLE_KEY_PATTERN.test(normalized) ? normalized : undefined;
+	return isKeyId(normalized) ? normalized : undefined;
+}
+
+/** The grammar check above, told to the type system: pi's `KeyId` is this spelling and nothing more. */
+function isKeyId(key: string): key is KeyId {
+	return TOGGLE_KEY_PATTERN.test(key);
 }
 
 /**

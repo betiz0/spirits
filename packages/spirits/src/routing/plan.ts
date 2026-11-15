@@ -12,9 +12,9 @@
  * resolution.
  */
 
-import type { PiModel, ThinkingLevel } from "@earendil-works/pi-coding-agent";
 import type { RoutingSettings } from "../config.ts";
 import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG } from "../constants.ts";
+import type { PiModel, ThinkingLevel } from "../types/host.ts";
 import type { ActiveStep } from "./phase.ts";
 import { type ModelLookup, type NormalSource, resolveNormalTarget, resolveStrongTarget } from "./resolve.ts";
 

@@ -10,7 +10,8 @@
  * validation, serialization, abort, and usage logic here runs without a provider.
  */
 
-import type { ExtensionAPI, ExtensionToolContext, PiModel, ThinkingLevel } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type { PiModel, ThinkingLevel } from "../types/host.ts";
 import { MODEL_SPEC_SEPARATOR } from "../constants.ts";
 import { isRecord } from "../repl/guards.ts";
 import type { HostFnCallable, HostFnEntry, HostFnScope } from "../repl/registry.ts";

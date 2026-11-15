@@ -14,7 +14,7 @@ import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, STEP_DEFINITIONS } from "../src/c
 import type { RoutingSettings } from "../src/config.ts";
 import { RolePanel, modelChoices, type RolePanelSnapshot } from "../src/commands/role-panel.ts";
 import { createChildModelResolver } from "../src/routing/child.ts";
-import { createNotificationGuard, createRoutingRoute } from "../src/routing/router.ts";
+import { createNotificationGuard, createRoutingRoute, type RouteDecision, type RouterDeps } from "../src/routing/router.ts";
 import { modelKey } from "../src/routing/resolve.ts";
 import { AUTO_SELECTION, fakeToolContext } from "./routing/fake-pi.ts";
 
@@ -124,6 +124,19 @@ test("the route, the child, and the panel agree on the model and the level", () 
 	}
 });
 
+/**
+ * One request's answer: what the route told the host to run, and the role the route reported.
+ *
+ * `ModelRoute` carries the model and the level only, so a test that needs the role takes it from the
+ * report the route makes (spec `dual-model-routing` / ModelRoute の role は使わない).
+ */
+function answerOf(deps: RouterDeps, ctx: ExtensionContext): { model: PiModel; thinkingLevel?: ThinkingLevel; role: string | undefined } {
+	const decisions: RouteDecision[] = [];
+	const route = createRoutingRoute({ ...deps, onRoute: (decision) => { decisions.push(decision); } });
+	const result = route(request(), ctx);
+	return { ...result, role: decisions.at(-1)?.role };
+}
+
 // spec scenario "ロールのモデルの行とロックの行もルーティングと一致する": the two rows a user reads to decide
 // whether strong is worth setting. The step row is covered above; these two are the ones left, and their
 // expected values come from the route under the same conditions rather than from the test (the rule at the
@@ -142,10 +155,10 @@ test("the model row and the lock row agree with the route", () => {
 	const step = STEP_ROLE_SETTING;
 	const phase = { current: () => MODEL_ROLE_STRONG, step: () => step };
 
-	const routed = createRoutingRoute({ phase, readSettings: () => settings, guard: createNotificationGuard() })(
-		request(),
+	const routed = answerOf(
+		{ phase, readSettings: () => settings, guard: createNotificationGuard() },
 		{ modelRegistry: lookup, ui: { notify: () => {} } } as unknown as ExtensionContext,
-	) as { model: PiModel; thinkingLevel?: ThinkingLevel; role?: string };
+	);
 	// The conditions themselves: strong was asked, and something else answered.
 	expect(routed.role).toBe(MODEL_ROLE_NORMAL);
 
@@ -186,12 +199,10 @@ test("a strong fallback carries the normal level", () => {
 	const phase = { current: () => phaseRole, step: () => step };
 	const lookup = registry([SONNET, OPUS]);
 
-	const route = createRoutingRoute({ phase, readSettings: () => settings, guard: createNotificationGuard() });
-	const routed = route(request(), { modelRegistry: lookup, ui: { notify: () => {} } } as unknown as ExtensionContext) as {
-		model: PiModel;
-		thinkingLevel?: ThinkingLevel;
-		role: string;
-	};
+	const routed = answerOf(
+		{ phase, readSettings: () => settings, guard: createNotificationGuard() },
+		{ modelRegistry: lookup, ui: { notify: () => {} } } as unknown as ExtensionContext,
+	);
 
 	// Strong has no target, so normal answers and normal's level is what the request carries.
 	expect(routed.role).toBe(MODEL_ROLE_NORMAL);

@@ -14,7 +14,7 @@ import {
 import spiritsExtension from "../src/index.ts";
 import { createRoleBadge } from "../src/commands/role.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
-import { registerDualModelRouting } from "../src/routing/register.ts";
+import { registerReportedRouting } from "./routing/fake-pi.ts";
 import { fakeCatalog, FakePi, makeInputEvent, makeRequest, makeSettledEvent } from "./routing/fake-pi.ts";
 
 const SONNET: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5" };
@@ -35,12 +35,12 @@ function harness() {
 	// The two layers `src/index.ts` joins, so a test can lock the role the way `/spirits-role <role>`
 	// does without writing a settings file.
 	const badge = createRoleBadge();
-	const routing = registerDualModelRouting(pi, { onRole: (role, ctx) => badge.update(role, ctx) });
+	const routing = registerReportedRouting(pi, { onRole: (role, ctx) => badge.update(role, ctx) });
 	registerManagedCommands(pi, { phase: routing.phase, badge, lastRequest: () => undefined, patchSettings: () => {} });
 	const { ctx, notices } = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"] });
 	const decision = () => {
-		const route = pi.route()(makeRequest(), ctx) as ModelRoute;
-		return `${route.role}:${route.model.id}`;
+		const route = pi.route()(makeRequest(), ctx) as { model: PiModel };
+		return `${routing.lastRole()}:${route.model.id}`;
 	};
 	return { pi, ctx, notices, decision, lock: routing.phase.setRole };
 }
@@ -81,11 +81,11 @@ test("the badge shows the role that answered the request", async () => {
 	expect(statuses.get(ROLE_STATUS_KEY)).toBeUndefined();
 
 	await pi.fire("input", makeInputEvent(`${SKILL_COMMAND_PREFIX}sprt-opsx-verify-deep add-dual-model-routing`), ctx);
-	expect(pi.route()(makeRequest(), ctx)).toMatchObject({ role: MODEL_ROLE_STRONG });
+	expect(pi.route()(makeRequest(), ctx)).toMatchObject({ model: OPUS });
 	expect(statuses.get(ROLE_STATUS_KEY)).toBe("[strong]");
 
 	await pi.fire("agent_settled", makeSettledEvent(), ctx);
-	expect(pi.route()(makeRequest(), ctx)).toMatchObject({ role: MODEL_ROLE_NORMAL });
+	expect(pi.route()(makeRequest(), ctx)).toMatchObject({ model: SONNET });
 	expect(statuses.get(ROLE_STATUS_KEY)).toBe("[normal]");
 });
 

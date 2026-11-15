@@ -24,7 +24,8 @@
  * terminal involved. {@link openRolePanel} is the thin pi-tui adapter on top of it.
  */
 
-import type { ExtensionCommandContext, ExtensionModelRegistry, PiModel, SlashCommandInfo, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionCommandContext, SlashCommandInfo, Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionModelRegistry, PiModel, ThinkingLevel } from "../types/host.ts";
 import {
 	type Component,
 	getKeybindings,
@@ -36,7 +37,7 @@ import {
 	type SettingsListTheme,
 } from "@earendil-works/pi-tui";
 import type { IgnoredSetting, RoutingSettings } from "../config.ts";
-import type { ThinkingLevel } from "@earendil-works/pi-coding-agent";
+
 import { MODEL_ROLES, MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, PI_VIRTUAL_MODEL_API, STEP_DEFINITIONS, THINKING_LEVELS } from "../constants.ts";
 import type { StepDefinition } from "../constants.ts";
 import type { ActiveStep } from "../routing/phase.ts";

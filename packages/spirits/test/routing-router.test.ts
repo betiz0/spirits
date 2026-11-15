@@ -3,7 +3,7 @@ import type { ExtensionContext, ModelRouteRequest, PiModel } from "@earendil-wor
 import type { RoutingSettings } from "../src/config.ts";
 import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG } from "../src/constants.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
-import { createNotificationGuard, createRoutingRoute } from "../src/routing/router.ts";
+import { createNotificationGuard, createRoutingRoute, type RouteDecision } from "../src/routing/router.ts";
 
 const SONNET: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5" };
 const OPUS: PiModel = { provider: "anthropic", id: "claude-opus-4-7" };
@@ -45,14 +45,21 @@ function createHarness(options: {
 	let settings = options.settings;
 	let role = MODEL_ROLE_NORMAL;
 	const guard = createNotificationGuard();
+	// The role leaves the route as a report, not as a key of the result the host reads, so the harness
+	// records the reports and the assertions read them from there.
+	const decisions: RouteDecision[] = [];
 	const route = createRoutingRoute({
 		phase: options.phase ?? { current: () => role },
 		readSettings: () => settings,
 		guard,
+		onRoute: (decision) => {
+			decisions.push(decision);
+		},
 	});
 
 	return {
 		route: (overrides: Partial<ModelRouteRequest> = {}) => route(makeRequest(overrides), ctx),
+		lastDecision: (): RouteDecision | undefined => decisions.at(-1),
 		notices,
 		setRole: (next: string) => {
 			role = next;
@@ -71,7 +78,8 @@ test("routes normal outside a strong phase", () => {
 		authedProviders: ["anthropic"],
 	});
 
-	expect(harness.route()).toEqual({ model: SONNET, thinkingLevel: "high", role: MODEL_ROLE_NORMAL });
+	expect(harness.route()).toEqual({ model: SONNET, thinkingLevel: "high" });
+	expect(harness.lastDecision()).toEqual({ role: MODEL_ROLE_NORMAL, model: SONNET, thinkingLevel: "high" });
 	expect(harness.notices).toEqual([]);
 });
 
@@ -84,7 +92,8 @@ test("routes the configured strong model during a strong phase", () => {
 	harness.setRole(MODEL_ROLE_STRONG);
 
 	// The selected thinking level passes through; pi clamps it to the routed model.
-	expect(harness.route()).toEqual({ model: OPUS, thinkingLevel: "high", role: MODEL_ROLE_STRONG });
+	expect(harness.route()).toEqual({ model: OPUS, thinkingLevel: "high" });
+	expect(harness.lastDecision()).toEqual({ role: MODEL_ROLE_STRONG, model: OPUS, thinkingLevel: "high" });
 	expect(harness.notices).toEqual([]);
 });
 
@@ -100,17 +109,20 @@ test("routes the role a locked phase reports", () => {
 	});
 
 	// The route only reads `phase.current()`, so a lock and a strong phase reach it the same way.
-	expect(harness.route()).toEqual({ model: OPUS, thinkingLevel: "high", role: MODEL_ROLE_STRONG });
+	expect(harness.route()).toEqual({ model: OPUS, thinkingLevel: "high" });
+	expect(harness.lastDecision()).toEqual({ role: MODEL_ROLE_STRONG, model: OPUS, thinkingLevel: "high" });
 
 	phase.settle();
-	expect(harness.route()).toEqual({ model: OPUS, thinkingLevel: "high", role: MODEL_ROLE_STRONG });
+	expect(harness.route()).toEqual({ model: OPUS, thinkingLevel: "high" });
+	expect(harness.lastDecision()).toEqual({ role: MODEL_ROLE_STRONG, model: OPUS, thinkingLevel: "high" });
 });
 
 test("falls back to normal silently when no strong model is configured", () => {
 	const harness = createHarness({ settings: DEFAULTS, available: [SONNET], authedProviders: ["anthropic"] });
 	harness.setRole(MODEL_ROLE_STRONG);
 
-	expect(harness.route()).toEqual({ model: SONNET, thinkingLevel: "high", role: MODEL_ROLE_NORMAL });
+	expect(harness.route()).toEqual({ model: SONNET, thinkingLevel: "high" });
+	expect(harness.lastDecision()).toEqual({ role: MODEL_ROLE_NORMAL, model: SONNET, thinkingLevel: "high" });
 	expect(harness.notices).toEqual([]);
 });
 
@@ -122,7 +134,8 @@ test("falls back to normal and notifies once per run when the strong model is un
 	});
 	harness.setRole(MODEL_ROLE_STRONG);
 
-	expect(harness.route()).toEqual({ model: SONNET, thinkingLevel: "high", role: MODEL_ROLE_NORMAL });
+	expect(harness.route()).toEqual({ model: SONNET, thinkingLevel: "high" });
+	expect(harness.lastDecision()).toEqual({ role: MODEL_ROLE_NORMAL, model: SONNET, thinkingLevel: "high" });
 	harness.route();
 	harness.route();
 
@@ -138,7 +151,8 @@ test("notifies once when falling back to the previous model", () => {
 	});
 	const previous = { model: LUNA, thinkingLevel: "medium" as const };
 
-	expect(harness.route({ previous })).toEqual({ model: LUNA, thinkingLevel: "high", role: MODEL_ROLE_NORMAL });
+	expect(harness.route({ previous })).toEqual({ model: LUNA, thinkingLevel: "high" });
+	expect(harness.lastDecision()).toEqual({ role: MODEL_ROLE_NORMAL, model: LUNA, thinkingLevel: "high" });
 	harness.route({ previous });
 
 	expect(harness.notices.length).toBe(1);
@@ -190,7 +204,8 @@ test("carries the resolved thinking level", () => {
 	});
 	fallen.setRole(MODEL_ROLE_STRONG);
 
-	expect(fallen.route()).toEqual({ model: SONNET, thinkingLevel: "low", role: MODEL_ROLE_NORMAL });
+	expect(fallen.route()).toEqual({ model: SONNET, thinkingLevel: "low" });
+	expect(fallen.lastDecision()).toEqual({ role: MODEL_ROLE_NORMAL, model: SONNET, thinkingLevel: "low" });
 });
 
 // A step's own level is the narrowest claim, so it wins over both role settings.
@@ -216,7 +231,8 @@ test("notifies once per run when the configured normal target is unusable", () =
 		authedProviders: ["anthropic"],
 	});
 
-	expect(harness.route()).toEqual({ model: SONNET, thinkingLevel: "high", role: MODEL_ROLE_NORMAL });
+	expect(harness.route()).toEqual({ model: SONNET, thinkingLevel: "high" });
+	expect(harness.lastDecision()).toEqual({ role: MODEL_ROLE_NORMAL, model: SONNET, thinkingLevel: "high" });
 	harness.route();
 	harness.route();
 
@@ -233,7 +249,8 @@ test("notifies once per run when the configured normal target is unusable", () =
 test("stays quiet when normal is unset", () => {
 	const harness = createHarness({ settings: DEFAULTS, available: [SONNET], authedProviders: ["anthropic"] });
 
-	expect(harness.route()).toEqual({ model: SONNET, thinkingLevel: "high", role: MODEL_ROLE_NORMAL });
+	expect(harness.route()).toEqual({ model: SONNET, thinkingLevel: "high" });
+	expect(harness.lastDecision()).toEqual({ role: MODEL_ROLE_NORMAL, model: SONNET, thinkingLevel: "high" });
 	harness.route();
 
 	expect(harness.notices).toEqual([]);

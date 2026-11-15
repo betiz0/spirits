@@ -9,11 +9,8 @@
  * branches never leak into the result.
  */
 
-import type {
-	AgentMessage,
-	CustomEntry,
-	ExtensionAPI,
-} from "@earendil-works/pi-coding-agent";
+import type { CustomEntry, ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage } from "../types/host.ts";
 import { isRecord } from "../repl/guards.ts";
 import type { HostFnCallable, HostFnEntry, HostFnScope } from "../repl/registry.ts";
 import { buildGoalGuidance } from "./guidance.ts";
@@ -81,7 +78,7 @@ function readGoal(entry: CustomEntry): string | undefined {
 	return typeof goal === "string" ? goal : undefined;
 }
 
-function messageText(message: AgentMessage): string {
+function messageText(message: Extract<AgentMessage, { role: "user" }>): string {
 	const content = message.content;
 	if (typeof content === "string") {
 		return content;

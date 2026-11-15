@@ -28,16 +28,24 @@ function wire(options: { skills?: readonly string[]; settings?: Record<string, u
 		name,
 		source: "skill" as const,
 	}));
-	const routing = registerDualModelRouting(pi);
+	// The route result the host reads names the model and the level, and the role is the routing's own
+	// report (spec `dual-model-routing` / ModelRoute の role は使わない), so the wire keeps the report and
+	// reads a request's answer as the pair.
+	let reported: string | undefined;
+	const routing = registerDualModelRouting(pi, {
+		onRole: (role) => {
+			reported = role;
+		},
+	});
 	registerManagedCommands(pi, { phase: routing.phase, patchSettings: () => {}, patchSettingsPath: () => {} });
 	/** The full resolution of one request, which is what the route, the child, and the list share. */
 	const route = () => {
 		const { ctx } = fakeCommandContext({ available: AVAILABLE, authedProviders: ["compat-fake"] });
-		return pi.route()({ model: AUTO_SELECTION, thinkingLevel: "medium", reason: "user" }, ctx) as {
-			role?: string;
+		const answered = pi.route()({ model: AUTO_SELECTION, thinkingLevel: "medium", reason: "user" }, ctx) as {
 			model: PiModel;
 			thinkingLevel?: string;
 		};
+		return { ...answered, role: reported };
 	};
 	/** `"<role>:<routed model id>"` for one request, the way the footer and the router see it. */
 	const decision = () => {

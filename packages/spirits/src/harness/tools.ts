@@ -12,7 +12,9 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Type } from "typebox";
+import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { AnyToolDefinition, BuiltTool } from "../types/host.ts";
 import {
 	SKILL_DESCRIPTION_MAX_LENGTH,
 	SKILL_NAME_MAX_LENGTH,
@@ -106,13 +108,19 @@ function skillsMessage(skills: readonly SkillSummary[], dir: string): string {
 	return [header, ...lines].join(MESSAGE_LINE_SEPARATOR);
 }
 
-/** Build the four codemode tools bound to `agentDir`. */
-export function createHarnessTools(agentDir: string): readonly ToolDefinition[] {
+/**
+ * Build the four codemode tools bound to `agentDir`.
+ *
+ * Each one is built through the host's `defineTool()`, which pairs its concrete schema with the erased
+ * definition the host uses wherever tools travel as a list. Registered one at a time they need nothing
+ * of the kind; a list is where the erasure has to happen.
+ */
+export function createHarnessTools(agentDir: string): readonly AnyToolDefinition[] {
 	return [skillSaveTool(agentDir), skillListTool(agentDir), skillDeleteTool(agentDir), promptSetTool(agentDir)];
 }
 
-function skillSaveTool(agentDir: string): ToolDefinition<typeof skillSaveParameters, undefined> {
-	return {
+function skillSaveTool(agentDir: string): BuiltTool<typeof skillSaveParameters, undefined> {
+	return defineTool({
 		name: TOOL_NAME_SKILL_SAVE,
 		label: LABEL_SKILL_SAVE,
 		description: DESCRIPTION_SKILL_SAVE,
@@ -122,11 +130,11 @@ function skillSaveTool(agentDir: string): ToolDefinition<typeof skillSaveParamet
 			const saved = await saveSkill(agentDir, params);
 			return textResult(savedMessage(saved.path));
 		},
-	};
+	});
 }
 
-function skillListTool(agentDir: string): ToolDefinition<typeof skillListParameters, undefined> {
-	return {
+function skillListTool(agentDir: string): BuiltTool<typeof skillListParameters, undefined> {
+	return defineTool({
 		name: TOOL_NAME_SKILL_LIST,
 		label: LABEL_SKILL_LIST,
 		description: DESCRIPTION_SKILL_LIST,
@@ -135,11 +143,11 @@ function skillListTool(agentDir: string): ToolDefinition<typeof skillListParamet
 		async execute(_toolCallId, _params) {
 			return textResult(skillsMessage(await listSkills(agentDir), skillsDir(agentDir)));
 		},
-	};
+	});
 }
 
-function skillDeleteTool(agentDir: string): ToolDefinition<typeof skillDeleteParameters, undefined> {
-	return {
+function skillDeleteTool(agentDir: string): BuiltTool<typeof skillDeleteParameters, undefined> {
+	return defineTool({
 		name: TOOL_NAME_SKILL_DELETE,
 		label: LABEL_SKILL_DELETE,
 		description: DESCRIPTION_SKILL_DELETE,
@@ -149,11 +157,11 @@ function skillDeleteTool(agentDir: string): ToolDefinition<typeof skillDeletePar
 			const deleted = await deleteSkill(agentDir, params.name);
 			return textResult(`${MESSAGE_SKILL_DELETED}${MESSAGE_SEPARATOR}${deleted.path}`);
 		},
-	};
+	});
 }
 
-function promptSetTool(agentDir: string): ToolDefinition<typeof promptSetParameters, undefined> {
-	return {
+function promptSetTool(agentDir: string): BuiltTool<typeof promptSetParameters, undefined> {
+	return defineTool({
 		name: TOOL_NAME_PROMPT_SET,
 		label: LABEL_PROMPT_SET,
 		description: DESCRIPTION_PROMPT_SET,
@@ -173,5 +181,5 @@ function promptSetTool(agentDir: string): ToolDefinition<typeof promptSetParamet
 				`${MESSAGE_PROMPT_UPDATED}${MESSAGE_SEPARATOR}${override}${MESSAGE_LINE_SEPARATOR}${MESSAGE_BACKUP}${MESSAGE_SEPARATOR}${backup}`,
 			);
 		},
-	};
+	});
 }

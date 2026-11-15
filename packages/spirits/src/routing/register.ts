@@ -12,14 +12,8 @@
  * layer only hands the phase to it.
  */
 
-import type {
-	ExtensionAPI,
-	ExtensionContext,
-	ModelRoute,
-	ModelRouteRequest,
-	SessionEntry,
-	ThinkingLevel,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ThinkingLevel } from "../types/host.ts";
 import { readRoutingSettings } from "../config.ts";
 import {
 	MODEL_ROLE_NORMAL,
@@ -31,7 +25,7 @@ import {
 } from "../constants.ts";
 import type { RoutingPhase } from "./phase.ts";
 import { createRoutingPhase, spiritsStepEntry } from "./phase.ts";
-import { createNotificationGuard, createRoutingRoute } from "./router.ts";
+import { createNotificationGuard, createRoutingRoute, type RouteDecision } from "./router.ts";
 import { modelKey } from "./resolve.ts";
 
 /**
@@ -89,37 +83,30 @@ export interface RoutingHooks {
 /**
  * Report the role a route chose, then hand the route back to pi unchanged.
  *
- * The route already carries the role in its result, so this wrapper is the whole observation point:
- * the routing decisions stay in `routing/`, and the host surface that shows the role stays outside.
+ * The route decides the role and hands it to this reporter rather than to its result, which the host
+ * owns (spec `dual-model-routing` / ModelRoute の role は使わない): the routing decisions stay in
+ * `routing/`, and the host surface that shows the role stays outside.
  */
-function wrapRouteReportingRole(
-	route: (request: ModelRouteRequest, ctx: ExtensionContext) => ModelRoute,
-	hooks: RoutingHooks,
-): (request: ModelRouteRequest, ctx: ExtensionContext) => ModelRoute {
+function reportRouteDecision(hooks: RoutingHooks): (decision: RouteDecision, ctx: ExtensionContext) => void {
 	const { onRole, onRequest } = hooks;
-	if (!onRole && !onRequest) return route;
-	return (request, ctx) => {
-		const result = route(request, ctx);
+	return (decision, ctx) => {
 		// The hooks report choices the route already made, and each report stands on its own: a footer that
 		// will not take a status write must cost the badge alone, not the request record `status` reads
 		// (spec `managed-commands` / `/spirits-role status`). Neither may take the user's request down.
-		if (result.role) {
-			try {
-				onRole?.(result.role, ctx);
-			} catch {
-				// Nothing to report to.
-			}
-			try {
-				onRequest?.({
-					role: result.role,
-					model: modelKey(result.model),
-					...(result.thinkingLevel ? { thinkingLevel: result.thinkingLevel } : {}),
-				});
-			} catch {
-				// Nothing to report to.
-			}
+		try {
+			onRole?.(decision.role, ctx);
+		} catch {
+			// Nothing to report to.
 		}
-		return result;
+		try {
+			onRequest?.({
+				role: decision.role,
+				model: modelKey(decision.model),
+				...(decision.thinkingLevel ? { thinkingLevel: decision.thinkingLevel } : {}),
+			});
+		} catch {
+			// Nothing to report to.
+		}
 	};
 }
 
@@ -142,18 +129,16 @@ export function registerDualModelRouting(pi: ExtensionAPI, hooks: RoutingHooks =
 		id: ROUTING_MODEL_ID,
 		name: ROUTING_MODEL_NAME,
 		thinkingLevels: ALL_THINKING_LEVELS,
-		route: wrapRouteReportingRole(
-			createRoutingRoute({
-				phase,
-				// Read per request: a settings edit or `/reload` takes effect on the next request.
-				readSettings: () => readRoutingSettings(pi.getSettings()),
-				guard,
-				// Resolving a target is the proof that the step's run really started, which is what tells a
-				// step whose run never happened to end at the next input.
-				onResolved: () => phase.requestResolved(),
-			}),
-			hooks,
-		),
+		route: createRoutingRoute({
+			phase,
+			// Read per request: a settings edit or `/reload` takes effect on the next request.
+			readSettings: () => readRoutingSettings(pi.getSettings()),
+			guard,
+			// Resolving a target is the proof that the step's run really started, which is what tells a
+			// step whose run never happened to end at the next input.
+			onResolved: () => phase.requestResolved(),
+			...(hooks.onRole || hooks.onRequest ? { onRoute: reportRouteDecision(hooks) } : {}),
+		}),
 	});
 
 	pi.on("session_start", (event) => {

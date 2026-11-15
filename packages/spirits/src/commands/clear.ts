@@ -40,13 +40,8 @@
  * never gets the chance to clear anything.
  */
 
-import type {
-	ProjectedSessionEntry,
-	ReadonlySessionManager,
-	SessionBeforeCompactEvent,
-	SessionBeforeCompactResult,
-	SessionEntry,
-} from "@earendil-works/pi-coding-agent";
+import type { ProjectedSessionEntry, SessionBeforeCompactEvent, SessionBeforeCompactResult, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ReadonlySessionManager } from "../types/host.ts";
 import { CLEAR_COMPACTION_SUMMARY, CLEAR_ENTRY_TYPE } from "../constants.ts";
 
 /** Index of the newest clear boundary on the branch, or -1 when there is none. */

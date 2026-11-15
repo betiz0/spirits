@@ -38,6 +38,7 @@ import type {
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
 import type { TSchema } from "typebox";
+import { registerDualModelRouting, type RoutingHooks, type RoutingRegistrationResult } from "../../src/routing/register.ts";
 import { PI_VIRTUAL_MODEL_API } from "../../src/constants.ts";
 import type { RecordedShortcut } from "../support.ts";
 
@@ -373,4 +374,32 @@ export function fakeCommandContext(
 		reloads: () => reloadCount,
 		ctx: { ...ctx, reload: async () => { reloadCount += 1; } } as ExtensionCommandContext,
 	};
+}
+
+/**
+ * The routing registered with its role reports kept, for a test that needs the role a request took.
+ *
+ * The route result the host reads names the model and the thinking level and nothing else: the role is
+ * the routing's own report (spec `dual-model-routing` / ModelRoute の role は使わない). A test that wants
+ * the role registers through here and reads `lastRole()` after the request, instead of asking the
+ * result for a key the host never had.
+ */
+export interface ReportedRouting extends RoutingRegistrationResult {
+	/** The roles in the order the route reported them. */
+	readonly roles: string[];
+	/** The role of the newest report, or undefined when no request has resolved yet. */
+	lastRole(): string | undefined;
+}
+
+/** `registerDualModelRouting` plus the role reports, which the host's result does not carry. */
+export function registerReportedRouting(pi: Parameters<typeof registerDualModelRouting>[0], hooks: RoutingHooks = {}): ReportedRouting {
+	const roles: string[] = [];
+	const routing = registerDualModelRouting(pi, {
+		...hooks,
+		onRole: (role, ctx) => {
+			roles.push(role);
+			hooks.onRole?.(role, ctx);
+		},
+	});
+	return { ...routing, roles, lastRole: () => roles.at(-1) };
 }

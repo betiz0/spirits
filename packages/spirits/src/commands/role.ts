@@ -16,7 +16,8 @@
  * reachable from a test.
  */
 
-import type { ExtensionContext, ExtensionModelRegistry, PiModel, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionModelRegistry, PiModel } from "../types/host.ts";
 import type { IgnoredSetting, ModelSpec, RoutingSettings } from "../config.ts";
 import { readRoleName } from "../config.ts";
 import {

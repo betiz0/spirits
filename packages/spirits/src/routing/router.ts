@@ -18,6 +18,7 @@ import {
 	ROUTING_PROVIDER_ID,
 } from "../constants.ts";
 import type { RoutingSettings } from "../config.ts";
+import type { PiModel, ThinkingLevel } from "../types/host.ts";
 import type { ActiveStep } from "./phase.ts";
 import { resolveRequestPlan } from "./plan.ts";
 import { type ModelLookup, modelKey } from "./resolve.ts";
@@ -59,6 +60,23 @@ export interface RoutePhase {
 }
 
 /**
+ * What one request resolved to, as the route reports it.
+ *
+ * The host's route result names the model and the thinking level and holds nothing else: the role is
+ * spirits' own decision and does not travel through the host (spec `dual-model-routing` / ModelRoute の
+ * role は使わない). It leaves the route through this report, which is what keeps the footer badge and
+ * `/spirits-role status` on the role that answered.
+ */
+export interface RouteDecision {
+	/** Role the route settled on, which is not always the session lock. */
+	role: string;
+	/** Physical model that answers the request. */
+	model: PiModel;
+	/** Thinking level the request asked for, before pi rounds it to the model. */
+	thinkingLevel?: ThinkingLevel;
+}
+
+/**
  * Inputs the route reads per request. Injectable so a test drives every branch without pi.
  */
 export interface RouterDeps {
@@ -69,6 +87,13 @@ export interface RouterDeps {
 	guard: NotificationGuard;
 	/** Reports that this request resolved a target, which is what keeps its step alive. */
 	onResolved?: () => void;
+	/**
+	 * Reports the resolved role, model and level before the result goes back to pi.
+	 *
+	 * A reporter that throws is the caller's problem to contain: the route hands it the decision and
+	 * nothing else, so a footer that will not take a write cannot reach the route through it.
+	 */
+	onRoute?: (decision: RouteDecision, ctx: ExtensionContext) => void;
 }
 
 /** The role and level rules live with the plan, so every caller composes them the same way. */
@@ -91,16 +116,24 @@ export function createRoutingRoute(deps: RouterDeps): (request: ModelRouteReques
 			...(request.thinkingLevel ? { sessionThinkingLevel: request.thinkingLevel } : {}),
 			...(request.previous ? { previous: request.previous } : {}),
 		});
+		// Both answers are the same shape: a route always names a level, and pi hands us the session's own
+		// selection when the plan leaves it out (design Decision 15). The role goes to the reporter, not
+		// into the result the host reads.
+		const answer = (role: string, model: PiModel): ModelRoute => {
+			deps.onResolved?.();
+			deps.onRoute?.({
+				role,
+				model,
+				...(plan.thinkingLevel ? { thinkingLevel: plan.thinkingLevel } : {}),
+			}, ctx);
+			return {
+				model,
+				thinkingLevel: plan.thinkingLevel ?? request.thinkingLevel,
+			};
+		};
 
 		if (plan.source === "strong" && plan.model) {
-			deps.onResolved?.();
-			return {
-				model: plan.model,
-				// The plan leaves the level out when nothing is configured and the caller passed no session
-				// level. A route always names one, and pi hands us the session's own selection (D15).
-				thinkingLevel: plan.thinkingLevel ?? request.thinkingLevel,
-				role: MODEL_ROLE_STRONG,
-			};
+			return answer(MODEL_ROLE_STRONG, plan.model);
 		}
 
 		// A strong request with no configured target falls back in silence; only a configured target that
@@ -129,11 +162,6 @@ export function createRoutingRoute(deps: RouterDeps): (request: ModelRouteReques
 		if (plan.normal?.source === "previous" && deps.guard.shouldSend(NOTIFY_KEY_PREVIOUS_FALLBACK)) {
 			ctx.ui.notify(`default model is unavailable; continuing with ${modelKey(plan.model)}`, "warning");
 		}
-		deps.onResolved?.();
-		return {
-			model: plan.model,
-			thinkingLevel: plan.thinkingLevel ?? request.thinkingLevel,
-			role: MODEL_ROLE_NORMAL,
-		};
+		return answer(MODEL_ROLE_NORMAL, plan.model);
 	};
 }

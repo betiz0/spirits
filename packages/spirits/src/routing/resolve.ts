@@ -6,7 +6,8 @@
  * {@link ModelLookup} at runtime.
  */
 
-import type { ExtensionModelRegistry, PiModel, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionModelRegistry, PiModel } from "../types/host.ts";
 import { MODEL_SPEC_SEPARATOR, PI_VIRTUAL_MODEL_API } from "../constants.ts";
 import type { ModelSpec } from "../config.ts";
 
