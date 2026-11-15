@@ -29,17 +29,15 @@ jobs:
       - name: Install root dependencies
         run: bun install --frozen-lockfile
 
-      - name: Hydrate model data
-        run: |
-          set -euo pipefail
-          bun packages/ai/scripts/generate-models.ts --strict --data-only
-
+      # No Pi build step: the host is the pinned official artifact, so a release needs nothing but
+      # the launcher, the extension bundle and the compatibility theme assets.
       - name: Test spirits
         run: |
           set -euo pipefail
           cd packages/spirits
           bun install --frozen-lockfile
           bun test
+          bun run check
 
       - name: Build previous-version binary for the self-update smoke
         run: |

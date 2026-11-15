@@ -4,39 +4,31 @@ on:
   push:
     branches: [main]
     paths:
+      - packages/spirits/**
+      - scripts/**
+      - docs/architecture/**
       - bun.lock
-      - packages/**
       - package.json
+      - biome.json
       - tsconfig.json
       - tsconfig.base.json
-      - packages/spirits/**
-      - docs/architecture/**
-      - scripts/build-binaries.ts
-      - scripts/build-managed-pi-inputs.ts
-      - scripts/managed-pi-compat/**
-      - scripts/replace-pi-version.ts
-      - scripts/install.sh
-      - scripts/install.test.sh
-      - scripts/self-update-smoke.sh
+      - tsconfig.scripts.json
+      - .husky/**
       - .github/workflows/spirits-ci.yml
       - .github/workflows/spirits-release.yml
   pull_request:
     branches: [main]
     paths:
+      - packages/spirits/**
+      - scripts/**
+      - docs/architecture/**
       - bun.lock
-      - packages/**
       - package.json
+      - biome.json
       - tsconfig.json
       - tsconfig.base.json
-      - packages/spirits/**
-      - docs/architecture/**
-      - scripts/build-binaries.ts
-      - scripts/build-managed-pi-inputs.ts
-      - scripts/managed-pi-compat/**
-      - scripts/replace-pi-version.ts
-      - scripts/install.sh
-      - scripts/install.test.sh
-      - scripts/self-update-smoke.sh
+      - tsconfig.scripts.json
+      - .husky/**
       - .github/workflows/spirits-ci.yml
       - .github/workflows/spirits-release.yml
 
@@ -62,18 +54,34 @@ jobs:
       - name: Install root dependencies
         run: bun install --frozen-lockfile
 
-      - name: Hydrate model data
-        run: |
-          set -euo pipefail
-          bun packages/ai/scripts/generate-models.ts --strict --data-only
-
-      - name: Test and type-check spirits
+      - name: Install spirits dependencies
         run: |
           set -euo pipefail
           cd packages/spirits
           bun install --frozen-lockfile
+
+      # The host comes from the packages pinned in packages/spirits, so nothing here builds or
+      # hydrates Pi: the type check and the tests read the published host types and the real host.
+      - name: Check the repository
+        run: npm run check
+
+      - name: Test spirits
+        run: |
+          set -euo pipefail
+          cd packages/spirits
           bun test
-          bun run check
+
+      # The launcher is the only artifact this build produces, and the theme assets are read from
+      # scripts/compat-theme rather than a Pi source tree.
+      - name: Build the launcher
+        run: |
+          set -euo pipefail
+          bun scripts/build-binaries.ts --version 0.0.0-ci
+          test -x dist/spirits-linux-x64
+          dist/spirits-linux-x64 --version
+          cmp scripts/compat-theme/dark.json dist/theme/dark.json
+          cmp scripts/compat-theme/light.json dist/theme/light.json
+          (cd dist/theme && sha256sum -c dark.json.sha256 && sha256sum -c light.json.sha256)
 
       - name: Check installer syntax
         run: |
