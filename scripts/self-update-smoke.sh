@@ -8,7 +8,9 @@
 # Serves a fixture release (the new executable, its checksum, and the managed Pi set manifest and
 # bundle, listed as the latest stable) over HTTP, copies the old binary into a temporary install
 # directory, and runs `update` against the fixture with an isolated HOME so the managed set can never
-# reach the caller's ~/.spirits. Fails unless the exit code is 0, `--version` reports the expected
+# reach the caller's ~/.spirits. The agent-directory and package-directory variables of the caller's
+# environment are dropped for every run of the installed binary: they override `HOME`, and an
+# interactive spirits session that runs this smoke has them set. Fails unless the exit code is 0, `--version` reports the expected
 # version, the managed set of the fixture release is installed and passes launch-time verification
 # (`spirits managed-pi -- --version`), and no temp directory is left.
 #
@@ -118,6 +120,19 @@ done
 cp "$OLD_BINARY" "$INSTALL_DIR/spirits"
 chmod 755 "$INSTALL_DIR/spirits"
 
+# Every run of the installed binary sees only the isolated HOME. An agent directory named by the
+# caller's environment wins over `HOME` in the managed route, and the launch guard refuses a managed
+# start whose explicit agent directory is outside the managed root - which is what happens when this
+# smoke runs from an interactive spirits session. Dropping the redirecting variables is what makes
+# "isolated HOME" true for the run instead of only for the paths the script itself builds.
+run_installed() {
+	env \
+		-u SPIRITS_CODING_AGENT_DIR -u SPIRITS_CODING_AGENT_SESSION_DIR \
+		-u PI_CODING_AGENT_DIR -u PI_CODING_AGENT_SESSION_DIR \
+		-u PI_APP_NAME -u PI_CONFIG_DIR -u PI_PACKAGE_DIR \
+		"$@"
+}
+
 fail_with_output() { # label out-file err-file
 	echo "Error [$1]:" >&2
 	cat "$2" >&2 || true
@@ -135,6 +150,7 @@ assert_managed_set() {
 		exit 1
 	}
 	current_target=$(readlink "$MANAGED_ROOT/current")
+	# The guard's own report is the useful artifact when this fails, so the launch keeps its output.
 	[ "$current_target" = "releases/$SET_ID" ] || {
 		echo "Error [$label]: current points at [$current_target], expected [releases/$SET_ID]." >&2
 		exit 1
@@ -151,7 +167,7 @@ assert_managed_set() {
 		echo "Error [$label]: no installed state: $MANAGED_SET_DIR/installed.json" >&2
 		exit 1
 	}
-	if ! HOME="$FAKE_HOME" "$INSTALL_DIR/spirits" managed-pi -- --version \
+	if ! run_installed HOME="$FAKE_HOME" "$INSTALL_DIR/spirits" managed-pi -- --version \
 		>"$WORK_DIR/managed-$label.out" 2>"$WORK_DIR/managed-$label.err"; then
 		fail_with_output "$label: managed launch verification failed" \
 			"$WORK_DIR/managed-$label.out" "$WORK_DIR/managed-$label.err"
@@ -168,12 +184,12 @@ assert_no_temp_dirs() { # label
 }
 
 echo "Running self-update from $OLD_BINARY to spirits $EXPECTED_VERSION..." >&2
-if ! HOME="$FAKE_HOME" SPIRITS_API_BASE_URL="$BASE_URL" SPIRITS_RELEASE_BASE_URL="$BASE_URL" \
+if ! run_installed HOME="$FAKE_HOME" SPIRITS_API_BASE_URL="$BASE_URL" SPIRITS_RELEASE_BASE_URL="$BASE_URL" \
 	"$INSTALL_DIR/spirits" update >"$WORK_DIR/update.out" 2>"$WORK_DIR/update.err"; then
 	fail_with_output "self-update exited non-zero" "$WORK_DIR/update.out" "$WORK_DIR/update.err"
 fi
 
-version_line=$("$INSTALL_DIR/spirits" --version | head -n 1)
+version_line=$(run_installed "$INSTALL_DIR/spirits" --version | head -n 1)
 case "$version_line" in
 	*"$EXPECTED_VERSION"*) ;;
 	*)
@@ -195,7 +211,7 @@ if [ "$compat_assets_served" = yes ]; then
 fi
 
 echo "Running self-update again on the current version with an executable-only release..." >&2
-if ! HOME="$FAKE_HOME" SPIRITS_API_BASE_URL="$BASE_URL" SPIRITS_RELEASE_BASE_URL="$BASE_URL" \
+if ! run_installed HOME="$FAKE_HOME" SPIRITS_API_BASE_URL="$BASE_URL" SPIRITS_RELEASE_BASE_URL="$BASE_URL" \
 	"$INSTALL_DIR/spirits" update >"$WORK_DIR/repair.out" 2>"$WORK_DIR/repair.err"; then
 	fail_with_output "the current-version run exited non-zero" "$WORK_DIR/repair.out" "$WORK_DIR/repair.err"
 fi

@@ -29,9 +29,13 @@
   - 実測: `sh scripts/install.test.sh` -> 97 passed / 0 failed。`rg -n -i "theme\|SPIRITS_ROUTE\|dark\.json" scripts/install.sh` -> 0 件 (exit 1)。
   - ケース: 「テーマ資産を取得しない」= case 20 (互換資産を置いた配信元でも `dark.json` を要求せず `~/.spirits/bin/theme` を作らない)、「旧版のテーマ資産の残置」= case 6b と case 16 (旧版が残した `bin/dark.json` と `bin/theme/*` をそのまま置く)、「managed 導入失敗時の非ゼロ」= case 22 (終了 1、修復コマンド・旧版への戻し方・`spirits-fork-final`・手順書を表示し `SPIRITS_ROUTE` を表示しない、実行ファイルは残る)。
   - 副次: テーマ資産名の複製検査だった `test/theme-assets-contract.test.ts` は、配置しなくなった installer / smoke の分岐を消し、リリース yml の互換用添付と smoke の互換資産サーブの検査に残した (tasks に名の無い変更)。
-- [ ] 4.3 `scripts/self-update-smoke.sh` を新しい自己更新 (実行ファイルのみ) と managed 一式の導入に合わせる。完了確認: `sh scripts/self-update-smoke.sh <old> <new> <version>` が成功する。
+- [x] 4.3 `scripts/self-update-smoke.sh` を新しい自己更新 (実行ファイルのみ) と managed 一式の導入に合わせる。完了確認: `sh scripts/self-update-smoke.sh <old> <new> <version>` が成功する。
   - スクリプトは合わせた (テーマ資産の配置検証と修復フェーズを削除、4/5 引数を manifest / bundle に、旧自己更新向けの互換資産は有るときだけ配信し、更新後の 2 度目の `update` が資産を要求せずに 0 で「already up to date」になることを確認)。
-  - 完了確認は未実施: コンパイル済みバイナリ 2 版と manifest / bundle が必要で、それを作る `scripts/build-binaries.ts` の書き換えは 11.1 (§11)。11.1 か 14.4 で実測するまで未完了のままにする。
+  - 実装 (2026-11-15): 起動役の呼び出しを `run_installed` に集め、各実行で `SPIRITS_CODING_AGENT_DIR` / `SPIRITS_CODING_AGENT_SESSION_DIR` / `PI_CODING_AGENT_DIR` / `PI_CODING_AGENT_SESSION_DIR` / `PI_APP_NAME` / `PI_CONFIG_DIR` / `PI_PACKAGE_DIR` を消した。環境の agent dir は `HOME` より優先されるため、対話 spirits セッションからスモークを回すと managed 起動が `Managed Pi launch refused: explicit agent directory is not the managed agent directory. Rejected: /home/betiz/.spirits/agent` で落ちた (実測 2026-11-15)。HOME だけ隔離しても agent dir の指定が caller の実データを見ていた、というのが原因。
+  - 実測 (2026-11-15) 2 通りの旧版で pass。新版は `bun scripts/build-binaries.ts --version 0.0.0-smoke` と `bun scripts/build-managed-pi-inputs.ts --version 0.0.0-smoke --out dist` (manifest の Pi pin は 1.5.0。公式 tarball を GitHub から取って sha256 検証するので network 必須)。
+    - (a) 同一ツリーから `--version 0.0.0-0` でビルドした旧版 (release workflow と同じ手順): `Self-update smoke passed: spirits 0.0.0-smoke (Bun 1.4.2)` / exit 0。
+    - (b) `git worktree add /tmp/spirits-fork-final spirits-fork-final` → `bun install --frozen-lockfile --ignore-scripts` → `bun packages/ai/scripts/generate-models.ts --strict --data-only` → `bun scripts/build-binaries.ts --version 0.0.0-forkfinal` で作った fork 由来の旧版 (pi 1.1.0 を埋め込む era) でも exit 0。どちらも `SPIRITS_CODING_AGENT_DIR` を実 agent dir に向けて実行し、`Managed set verified [after-update]: current -> releases/pi-1.5.0`、2 度目の run は「already up to date」で `theme` を置かず、temp の残置物なし。worktree は検証後に削除 (`git worktree list` は本体のみ)。
+  - 注記: 旧版が配信された互換テーマを実際に取りに来たかは成否の条件にしていない (スモークの主張は「更新後の起動役が要求しない」側)。サーバーログは後片付けで消えるため、旧 updater の要求一覧を項目にするなら 14.4 でログを残す。
 
 ## 5. 自己更新
 
