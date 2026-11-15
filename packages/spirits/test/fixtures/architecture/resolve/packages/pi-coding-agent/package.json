@@ -1,3 +1,7 @@
 {
-  "name": "@scope/pi-coding-agent"
+  "name": "@earendil-works/pi-coding-agent",
+  "exports": {
+    ".": "ng-agent/src/index.ts",
+    "./*": "ng-agent/src/*"
+  }
 }

@@ -5,6 +5,13 @@
  * layers registered in `registry:layer-members`, and exception layers derived from
  * each public package's `tsconfig.build.json` `exclude`.
  *
+ * The host is a published package, so it is not a repository layer. Files resolved
+ * inside `node_modules/@earendil-works/<name>` belong to the host layer `host:<name>`,
+ * which the allow table can list as a dependency target. A repository package that
+ * `packages/spirits` pins as its host is a fork of that published package and is
+ * excluded from the layer universe entirely: it is on its way out of the repository and
+ * its internals are the host's business, not the check's.
+ *
  * Allow directions: public packages derive theirs from their `package.json` workspace
  * dependencies at check time (so a new dependency needs no registry edit); private
  * packages, exception layers, and spirits layers take theirs from `registry:layers`.
@@ -60,11 +67,83 @@ export function isDevFile(repoRelativePath: string): boolean {
 	return false;
 }
 
+/** Every dependency name a manifest declares, across the four dependency sections. */
+function manifestDependencyNames(manifest: Record<string, unknown>): string[] {
+	const names: string[] = [];
+	for (const key of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
+		const section = manifest[key];
+		if (typeof section === "object" && section !== null) names.push(...Object.keys(section as Record<string, unknown>));
+	}
+	return names;
+}
+
+function readManifestObject(path: string): Record<string, unknown> | undefined {
+	if (!existsSync(path) || !statSync(path).isFile()) return undefined;
+	try {
+		const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+		return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Names of the host packages `packages/spirits` pins (`@earendil-works/*` in any
+ * dependency section), as `host:<name>` layer names.
+ */
+export function hostLayers(repoRoot: string): string[] {
+	const spirits = readManifestObject(join(repoRoot, "packages", "spirits", "package.json"));
+	if (!spirits) return [];
+	const layers = new Set<string>();
+	for (const name of manifestDependencyNames(spirits)) {
+		if (!name.startsWith("@earendil-works/")) continue;
+		layers.add(`host:${name.slice("@earendil-works/".length)}`);
+	}
+	return [...layers].sort();
+}
+
+/**
+ * Repository directories that are forks of the pinned host packages. They are not
+ * repository members for the check: no file inside them is scanned, layer-judged,
+ * counted as a duplicate, or allowed as a cycle.
+ */
+export function pinnedHostDirs(repoRoot: string): string[] {
+	const spirits = readManifestObject(join(repoRoot, "packages", "spirits", "package.json"));
+	if (!spirits) return [];
+	const pinned = new Set(
+		manifestDependencyNames(spirits)
+			.filter((name) => name.startsWith("@earendil-works/"))
+			.map((name) => name.slice("@earendil-works/".length)),
+	);
+	if (pinned.size === 0) return [];
+	const packagesDir = join(repoRoot, "packages");
+	if (!existsSync(packagesDir) || !statSync(packagesDir).isDirectory()) return [];
+	const dirs: string[] = [];
+	for (const dir of readdirSync(packagesDir).sort()) {
+		const name = readManifestObject(join(packagesDir, dir, "package.json"))?.["name"];
+		if (typeof name !== "string" || !name.startsWith("@earendil-works/")) continue;
+		if (pinned.has(name.slice("@earendil-works/".length))) dirs.push(`packages/${dir}`);
+	}
+	return dirs;
+}
+
+/** Host layer for a repo-relative path inside an installed host package. */
+export function hostLayerFor(repoRelativePath: string): string | undefined {
+	const parts = repoRelativePath.split("/");
+	for (let i = 0; i < parts.length - 2; i++) {
+		if (parts[i] !== "node_modules" || parts[i + 1] !== "@earendil-works") continue;
+		return `host:${parts[i + 2]}`;
+	}
+	return undefined;
+}
+
 export function listPackages(repoRoot: string): PackageInfo[] {
 	const packagesDir = join(repoRoot, "packages");
 	if (!existsSync(packagesDir) || !statSync(packagesDir).isDirectory()) return [];
+	const forks = new Set(pinnedHostDirs(repoRoot));
 	const packages: PackageInfo[] = [];
 	for (const dir of readdirSync(packagesDir).sort()) {
+		if (forks.has(`packages/${dir}`)) continue;
 		const manifestPath = join(packagesDir, dir, "package.json");
 		if (!existsSync(manifestPath) || !statSync(manifestPath).isFile()) continue;
 		let manifest: {
@@ -141,6 +220,7 @@ export function buildLayerModel(repoRoot: string, registry: RegistryData): Layer
 	const universe = new Set<string>(experimentalLayers);
 	for (const pkg of packages) universe.add(`packages/${pkg.dir}`);
 	for (const layer of memberLayers) universe.add(layer);
+	for (const layer of hostLayers(repoRoot)) universe.add(layer);
 
 	const registryViolations: Violation[] = [];
 	for (const [layer, allow] of Object.entries(registry.layers)) {
@@ -224,6 +304,8 @@ export function layerForPath(
 	model: LayerModel,
 	registry: RegistryData,
 ): string | undefined {
+	const host = hostLayerFor(repoRelativePath);
+	if (host !== undefined) return host;
 	const memberMatches = matchMemberLayers(repoRelativePath, registry.layerMembers);
 	if (memberMatches.length > 1) return undefined;
 	if (memberMatches.length === 1) return memberMatches[0];

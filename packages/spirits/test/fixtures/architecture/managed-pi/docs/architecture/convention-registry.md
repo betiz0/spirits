@@ -96,12 +96,6 @@
 }
 ```
 
-```json registry:bin-deep-imports
-[
-  "@earendil-works/pi-core/cli/setup"
-]
-```
-
 ```json registry:cycles
 []
 ```

@@ -10,6 +10,7 @@ import { checkArchitectureConventions, type CheckReport } from "./architecture/c
 import { findRepoRoot } from "./architecture/repo.ts";
 import { loadRegistry } from "./architecture/registry.ts";
 import { REPORTABLE_RULE_IDS } from "./architecture/rules.ts";
+import { resolveInternalSpecifier } from "./architecture/resolve.ts";
 
 const REAL_ROOT = findRepoRoot(import.meta.dir)!;
 const REAL_REGISTRY = join(REAL_ROOT, "docs", "architecture", "convention-registry.md");
@@ -41,11 +42,22 @@ test("real repo: every reportable rule id exists in the registry", () => {
 	expect(load.violations).toEqual([]);
 }, 30_000);
 
+test("real repo: the host resolves to the pinned package, not to a source tree", () => {
+	// The boundary is only real when the checker resolves the host where the runtime does:
+	// the package installed for `packages/spirits`, never a source directory of the repo.
+	for (const specifier of ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"]) {
+		const target = resolveInternalSpecifier(REAL_ROOT, join(REAL_ROOT, "packages/spirits/src/index.ts"), specifier);
+		expect(target).toBeDefined();
+		expect(target!.startsWith(join(REAL_ROOT, "packages/spirits/node_modules/@earendil-works/"))).toBe(true);
+	}
+}, 30_000);
+
 /**
- * The settings panel draws pi-tui widgets, so the command layer needs `packages/tui`. The routing layer
- * picks models and never renders, so it keeps the narrower allowance it had. Both directions are read
- * out of one fixture that holds a legal import and an illegal one, because the table only says
- * something when the check can be shown agreeing with it (spec `architecture-conventions`).
+ * The settings panel draws host widgets, so the command layer needs `@earendil-works/pi-tui`. The
+ * routing layer picks models and never renders, so it keeps the narrower allowance it had. Both
+ * directions are read out of one fixture that holds a legal import and an illegal one, because the
+ * table only says something when the check can be shown agreeing with it (spec
+ * `architecture-conventions`).
  */
 const PI_TUI_FIXTURE = join(import.meta.dir, "fixtures", "architecture", "layer-pi-tui");
 
@@ -60,7 +72,7 @@ test("commands may import pi-tui", async () => {
 	expect(report.layerOf.get("packages/spirits/src/commands/panel.ts")).toBe("spirits:commands");
 	expect(report.violations.filter((violation) => violation.message.includes("src/commands/panel.ts"))).toEqual([]);
 	// The real repository carries the same allowance, because that is where the panel lives.
-	expect(loadRegistry(REAL_REGISTRY).data!.layers["spirits:commands"]).toContain("packages/tui");
+	expect(loadRegistry(REAL_REGISTRY).data!.layers["spirits:commands"]).toContain("host:pi-tui");
 }, 30_000);
 
 test("routing may not import pi-tui", async () => {
@@ -70,7 +82,7 @@ test("routing may not import pi-tui", async () => {
 	expect(leak.length).toBe(1);
 	expect(leak[0]!.ruleId).toBe("ARCH-SPIRITS-LAYER");
 	expect(leak[0]!.message).toContain("spirits:routing");
-	expect(leak[0]!.message).toContain("packages/tui");
+	expect(leak[0]!.message).toContain("host:pi-tui");
 
-	expect(loadRegistry(REAL_REGISTRY).data!.layers["spirits:routing"]).not.toContain("packages/tui");
+	expect(loadRegistry(REAL_REGISTRY).data!.layers["spirits:routing"]).not.toContain("host:pi-tui");
 }, 30_000);

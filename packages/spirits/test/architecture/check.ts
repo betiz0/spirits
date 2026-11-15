@@ -7,7 +7,7 @@
  * startup failure can be reproduced without touching the filesystem.
  */
 import { join, relative } from "node:path";
-import { assignLayers, buildLayerModel, layerForPath, listPackages } from "./layers.ts";
+import { assignLayers, buildLayerModel, layerForPath, listPackages, pinnedHostDirs } from "./layers.ts";
 import { loadRegistry, type Violation } from "./registry.ts";
 import { REPORTABLE_RULE_IDS, runRules } from "./rules.ts";
 import { scanRepository, type LaunchAnalyzer } from "./scan.ts";
@@ -59,12 +59,21 @@ export async function checkArchitectureConventions(
 		return { ...emptyReport(registry), violations: [{ message: scan.error }] };
 	}
 
+	// A working-tree package that `packages/spirits` pins as its host is a fork of the
+	// published host package. Nothing inside it is a spirits convention: it is scanned
+	// only because the repository still holds it, and the check ignores it entirely.
+	const forks = pinnedHostDirs(repoRoot).map((dir) => `${join(repoRoot, dir)}/`);
+	const outsideForks = (file: string): boolean => !forks.some((prefix) => file.startsWith(prefix));
+	const files = scan.files.filter(outsideForks);
+	const edges = scan.edges.filter((edge) => outsideForks(edge.from));
+	const dupNodes = scan.dupNodes.filter((node) => outsideForks(node.file));
+
 	const model = buildLayerModel(repoRoot, registry);
 	if (model.registryViolations.length > 0) {
 		return { ...emptyReport(registry), violations: model.registryViolations };
 	}
 
-	const repoRelativeFiles = scan.files.map((file) => relative(repoRoot, file)).sort();
+	const repoRelativeFiles = files.map((file) => relative(repoRoot, file)).sort();
 	const assigned = assignLayers(repoRoot, repoRelativeFiles, model, registry);
 
 	const violations: Violation[] = [];
@@ -83,10 +92,9 @@ export async function checkArchitectureConventions(
 	const byDir = new Map(listPackages(repoRoot).map((pkg) => [pkg.dir, pkg]));
 	const ruleReport = runRules({
 		repoRoot,
-		files: scan.files,
-		edges: scan.edges,
-		dupNodes: scan.dupNodes,
-		paths: scan.rootPaths ?? {},
+		files,
+		edges,
+		dupNodes,
 		layerOf: assigned.layerOf,
 		effectiveAllow: model.effectiveAllow,
 		registry,
@@ -95,7 +103,7 @@ export async function checkArchitectureConventions(
 
 	return {
 		violations: [...violations, ...ruleReport.violations],
-		fileCount: scan.files.length,
+		fileCount: files.length,
 		valueEdgeCount: ruleReport.stats.valueEdgeCount,
 		typeEdgeCount: ruleReport.stats.typeEdgeCount,
 		layerOf: assigned.layerOf,

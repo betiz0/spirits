@@ -1,3 +1,8 @@
 {
-  "name": "@scope/lib"
+  "name": "@earendil-works/pi-lib",
+  "version": "1.0.0",
+  "exports": {
+    ".": "./src/exact.ts",
+    "./*": "./src/*.ts"
+  }
 }

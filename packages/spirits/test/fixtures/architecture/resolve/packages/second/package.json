@@ -1,3 +1,10 @@
 {
-  "name": "@scope/second"
+  "name": "@earendil-works/pi-multi",
+  "version": "1.0.0",
+  "exports": {
+    "./*": [
+      "./nope/*.ts",
+      "./src/*.ts"
+    ]
+  }
 }

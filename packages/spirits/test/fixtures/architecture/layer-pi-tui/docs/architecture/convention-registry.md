@@ -1,29 +1,29 @@
 # フィクスチャ規約正本
 
-`packages/tui` への依存を `commands` 層が許され `routing` 層が許されない表。テスト用の規約正本。
+ホスト公開パッケージ `@earendil-works/pi-tui` への依存を `commands` 層が許され `routing` 層が許されない表。テスト用の規約正本。
 
 ```json registry:layers
 {
   "spirits:shared": [
-    "packages/coding-agent",
-    "packages/tui"
+    "host:pi-coding-agent",
+    "host:pi-tui"
   ],
   "spirits:routing": [
     "spirits:shared",
-    "packages/coding-agent"
+    "host:pi-coding-agent"
   ],
   "spirits:commands": [
     "spirits:shared",
     "spirits:routing",
-    "packages/coding-agent",
-    "packages/tui"
+    "host:pi-coding-agent",
+    "host:pi-tui"
   ],
   "spirits:entry": [
     "spirits:shared",
     "spirits:routing",
     "spirits:commands",
-    "packages/coding-agent",
-    "packages/tui"
+    "host:pi-coding-agent",
+    "host:pi-tui"
   ]
 }
 ```
@@ -43,10 +43,6 @@
     "packages/spirits/src/index.ts"
   ]
 }
-```
-
-```json registry:bin-deep-imports
-[]
 ```
 
 ```json registry:cycles
@@ -87,7 +83,7 @@
 
 - **強度**: SHALL
 - **内容**: spirits の各層は registry:layers の表に載った層へのみ依存する。rlm harness todo は互いに依存できない。
-- **例外**: bin は entry shared update と packages/coding-agent 相当へ依存できる。
+- **例外**: bin は entry shared update へ依存できる。ホストへの依存は bin には無い。
 - **判定方法**: 起点が spirits:repl 以外の spirits の層の層違反を報告する。
 - **根拠**: ハードルール「後段非依存」。design decision 1。
 

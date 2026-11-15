@@ -4,6 +4,8 @@
 
 ```json registry:layers
 {
+  "packages/pi-core": [],
+  "packages/helper": [],
   "packages/app:experimental": [
     "packages/pi-core"
   ],
@@ -52,6 +54,12 @@
 
 ```json registry:layer-members
 {
+  "packages/pi-core": [
+    "packages/pi-core/"
+  ],
+  "packages/helper": [
+    "packages/helper/"
+  ],
   "spirits:repl": [
     "packages/spirits/src/repl/"
   ],
@@ -82,10 +90,6 @@
     "packages/spirits/bin/"
   ]
 }
-```
-
-```json registry:bin-deep-imports
-[]
 ```
 
 ```json registry:cycles

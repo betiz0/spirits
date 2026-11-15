@@ -1,3 +1,8 @@
 {
-  "name": "@scope/pi-core"
+  "name": "@earendil-works/pi-core",
+  "version": "1.0.0",
+  "exports": {
+    ".": "./src/index.ts",
+    "./rpc-entry": "./src/rpc-entry.js"
+  }
 }

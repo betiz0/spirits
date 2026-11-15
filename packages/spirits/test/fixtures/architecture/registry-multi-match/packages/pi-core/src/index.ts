@@ -1,4 +1,2 @@
-export interface Session {
-	id: string;
-}
+export class Session {}
 export function main(): void {}

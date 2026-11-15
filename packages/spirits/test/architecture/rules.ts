@@ -5,8 +5,9 @@
  * failures (unreadable registry, unusable tsconfig) are reported by the caller without
  * a rule ID.
  */
-import { relative } from "node:path";
-import { isInternalSpecifier, resolveInternalSpecifier } from "./resolve.ts";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
+import { HOST_SCOPE, isInternalSpecifier, resolveHostSpecifier, resolveInternalSpecifier } from "./resolve.ts";
 import { isDevFile } from "./layers.ts";
 import type { RegistryData, Violation } from "./registry.ts";
 import type { DupNode, Edge } from "./scan.ts";
@@ -41,8 +42,6 @@ export interface RuleContext {
 	files: string[];
 	edges: Edge[];
 	dupNodes: DupNode[];
-	/** The root tsconfig's `paths`. */
-	paths: Record<string, readonly string[]>;
 	/** Repo-relative file path -> layer. */
 	layerOf: Map<string, string>;
 	/** Effective allow directions per layer. */
@@ -70,7 +69,7 @@ const SPIRITS_BIN_PREFIX = "packages/spirits/bin/";
 
 /** Run every convention rule over the scanned repository. */
 export function runRules(context: RuleContext): RuleReport {
-	const { repoRoot, files, edges, paths, layerOf, effectiveAllow, registry } = context;
+	const { repoRoot, files, edges, layerOf, effectiveAllow, registry } = context;
 	const rel = (file: string) => relative(repoRoot, file);
 	const fileSet = new Set(files);
 	const violations: Violation[] = [];
@@ -80,7 +79,7 @@ export function runRules(context: RuleContext): RuleReport {
 	for (const edge of edges) {
 		let target: string | undefined;
 		if (isInternalSpecifier(edge.specifier)) {
-			target = resolveInternalSpecifier(repoRoot, paths, edge.from, edge.specifier);
+			target = resolveInternalSpecifier(repoRoot, edge.from, edge.specifier);
 			if (target !== undefined && target !== repoRoot && !target.startsWith(`${repoRoot}/`)) {
 				target = undefined;
 			}
@@ -137,39 +136,39 @@ export function runRules(context: RuleContext): RuleReport {
 		}
 	}
 
-	// ARCH-PI-BOUNDARY: spirits src imports Pi as bare specifiers only; bin deep
-	// imports must exactly match the registry allowlist.
-	const usedBinDeepImports = new Set<string>();
+	// ARCH-PI-BOUNDARY: the host is reached only through the entry points the published
+	// package exports. `bin` never imports it at all; a subpath must be exported; a
+	// subpath without a type declaration cannot be used in a type position; and the
+	// source tree must not re-declare host types itself.
 	for (const { edge } of resolved.values()) {
 		const fromRel = rel(edge.from);
-		if (!fromRel.startsWith("packages/spirits/")) continue;
-		if (!edge.specifier.startsWith("@earendil-works/")) continue;
-		const subpath = edge.specifier.slice("@earendil-works/".length);
-		const isDeep = subpath.includes("/");
-		if (!isDeep) continue;
-		if (fromRel.startsWith(SPIRITS_SRC_PREFIX)) {
+		if (!edge.specifier.startsWith(HOST_SCOPE)) continue;
+		if (fromRel.startsWith(SPIRITS_BIN_PREFIX)) {
 			violations.push({
 				ruleId: "ARCH-PI-BOUNDARY",
-				message: `ARCH-PI-BOUNDARY: src deep import of a Pi package: ${fromRel} (${edge.specifier})`,
+				message: `ARCH-PI-BOUNDARY: bin imports the host package: ${fromRel} (${edge.specifier})`,
 			});
-		} else if (fromRel.startsWith(SPIRITS_BIN_PREFIX)) {
-			if (!registry.binDeepImports.includes(edge.specifier)) {
-				violations.push({
-					ruleId: "ARCH-PI-BOUNDARY",
-					message: `ARCH-PI-BOUNDARY: bin deep import not in the allowlist: ${fromRel} (${edge.specifier})`,
-				});
-			} else {
-				usedBinDeepImports.add(edge.specifier);
-			}
+			continue;
+		}
+		if (!fromRel.startsWith(SPIRITS_SRC_PREFIX)) continue;
+		const resolution = resolveHostSpecifier(edge.from, repoRoot, edge.specifier);
+		if (resolution.notExported === true) {
+			violations.push({
+				ruleId: "ARCH-PI-BOUNDARY",
+				message: `ARCH-PI-BOUNDARY: host subpath is not in the package exports: ${fromRel} (${edge.specifier})`,
+			});
+		} else if (resolution.subpath !== "." && edge.type === "type" && !resolution.typed) {
+			violations.push({
+				ruleId: "ARCH-PI-BOUNDARY",
+				message: `ARCH-PI-BOUNDARY: type position import of a host subpath with no type declaration: ${fromRel} (${edge.specifier})`,
+			});
 		}
 	}
-	for (const entry of registry.binDeepImports) {
-		if (!usedBinDeepImports.has(entry)) {
-			violations.push({
-				ruleId: "ARCH-PI-BOUNDARY",
-				message: `ARCH-PI-BOUNDARY: bin allowlist entry is not used by any import: ${entry}`,
-			});
-		}
+	for (const mirror of hostTypeMirrors(repoRoot)) {
+		violations.push({
+			ruleId: "ARCH-PI-BOUNDARY",
+			message: `ARCH-PI-BOUNDARY: host type declaration inside packages/spirits: ${mirror.path} (${mirror.reason})`,
+		});
 	}
 
 	// ARCH-CYCLE (layer graph): the value-dependency graph between layers must be acyclic.
@@ -242,6 +241,41 @@ export function runRules(context: RuleContext): RuleReport {
  * later type edge erase the value edge (decision 11; verify2 C-1). */
 function edgeKey(edge: Edge): string {
 	return `${edge.from}${edge.specifier}${edge.type}`;
+}
+
+/** Host module re-declared inside `packages/spirits`, as repo-relative paths. */
+const AMBIENT_HOST_MODULE = /declare\s+module\s+["']@earendil-works\//;
+const SPIRITS_TYPE_DIRS = [join("packages", "spirits", "src"), join("packages", "spirits", "bin")];
+
+function typescriptFiles(dir: string, repoRoot: string, found: string[]): void {
+	if (!existsSync(dir) || !statSync(dir).isDirectory()) return;
+	for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+		const path = join(dir, entry.name);
+		if (entry.isDirectory()) typescriptFiles(path, repoRoot, found);
+		else if (entry.isFile() && path.endsWith(".ts")) found.push(relative(repoRoot, path));
+	}
+}
+
+/**
+ * A host module re-declared under `packages/spirits/src` or `packages/spirits/bin`
+ * replaces the pinned package's own types (remove-pi-fork design decision 4). An
+ * ambient declaration for something that is not the host (a text-asset import, for
+ * instance) is not a mirror. The scan drops `.d.ts` files, so this walk is the only
+ * thing that sees them.
+ */
+function hostTypeMirrors(repoRoot: string): { path: string; reason: string }[] {
+	const mirrors: { path: string; reason: string }[] = [];
+	const files: string[] = [];
+	for (const dir of SPIRITS_TYPE_DIRS) typescriptFiles(join(repoRoot, dir), repoRoot, files);
+	for (const path of files) {
+		const text = readFileSync(join(repoRoot, path), "utf8");
+		if (AMBIENT_HOST_MODULE.test(text)) {
+			mirrors.push({ path, reason: "ambient module declaration of a host module" });
+		} else if (path.endsWith(".d.ts") && text.includes(HOST_SCOPE)) {
+			mirrors.push({ path, reason: "declaration file names a host specifier" });
+		}
+	}
+	return mirrors;
 }
 
 function dedupeViolations(violations: Violation[]): Violation[] {

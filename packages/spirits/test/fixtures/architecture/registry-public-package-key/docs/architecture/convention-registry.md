@@ -90,10 +90,6 @@
 }
 ```
 
-```json registry:bin-deep-imports
-[]
-```
-
 ```json registry:cycles
 []
 ```

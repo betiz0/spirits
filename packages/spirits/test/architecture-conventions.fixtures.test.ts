@@ -46,11 +46,6 @@ async function analyzeFixture(name: string) {
 	return { root, scan, load, model, assigned };
 }
 
-function fixturePaths(name: string): Record<string, readonly string[]> {
-	const root = fixtureRoot(name);
-	return JSON.parse(readFileSync(join(root, "tsconfig.json"), "utf8")).compilerOptions.paths;
-}
-
 // --------------------------------------------------------------- 1.1 registry
 
 test("registry: missing file fails", async () => {
@@ -227,44 +222,42 @@ test("edges: non-literal dynamic import is not an edge", async () => {
 
 // --------------------------------------------------------------- 2.3 resolve
 
-test("resolve: pi-coding-agent from spirits src resolves to packages/coding-agent", () => {
+test("resolve: the host resolves to the installed package, not to what the root paths say", () => {
+	// The root tsconfig of the fixture still maps `@earendil-works/pi-coding-agent` to a
+	// source directory. Reading that mapping would resolve the host into a source tree and
+	// judge the boundary against something the runtime never loads.
 	const root = fixtureRoot("resolve");
 	const from = join(root, "packages/spirits/src/repl/cell.ts");
-	expect(resolveInternalSpecifier(root, fixturePaths("resolve"), from, "@earendil-works/pi-coding-agent")).toBe(
-		join(root, "packages/pi-coding-agent/src/index.ts")
+	expect(resolveInternalSpecifier(root, from, "@earendil-works/pi-coding-agent")).toBe(
+		join(root, "node_modules/@earendil-works/pi-coding-agent/dist/index.d.ts")
 	);
 }, 30_000);
 
 test("resolve: spirits stub paths are not used", () => {
 	const root = fixtureRoot("resolve");
 	const from = join(root, "packages/spirits/src/repl/cell.ts");
-	const resolved = resolveInternalSpecifier(root, fixturePaths("resolve"), from, "@earendil-works/pi-coding-agent");
+	const resolved = resolveInternalSpecifier(root, from, "@earendil-works/pi-coding-agent");
 	expect(resolved).not.toBe(join(root, "packages/spirits/src/types/stub.ts"));
 }, 30_000);
 
-test("resolve: exact key wins over wildcard", () => {
+test("resolve: an exact exports key wins over a pattern", () => {
 	const root = fixtureRoot("resolve");
 	const from = join(root, "packages/mod/src/entry.ts");
-	expect(resolveInternalSpecifier(root, fixturePaths("resolve"), from, "@earendil-works/pi-lib")).toBe(
-		join(root, "packages/lib/src/exact.ts")
-	);
+	expect(resolveInternalSpecifier(root, from, "@earendil-works/pi-lib")).toBe(join(root, "packages/lib/src/exact.ts"));
+	expect(resolveInternalSpecifier(root, from, "@earendil-works/pi-lib/wild")).toBe(join(root, "packages/lib/src/wild.ts"));
 }, 30_000);
 
 test("resolve: extensions and index files are probed in order", () => {
 	const root = fixtureRoot("resolve");
 	const from = join(root, "packages/mod/src/entry.ts");
-	expect(resolveInternalSpecifier(root, fixturePaths("resolve"), from, "./mod")).toBe(
-		join(root, "packages/mod/src/mod.ts")
-	);
-	expect(resolveInternalSpecifier(root, fixturePaths("resolve"), from, "./util")).toBe(
-		join(root, "packages/mod/src/util/index.ts")
-	);
+	expect(resolveInternalSpecifier(root, from, "./mod")).toBe(join(root, "packages/mod/src/mod.ts"));
+	expect(resolveInternalSpecifier(root, from, "./util")).toBe(join(root, "packages/mod/src/util/index.ts"));
 }, 30_000);
 
-test("resolve: multiple path targets are tried in order", () => {
+test("resolve: exports targets are tried in declaration order", () => {
 	const root = fixtureRoot("resolve");
 	const from = join(root, "packages/second/src/only.ts");
-	expect(resolveInternalSpecifier(root, fixturePaths("resolve"), from, "@earendil-works/pi-multi/only")).toBe(
+	expect(resolveInternalSpecifier(root, from, "@earendil-works/pi-multi/only")).toBe(
 		join(root, "packages/second/src/only.ts")
 	);
 }, 30_000);
@@ -273,7 +266,7 @@ test("resolve: non-internal specifier in paths stays external", () => {
 	const root = fixtureRoot("resolve");
 	const from = join(root, "packages/mod/src/entry.ts");
 	expect(isInternalSpecifier("typebox")).toBe(false);
-	expect(resolveInternalSpecifier(root, fixturePaths("resolve"), from, "typebox")).toBeUndefined();
+	expect(resolveInternalSpecifier(root, from, "typebox")).toBeUndefined();
 }, 30_000);
 
 test("resolve: unresolved internal specifier is a violation", async () => {
@@ -458,8 +451,8 @@ test("spirits: repl importing a later layer fails", async () => {
 }, 30_000);
 
 test("spirits: repl to pi-coding-agent passes", async () => {
-	// repl may import Pi (packages/coding-agent / packages/tui) as a bare specifier;
-	// the clean fixture's cell.ts imports @earendil-works/pi-core exactly so (verify2 W-1)
+	// repl may import the host as a bare specifier; the clean fixture's cell.ts imports
+	// @earendil-works/pi-core exactly so (verify2 W-1)
 	const report = await checkFixture("clean");
 	expect(
 		report.violations.filter(
@@ -507,23 +500,40 @@ test("boundary: src deep import fails", async () => {
 	).toBe(true);
 }, 30_000);
 
-test("boundary: bin deep import outside the allowlist fails", async () => {
+test("boundary: bin importing the host at all fails", async () => {
 	const report = await checkFixture("boundary-violations");
-	expect(
-		report.violations.some((v) => v.ruleId === "ARCH-PI-BOUNDARY" && v.message.includes("runtime/env"))
-	).toBe(true);
+	const bin = report.violations.filter((v) => v.ruleId === "ARCH-PI-BOUNDARY" && v.message.includes("bin/cli.ts"));
+	expect(bin.length).toBe(1);
+	expect(bin[0]!.message).toContain("bin imports the host package");
 }, 30_000);
 
-test("boundary: bin allowlisted deep import passes", async () => {
+test("boundary: a published subpath in a value position passes", async () => {
 	const report = await checkFixture("clean");
 	expect(report.violations.filter((v) => v.ruleId === "ARCH-PI-BOUNDARY")).toEqual([]);
+	// the fixture's src really does read the published subpath, so the pass is measured
+	expect(report.violations.filter((v) => v.message.includes("packages/spirits/src/types/rpc.ts"))).toEqual([]);
 }, 30_000);
 
-test("boundary: unused bin allowlist entry fails", async () => {
+test("boundary: a type position import of a subpath without types fails", async () => {
+	// the host's `./rpc-entry` ships no declaration: the import resolves at runtime and
+	// cannot be written as a type.
 	const report = await checkFixture("boundary-violations");
-	expect(
-		report.violations.some((v) => v.ruleId === "ARCH-PI-BOUNDARY" && v.message.includes("bun/setup"))
-	).toBe(true);
+	const rpc = report.violations.filter(
+		(v) => v.ruleId === "ARCH-PI-BOUNDARY" && v.message.includes("repl/rpc-type.ts"),
+	);
+	expect(rpc.length).toBe(1);
+	expect(rpc[0]!.message).toContain("no type declaration");
+}, 30_000);
+
+test("boundary: an ambient host declaration and a hand-rolled mirror fail", async () => {
+	const report = await checkFixture("host-mirror");
+	const mirrors = report.violations.filter(
+		(v) => v.ruleId === "ARCH-PI-BOUNDARY" && v.message.includes("host type declaration"),
+	);
+	expect(mirrors.map((v) => v.message).sort()).toEqual([
+		expect.stringContaining("packages/spirits/src/types/hand-rolled.d.ts"),
+		expect.stringContaining("packages/spirits/src/types/mirror-ambient.d.ts"),
+	]);
 }, 30_000);
 
 test("boundary: bare specifier passes", async () => {

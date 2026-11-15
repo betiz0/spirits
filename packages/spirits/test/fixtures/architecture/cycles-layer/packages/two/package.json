@@ -2,5 +2,8 @@
   "name": "@earendil-works/pi-two",
   "dependencies": {
     "@earendil-works/pi-one": "1.0.0"
+  },
+  "exports": {
+    ".": "./src/index.ts"
   }
 }

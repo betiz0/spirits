@@ -45,3 +45,7 @@ plans/
 .pi/hf-sessions-backup/
 collect.sh
 packages/agent/docs/extensions/pi-server-artifact/index.md
+
+# architecture fixtures model an installed host package; those files belong to the tests
+!packages/spirits/test/fixtures/architecture/*/node_modules/
+!packages/spirits/test/fixtures/architecture/*/node_modules/**

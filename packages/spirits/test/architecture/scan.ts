@@ -3,6 +3,7 @@
  *
  * The scan target is the `rootFiles` of the root `tsconfig.json` and
  * `packages/spirits/tsconfig.json` (when present), minus `.d.ts` and `.json` files.
+ * Specifier resolution is not part of the scan and never reads the tsconfig `paths`.
  * The TypeScript analyzer is the async API (`typescript/unstable/async`), which works
  * on Bun 1.4.2 where the sync API fails.
  *
@@ -41,8 +42,6 @@ export interface ScanResult {
 	files: string[];
 	edges: Edge[];
 	dupNodes: DupNode[];
-	/** The root tsconfig's `paths`, for internal specifier resolution. */
-	rootPaths: Record<string, readonly string[]> | undefined;
 	/** Set when the scan itself failed (analyzer startup, unusable tsconfig, zero files). */
 	error?: string;
 }
@@ -50,7 +49,8 @@ export interface ScanResult {
 /** Minimal structural view of the TS async API used by the scan. */
 export interface AnalyzerProject {
 	readonly rootFiles: readonly string[];
-	readonly compilerOptions: { paths?: Record<string, readonly string[]> };
+	/** Not read by the check: specifier resolution never uses the tsconfig `paths`. */
+	readonly compilerOptions: unknown;
 	readonly program: {
 		getSourceFile(file: string): Promise<SourceFile | undefined>;
 		getConfigFileParsingDiagnostics(): Promise<readonly { category: number; text?: string }[]>;
@@ -114,7 +114,7 @@ export async function scanRepository(repoRoot: string, launch: LaunchAnalyzer = 
 	try {
 		analyzer = await launch({ cwd: repoRoot });
 	} catch (error) {
-		return { files: [], edges: [], dupNodes: [], rootPaths: undefined, error: `SCANNER: analyzer failed to start: ${(error as Error).message}` };
+		return { files: [], edges: [], dupNodes: [], error: `SCANNER: analyzer failed to start: ${(error as Error).message}` };
 	}
 
 	try {
@@ -133,7 +133,6 @@ export async function scanRepository(repoRoot: string, launch: LaunchAnalyzer = 
 					files: [],
 					edges: [],
 					dupNodes: [],
-					rootPaths: undefined,
 					error: `SCANNER: unusable tsconfig at ${relative(repoRoot, configPath)}: ${errors[0]?.text ?? "parse error"}`,
 				};
 			}
@@ -147,10 +146,9 @@ export async function scanRepository(repoRoot: string, launch: LaunchAnalyzer = 
 		}
 		const files = [...fileSet].sort();
 		if (files.length === 0) {
-			return { files: [], edges: [], dupNodes: [], rootPaths: undefined, error: "SCANNER: no files were scanned" };
+			return { files: [], edges: [], dupNodes: [], error: "SCANNER: no files were scanned" };
 		}
 
-		const rootPaths = projects.get(rootConfigPath)?.compilerOptions.paths;
 		const edges: Edge[] = [];
 		const dupNodes: DupNode[] = [];
 
@@ -163,9 +161,9 @@ export async function scanRepository(repoRoot: string, launch: LaunchAnalyzer = 
 			collectFromFile(file, sourceFile, edges, dupNodes);
 		}
 
-		return { files, edges, dupNodes, rootPaths };
+		return { files, edges, dupNodes };
 	} catch (error) {
-		return { files: [], edges: [], dupNodes: [], rootPaths: undefined, error: `SCANNER: scan failed: ${(error as Error).message}` };
+		return { files: [], edges: [], dupNodes: [], error: `SCANNER: scan failed: ${(error as Error).message}` };
 	} finally {
 		await analyzer.close();
 	}

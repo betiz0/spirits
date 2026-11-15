@@ -19,8 +19,6 @@ export interface RegistryData {
 	layers: Record<string, string[]>;
 	/** Layer name -> member paths (private packages and spirits layers only). */
 	layerMembers: Record<string, string[]>;
-	/** Deep imports allowed in `packages/spirits/bin/`. */
-	binDeepImports: string[];
 	/** Permitted file-level cycles, each a set of repo-relative file paths. */
 	cycles: string[][];
 	/** Duplication ratchet baseline. */
@@ -32,13 +30,7 @@ export interface RegistryLoad {
 	violations: Violation[];
 }
 
-export const REGISTRY_BLOCKS = [
-	"layers",
-	"layer-members",
-	"bin-deep-imports",
-	"cycles",
-	"duplication",
-] as const;
+export const REGISTRY_BLOCKS = ["layers", "layer-members", "cycles", "duplication"] as const;
 
 type RegistryBlockName = (typeof REGISTRY_BLOCKS)[number];
 
@@ -142,7 +134,6 @@ export function loadRegistry(registryPath: string, requiredRuleIds: readonly str
 
 	const layers = parsed.get("layers");
 	const layerMembers = parsed.get("layer-members");
-	const binDeepImports = parsed.get("bin-deep-imports");
 	const cycles = parsed.get("cycles");
 	const duplication = parsed.get("duplication");
 
@@ -164,9 +155,6 @@ export function loadRegistry(registryPath: string, requiredRuleIds: readonly str
 			}
 		}
 	}
-	if (!isStringArray(binDeepImports)) {
-		violations.push({ message: "REGISTRY: registry:bin-deep-imports is not a string array" });
-	}
 	if (!Array.isArray(cycles) || !cycles.every((cycle) => isStringArray(cycle))) {
 		violations.push({ message: "REGISTRY: registry:cycles is not an array of string arrays" });
 	}
@@ -184,7 +172,6 @@ export function loadRegistry(registryPath: string, requiredRuleIds: readonly str
 		data: {
 			layers: layers as Record<string, string[]>,
 			layerMembers: layerMembers as Record<string, string[]>,
-			binDeepImports: binDeepImports as string[],
 			cycles: cycles as string[][],
 			duplicationBaseline: (duplication as { baseline: number }).baseline,
 		},

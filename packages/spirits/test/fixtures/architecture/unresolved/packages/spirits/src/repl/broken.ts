@@ -1,2 +1,3 @@
 import { missing } from "./missing.ts";
-export const broken = missing;
+import { absent } from "@earendil-works/pi-nonexistent";
+export const broken = [missing, absent];
