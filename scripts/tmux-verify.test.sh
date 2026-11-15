@@ -498,6 +498,11 @@ case_timeout_stage1_notice() {
 	assert_contains "the notice includes loadavg" "$out" "loadavg="
 	assert_contains "the notice includes mem_available_kb" "$out" "mem_available_kb="
 	assert_contains "the notice includes extend_deadline" "$out" "extend_deadline="
+	# The elapsed field came out of `$((...)...)`, which bash reads as a command substitution, so the
+	# notice printed an empty elapsed and a syntax error. A number here is the whole assertion.
+	local notice_elapsed
+	notice_elapsed=$(printf '%s\n' "$out" | grep -o 'elapsed=[0-9][0-9]*' | head -n 1 | cut -d= -f2)
+	assert_between "the notice reports elapsed seconds as a number" 1 60 "$notice_elapsed"
 	assert_between "the notice arrives after the first stage" 1500 4000 "$elapsed"
 	local pane
 	pane=$(record_value PANE_PID)

@@ -624,7 +624,7 @@ cmd_run() {
 					record_set EXTEND_DEADLINE "$EXTEND_DEADLINE"
 					printf 'timeout-stage1 session=%s elapsed=%s nproc=%s loadavg=%s mem_available_kb=%s extend_deadline=%s\n' \
 						"$SESSION" \
-						"$(($(date +%s%N) - run_start_ns) / 1000000000)" \
+						"$(( ($(date +%s%N) - run_start_ns) / 1000000000 ))" \
 						"$(nproc)" \
 						"$(cut -d' ' -f1-3 /proc/loadavg)" \
 						"$(awk '/^MemAvailable:/{print $2}' /proc/meminfo)" \
