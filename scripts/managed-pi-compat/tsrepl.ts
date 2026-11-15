@@ -8,7 +8,7 @@
  * the auxiliary item stays `not-run` with a reason and never depends on capturing a registration.
  */
 
-import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { AnyToolDefinition } from "../../packages/spirits/src/types/host.ts";
 import { createTsreplTool } from "../../packages/spirits/src/tools.ts";
 import { erasedToolContext } from "../../packages/spirits/test/host/fake-pi.ts";
 import type { CompatState } from "./runner.ts";
@@ -24,7 +24,7 @@ export interface CellProbeResult {
 
 /** Execute a captured `tsrepl` definition with a minimal extension context. */
 export async function executeCapturedTsrepl(
-	tool: ToolDefinition,
+	tool: AnyToolDefinition,
 	code: string,
 	cwd: string,
 ): Promise<CellProbeResult> {
@@ -40,8 +40,8 @@ export async function executeCapturedTsrepl(
 }
 
 /** Create the tool used by the default probe when no managed extension is available. */
-export function createProbeTsreplTool(): ToolDefinition {
-	return createTsreplTool() as unknown as ToolDefinition;
+export function createProbeTsreplTool(): AnyToolDefinition {
+	return createTsreplTool() as unknown as AnyToolDefinition;
 }
 
 /**
