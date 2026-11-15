@@ -1,7 +1,7 @@
 /**
  * One-time backup of the agent directory before the first managed launch.
  *
- * The default route points the managed Pi at the agent directory the fork route has been writing.
+ * The default route points the managed Pi at the agent directory older releases have been writing.
  * Before that process ever opens the directory, the launcher copies it once. The copy is the way
  * back for data the managed route has never written, so a failed copy stops the launch instead of
  * trading the only copy for a launch.

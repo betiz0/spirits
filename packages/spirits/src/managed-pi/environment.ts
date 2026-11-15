@@ -10,7 +10,7 @@
  * variable name from `piConfig.name` in the package.json next to the executable (official
  * `config.ts`: `APP_NAME = piConfigName || "pi"`), and it reads no app-name or config-dir
  * environment variable at all, so the overlay `package.json` is the single place that sets the
- * identity. The variables a fork-route install may have left behind are dropped rather than pinned,
+ * identity. The variables an older install may have left behind are dropped rather than pinned,
  * so the child environment describes only knobs this route has.
  */
 
@@ -41,8 +41,8 @@ export interface ManagedEnvOptions {
 	 * The default route omits it. Pi reads `SPIRITS_CODING_AGENT_SESSION_DIR` as the session
 	 * directory itself, not as a parent of the per-project directory it derives from the working
 	 * directory, so pinning the default route would put new sessions in `<agent dir>/sessions/`
-	 * instead of the `<agent dir>/sessions/<encoded cwd>/` layout the fork route already wrote.
-	 * Omitting it passes an inherited value through, which is what the fork route does.
+	 * instead of the `<agent dir>/sessions/<encoded cwd>/` layout the existing data already uses.
+	 * Omitting it passes an inherited value through, which is what the layout expects.
 	 */
 	sessionDir?: string;
 	/** Host the child process runs. Defaults to the official Pi. */

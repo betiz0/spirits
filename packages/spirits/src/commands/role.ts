@@ -4,7 +4,7 @@
  * A session's own role lives in the `spirits_role` entry this surface writes. The host keeps a state
  * entry of its own (`pi.virtual-model-state`), and its reader takes `{ provider, modelId, state }` from
  * the newest matching record, so an extension that wrote a role-shaped record there would risk the
- * state the host keeps in it. Releases before 旧 fork wrote their role in exactly that entry, so
+ * state the host keeps in it. Releases before the fork deletion wrote their role in exactly that entry, so
  * {@link forkRoleRecord} reads it at session start and never writes it back: the one-way handoff that
  * lets a session an older release started continue with the role it had.
  *
@@ -199,7 +199,7 @@ export function spiritsRoleEntry(branch: readonly SessionEntry[]): string | unde
 }
 
 /**
- * Newest role a 旧 fork release wrote in the host's routing-state entry, or undefined. Read-only by
+ * Newest role an older release wrote in the host's routing-state entry, or undefined. Read-only by
  * design: the managed route never appends to that entry, so the host keeps it alone.
  */
 export function forkRoleRecord(branch: readonly SessionEntry[]): string | undefined {
@@ -213,7 +213,7 @@ export function forkRoleRecord(branch: readonly SessionEntry[]): string | undefi
 }
 
 /**
- * The role a session inherits at start: spirits' own record first, then a 旧 fork release's record,
+ * The role a session inherits at start: spirits' own record first, then an older release's record,
  * then nothing. The caller falls back to `normal` when this is undefined.
  */
 export function inheritedRole(branch: readonly SessionEntry[]): string | undefined {

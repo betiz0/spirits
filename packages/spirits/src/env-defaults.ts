@@ -3,8 +3,8 @@
  *
  * The compiled binary has no sibling `package.json`, so pi cannot infer spirits paths from disk;
  * defaults are computed from the environment and the home directory instead. The default agent
- * directory is the single rule both the fork route and the default managed route use, so the two
- * routes cannot drift apart in where they store settings, sessions, and auth.
+ * directory is the one rule every launch shares, so a source run and an installed binary cannot drift
+ * apart in where they store settings, sessions, and auth.
  */
 
 import { join } from "node:path";
@@ -26,8 +26,8 @@ const TELEMETRY_DISABLED_VALUE = "0";
  * The agent directory the default route uses: the caller's value when set, otherwise
  * `~/.spirits/agent`.
  *
- * Both routes read this so an explicit `SPIRITS_CODING_AGENT_DIR` keeps the meaning it has on the
- * fork route, and the old `PI_CODING_AGENT_DIR` name is never read as a storage choice.
+ * Every launch reads this, so an explicit `SPIRITS_CODING_AGENT_DIR` names the same directory
+ * wherever it is set, and the old `PI_CODING_AGENT_DIR` name is never read as a storage choice.
  */
 export function resolveAgentDir(env: Readonly<Record<string, string | undefined>>, home: string): string {
 	const explicit = env[ENV_AGENT_DIR];
