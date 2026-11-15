@@ -3,19 +3,22 @@ schema: spec-driven
 
 # 全OpenSpecリクエストに注入される。簡潔に保つこと
 context: |
-  spirits: Pi(earendil-works/pi)のフォーク上に構築するエージェント型コーディングツール。
+  spirits: 公式 Pi (earendil-works/pi) の固定 artifact をホストにする、拡張 bundle と薄い起動役のエージェント型コーディングツール。
   Tech stack: TypeScript / Bun専用(>=1.4.0、CI基準1.4.2) / bun.lock / bun test。
   Node.jsは実行対象外。配布は bun build --compile 単一バイナリ + install.sh(Linux x86_64のみ)。
 
   Architecture:
-  - 全実装は packages/spirits/(Pi拡張)に集約。Piコアの既存コードは原則変更禁止。
+  - 全実装は packages/spirits/ に集約。Pi のソースツリーはリポジトリに持たない。
+  - ホストとは公式 package の exports (@earendil-works/pi-coding-agent と ./rpc-entry、@earendil-works/pi-tui) 経由でのみ出会う。deep import と ambient module での再宣言は禁止。
+  - ホストの型は packages/spirits の pinned devDependency の実型。src/types/ に型ミラーを置かず、tsc --noEmit と bun test が照合する。
   - 中核は永続TypeScript REPLツール tsrepl(Bun.Transpiler + node:vm)。
   - ホスト関数は HostFnRegistry 経由で登録。REPLコアは後段機能を知らない。
+  - 固定値 (Pi の版・artifact の sha256・ホスト名・環境変数名) は src/managed-pi/host.ts と src/constants.ts の1か所に置く。版更新は docs/spirits-host-upgrade.md。
 
   Hard rules(全変更に適用):
   - 後段非依存: 各フェーズは前段の成果物にのみ依存し、後段フェーズの機能/APIを import・参照してはならない。
-  - Pi上流コアへの変更が不可避なら1変更=1コミットで分離し "[spirits]" プレフィックスを付ける。
-  - 依存追加は bun install --save-exact(完全ピン留め)。
+  - ホストのソースへの差分は0件を維持する。許されるのは展開後 package.json への piConfig.name 付与だけ。
+  - 依存追加は bun install --save-exact(完全ピン留め)。公開からの経過日数の門は bunfig.toml の [install] minimumReleaseAge。
   - モデル生成コードはユーザ権限で実行され、vmはセキュリティ境界ではない(仕様)。
 
   Roadmap(M1→M5、各フェーズ=1 change):
@@ -31,7 +34,7 @@ rules:
     - capabilitiesは上記Roadmapのcapability名(tsrepl 等)をそのまま使い、変更単位は1フェーズ=1 changeとする
     - "フェーズ外の変更はRoadmapに無い独立 capability 名(例: product-identity)を使い、変更単位は1 change=1 capability 群とする"
     - "change-idは verb-led kebab-case(例: add-tsrepl)"
-    - Impactには「Pi上流コアへの差分の有無」を必ず記載する
+    - Impactには「ホストの公開面への依存(使う exports)」と「固定値・配布物への影響」を必ず記載する
   specs:
     - 要件文はSHALL/MUSTで書き、各要件に最低1つのWHEN/THENシナリオを付ける
     - REPLコア関連の要件には「後段フェーズ機能への非依存」を要件として明示する
@@ -41,6 +44,7 @@ rules:
     - Decisionsは「選択肢と理由」の形式で書く(代替案を必ず1つ併記)
     - Risksは [Risk] → Mitigation 形式
     - 設計の一次根拠は docs/spirits-design.md と対応する docs/spirits-m*.md を参照し、重複記述を避ける
+    - ホストの挙動に依存する決定は、対象版の公式 artifact か公式モードの実測で確認したことを書く(観測できないものは未解決事項として残す)
   tasks:
     - 各タスクに検証方法(bun test のケース名または確認コマンド)を明記する
     - 依存順に並べ、1タスクは1セッションで完了できる粒度にする
