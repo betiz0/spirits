@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { PiModel } from "../src/types/host.ts";
-import { fakeModel } from "./host/fake-pi.ts";
+import { asExtensionApi, fakeModel } from "./host/fake-pi.ts";
 import spiritsExtension from "../src/index.ts";
 import { BASH_PIPE_ALLOW_FILTERS, TSREPL_CELL_ENTRY_TYPE } from "../src/constants.ts";
 import type { CellMetrics } from "../src/repl/metrics.ts";
@@ -110,7 +110,7 @@ test("child tsrepl declares no prompt guidelines", async () => {
 
 test("tsrepl via extension without timeout", async () => {
 	const pi = new FakePi();
-	spiritsExtension(pi);
+	spiritsExtension(asExtensionApi(pi));
 	const tool = pi.tools.find((candidate) => candidate.name === "tsrepl") as ToolDefinition;
 	const result = await tool.execute("id", { code: "return 1" }, undefined, undefined, makeToolContext());
 	expect(result.isError).toBeFalsy();

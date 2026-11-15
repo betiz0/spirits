@@ -1,29 +1,6 @@
 import { expect, test } from "bun:test";
-import {
-	ACTION_GUARD_MODE_ENFORCE,
-	ACTION_GUARD_MODE_OFF,
-	ACTION_GUARD_MODE_WARN,
-	DEFAULT_MEMORY_FILE_LINE_LIMIT,
-	DEFAULT_MEMORY_INJECTION_CHAR_LIMIT,
-	DEFAULT_MEMORY_PREVIEW_LINES,
-	DEFAULT_TODO_MAX_LINES,
-	DEFAULT_TODO_TOGGLE_KEY,
-	ENV_ACTION_GUARD,
-	ENV_BUNDLED_SKILLS,
-	ENV_MEMORY_CHAR_LIMIT,
-	ENV_MEMORY_LINE_LIMIT,
-	ENV_MEMORY_PREVIEW_LINES,
-	ENV_TODO_MAX_LINES,
-	ENV_TODO_TOGGLE_KEY,
-} from "../src/constants.ts";
-import {
-	loadConfig,
-	readActionGuardMode,
-	readDefaultRoleSetting,
-	readRoutingSettings,
-	readStrongModelSetting,
-	resolveTodoConfig,
-} from "../src/config.ts";
+import { ACTION_GUARD_MODE_ENFORCE, ACTION_GUARD_MODE_OFF, ACTION_GUARD_MODE_WARN, DEFAULT_MEMORY_FILE_LINE_LIMIT, DEFAULT_MEMORY_INJECTION_CHAR_LIMIT, DEFAULT_MEMORY_PREVIEW_LINES, DEFAULT_TODO_MAX_LINES, DEFAULT_TODO_TOGGLE_KEY, ENV_ACTION_GUARD, ENV_BUNDLED_SKILLS, ENV_MEMORY_CHAR_LIMIT, ENV_MEMORY_LINE_LIMIT, ENV_MEMORY_PREVIEW_LINES, ENV_TODO_MAX_LINES, ENV_TODO_TOGGLE_KEY } from "../src/constants.ts";
+import { loadConfig, readActionGuardMode, readDefaultRoleSetting, readRoutingSettings, readStrongModelSetting, resolveTodoConfig } from "../src/config.ts";
 
 test("defaults when unset", () => {
 	expect(loadConfig({})).toEqual({
@@ -129,7 +106,7 @@ test("すべての候補が構文不正なら既定値", () => {
 
 test("記号の基底キーを受け付ける", () => {
 	for (const value of ["alt+,", "ctrl+.", "super+/", "ctrl+shift+-", "alt+9", "ctrl+`", "shift+~"]) {
-		expect(resolveTodoConfig({}, { todo: { toggleKey: value } }).toggleKey).toBe(value);
+		expect<string>(resolveTodoConfig({}, { todo: { toggleKey: value } }).toggleKey).toBe(value);
 	}
 	// `+` は pi がキー id を分割するため基底キーにできず、候補ごと飛ばす。
 	expect(resolveTodoConfig({}, { todo: { toggleKey: "ctrl++" } }).toggleKey).toBe(DEFAULT_TODO_TOGGLE_KEY);
@@ -141,8 +118,8 @@ test("大文字と前後の空白を正規化する", () => {
 });
 
 test("存在しないキー名はそのまま採用する", () => {
-	expect(resolveTodoConfig({}, { todo: { toggleKey: "ctrl+foo" } }).toggleKey).toBe("ctrl+foo");
-	expect(resolveTodoConfig({}, { todo: { toggleKey: "ctrl+shift+notakey" } }).toggleKey).toBe("ctrl+shift+notakey");
+	expect<string>(resolveTodoConfig({}, { todo: { toggleKey: "ctrl+foo" } }).toggleKey).toBe("ctrl+foo");
+	expect<string>(resolveTodoConfig({}, { todo: { toggleKey: "ctrl+shift+notakey" } }).toggleKey).toBe("ctrl+shift+notakey");
 });
 
 test("startCollapsed は真偽値 true のときだけ true", () => {

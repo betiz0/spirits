@@ -13,23 +13,13 @@
  */
 
 import { expect, test } from "bun:test";
+import { asExtensionApi, fakeModel, fakeModelRegistry, slashCommandInfo } from "./host/fake-pi.ts";
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import type { ExtensionMode, ExtensionModelRegistry, PiModel } from "../src/types/host.ts";import { COMMAND_SPIRITS_ROLE, MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, ROLE_ENTRY_TYPE, STEP_DEFINITIONS } from "../src/constants.ts";
 import type { RoutingSettings } from "../src/config.ts";
 import { readRoutingSettings } from "../src/config.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
-import {
-	missingStartersFor,
-	modelChoices,
-	openRolePanel,
-	RolePanel,
-	rowSetting,
-	rowSubmenu,
-	selectListTheme,
-	settingsListTheme,
-	stepRowValue,
-	type PanelRead,
-} from "../src/commands/role-panel.ts";
+import { missingStartersFor, modelChoices, openRolePanel, RolePanel, rowSetting, rowSubmenu, selectListTheme, settingsListTheme, stepRowValue, type PanelRead } from "../src/commands/role-panel.ts";
 import type { RolePanelSnapshot } from "../src/commands/role-panel.ts";
 import type { RoleWriteDeps } from "../src/commands/role-write.ts";
 import type { SettingsPath } from "../src/commands/settings-store.ts";
@@ -37,12 +27,12 @@ import { writePathValue } from "../src/commands/settings-store.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
 import { createNotificationGuard, createRoutingRoute } from "../src/routing/router.ts";
 import { modelKey } from "../src/routing/resolve.ts";
-import { FakePi, fakeCommandContext } from "./routing/fake-pi.ts";
+import { fakeCommandContext, FakePi } from "./routing/fake-pi.ts";
 
-const FAKE_MODEL: PiModel = { provider: "compat-fake", id: "fake-model", api: "openai" };
-const FAKE_STRONG: PiModel = { provider: "compat-fake", id: "fake-strong", api: "openai" };
+const FAKE_MODEL: PiModel = fakeModel("compat-fake", "fake-model", { api: "openai" });
+const FAKE_STRONG: PiModel = fakeModel("compat-fake", "fake-strong", { api: "openai" });
 /** pi lists the routing entry among the available models, so every candidate list has to drop it. */
-const AUTO: PiModel = { provider: "spirits", id: "auto", api: "pi-virtual" };
+const AUTO: PiModel = fakeModel("spirits", "auto", { api: "pi-virtual" });
 
 const SETTINGS: RoutingSettings = {
 	defaultProvider: "compat-fake",
@@ -58,11 +48,11 @@ const SETTINGS: RoutingSettings = {
  * something a test can trust.
  */
 function registry(models: readonly PiModel[], authed: readonly string[] = ["compat-fake"]): ExtensionModelRegistry {
-	return {
+	return fakeModelRegistry({
 		getAvailable: () => models.filter((model) => authed.includes(model.provider)),
 		find: (provider, modelId) => models.find((model) => model.provider === provider && model.id === modelId),
 		hasConfiguredAuth: (model) => authed.includes(model.provider),
-	};
+	});
 }
 
 function snapshot(overrides: Partial<RolePanelSnapshot> = {}): RolePanelSnapshot {
@@ -274,7 +264,7 @@ test("a step row names the level its requests carry when strong falls back", () 
 		readSettings: () => settings,
 		guard: createNotificationGuard(),
 	})(
-		{ model: { provider: "spirits", id: "auto" }, thinkingLevel: "medium", reason: "user" },
+		{ model: fakeModel("spirits", "auto"), thinkingLevel: "medium", reason: "user", messages: [] },
 		{ modelRegistry: lookup, ui: { notify: () => {} } } as unknown as Parameters<ReturnType<typeof createRoutingRoute>>[1],
 	) as { model: PiModel; thinkingLevel?: string };
 
@@ -298,7 +288,7 @@ test("an unset strong model row names the model that answers", () => {
 		readSettings: () => settings,
 		guard: createNotificationGuard(),
 	})(
-		{ model: { provider: "spirits", id: "auto" }, thinkingLevel: "medium", reason: "user" },
+		{ model: fakeModel("spirits", "auto"), thinkingLevel: "medium", reason: "user", messages: [] },
 		{ modelRegistry: lookup, ui: { notify: () => {} } } as unknown as Parameters<ReturnType<typeof createRoutingRoute>>[1],
 	) as { model: PiModel };
 
@@ -348,8 +338,8 @@ test("a step tells a lock it follows from a default it inherited", () => {
 // spec scenario "開始コマンドが無いステップ": the row says so and stays editable.
 test("marks a step whose starters are absent", () => {
 	const present = [
-		{ name: "skill:openspec-apply-change", source: "skill" as const },
-		{ name: "opsx-propose", source: "prompt" as const },
+		slashCommandInfo("skill:openspec-apply-change", "skill"),
+		slashCommandInfo("opsx-propose", "prompt"),
 	];
 	const missing = missingStartersFor(present);
 	expect(missing.has("opsx-apply")).toBe(false);
@@ -367,13 +357,13 @@ test("marks a step whose starters are absent", () => {
 // phase have to count the same commands (design Decision 9).
 test("an extension command is not a starter", () => {
 	const extensionOnly = missingStartersFor([
-		{ name: "opsx-propose", source: "extension" },
-		{ name: "spirits-role", source: "extension" },
+		slashCommandInfo("opsx-propose", "extension"),
+		slashCommandInfo("spirits-role", "extension"),
 	]);
 	expect(extensionOnly.has("opsx-propose")).toBe(true);
 
 	// The same name from a template is a starter, and then the step is not missing.
-	expect(missingStartersFor([{ name: "opsx-propose", source: "prompt" }]).has("opsx-propose")).toBe(false);
+	expect(missingStartersFor([slashCommandInfo("opsx-propose", "prompt")]).has("opsx-propose")).toBe(false);
 });
 
 // --- the writes -------------------------------------------------------------------------------
@@ -454,8 +444,8 @@ test("the model row offers the available models without the routing model", () =
 // spec scenario "一覧の候補も api 値で除く": the exclusion reads the api, not the provider or the name, so
 // a virtual model another extension registered is excluded too.
 test("the model row drops every virtual model by its api", () => {
-	const foreign = { provider: "other", id: "router", api: "pi-virtual" };
-	const named = { provider: "compat-fake", id: "auto-pilot", name: "Auto Pilot", api: "openai" };
+	const foreign = fakeModel("other", "router", { api: "pi-virtual" });
+	const named = fakeModel("compat-fake", "auto-pilot", { name: "Auto Pilot", api: "openai" });
 	const { panel } = panelOf({ modelChoices: modelChoices([AUTO, foreign, named, FAKE_MODEL]) });
 
 	const values = rowOf(panel, "normal.model").values;
@@ -669,7 +659,7 @@ async function driveScreen(
 	}
 	const written: Array<{ path: SettingsPath; value: unknown }> = [];
 	const phase = createRoutingPhase();
-	registerManagedCommands(pi, {
+	registerManagedCommands(asExtensionApi(pi), {
 		phase,
 		patchSettings: () => {
 			if (options.failLock) throw new Error("EACCES: the settings file is read-only");
@@ -1048,7 +1038,7 @@ test("an argumentless command opens the list without changing anything", async (
 test("shows status outside the tui", async () => {
 	const pi = new FakePi();
 	pi.settings = { defaultProvider: "compat-fake", defaultModel: "fake-model" };
-	registerManagedCommands(pi, { phase: createRoutingPhase(), patchSettings: () => {} });
+	registerManagedCommands(asExtensionApi(pi), { phase: createRoutingPhase(), patchSettings: () => {} });
 
 	const context = fakeCommandContext({ available: [FAKE_MODEL], model: AUTO, mode: "rpc" });
 	await pi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("", context.ctx);
@@ -1060,7 +1050,7 @@ test("shows status outside the tui", async () => {
 test("opens the list on a terminal", async () => {
 	const pi = new FakePi();
 	pi.settings = { defaultProvider: "compat-fake", defaultModel: "fake-model" };
-	registerManagedCommands(pi, { phase: createRoutingPhase(), patchSettings: () => {} });
+	registerManagedCommands(asExtensionApi(pi), { phase: createRoutingPhase(), patchSettings: () => {} });
 
 	const context = fakeCommandContext({ available: [FAKE_MODEL], model: AUTO, mode: "tui" });
 	await pi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("", context.ctx);

@@ -8,29 +8,23 @@
  */
 
 import { expect, test } from "bun:test";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { asExtensionApi, customEntry, fakeModel, nextEntryId, withoutEvent } from "./host/fake-pi.ts";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { PiModel } from "../src/types/host.ts";
-import {
-	COMMAND_SPIRITS_CLEAR,
-	COMMAND_SPIRITS_ROLE,
-	DEFAULT_TODO_TOGGLE_KEY,
-	ENV_ACTION_GUARD,
-	ENV_AGENT_DIR,
-	SETTINGS_FILE_NAME,
-	TOOL_NAME_SKILL_SAVE,
-} from "../src/constants.ts";
+import { COMMAND_SPIRITS_CLEAR, COMMAND_SPIRITS_ROLE, DEFAULT_TODO_TOGGLE_KEY, ENV_ACTION_GUARD, ENV_AGENT_DIR, SETTINGS_FILE_NAME, TOOL_NAME_SKILL_SAVE } from "../src/constants.ts";
 import { TODO_ENTRY_TYPE } from "../src/todo/state.ts";
 import { MANAGE_TODOS_TOOL_NAME } from "../src/todo/tool.ts";
 import spiritsExtension, { fallbackRoutingPhase } from "../src/index.ts";
 import { createChildModelResolver } from "../src/routing/child.ts";
 import { registerDualModelRouting } from "../src/routing/register.ts";
-import { AUTO_SELECTION, FakePi, fakeCatalog, fakeToolContext, makeRequest } from "./routing/fake-pi.ts";
+import { AUTO_SELECTION, fakeCatalog, FakePi, fakeToolContext, makeRequest } from "./routing/fake-pi.ts";
 import { makeToolContext } from "./support.ts";
 
-const SONNET: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5", name: "Sonnet", api: "anthropic" };
+const SONNET: PiModel = fakeModel("anthropic", "claude-sonnet-4-5", { name: "Sonnet", api: "anthropic" });
 
 /** A host whose virtual-model API throws, the way a pi that changed its signature would. */
 class HostWithoutVirtualModel extends FakePi {
@@ -69,7 +63,7 @@ async function withSettingsDir<T>(
 	try {
 		if (content !== undefined) await writeFile(join(agentDir, SETTINGS_FILE_NAME), content, "utf-8");
 		const pi = new FakePi();
-		expect(() => spiritsExtension(pi)).not.toThrow();
+		expect(() => spiritsExtension(asExtensionApi(pi))).not.toThrow();
 		return await run(pi, agentDir);
 	} finally {
 		if (previous === undefined) delete process.env[ENV_AGENT_DIR];
@@ -80,13 +74,7 @@ async function withSettingsDir<T>(
 
 /** A branch with one pending TODO, the smallest state the panel draws. */
 function todoBranch(): SessionEntry[] {
-	return [
-		{
-			type: "custom",
-			customType: TODO_ENTRY_TYPE,
-			data: { nextId: 2, items: [{ id: 1, text: "A1", done: false }] },
-		},
-	];
+	return [customEntry(TODO_ENTRY_TYPE, { nextId: 2, items: [{ id: 1, text: "A1", done: false }] }, nextEntryId())];
 }
 
 /** The TODO lines a loaded extension draws for that branch on the next `session_start`. */
@@ -117,7 +105,7 @@ function expectCoreRegistered(pi: FakePi): void {
 // spec scenario "a host that refuses an optional layer keeps the core".
 test("a host that cannot take a virtual model keeps the core and says so once", async () => {
 	const pi = new HostWithoutVirtualModel();
-	expect(() => spiritsExtension(pi)).not.toThrow();
+	expect(() => spiritsExtension(asExtensionApi(pi))).not.toThrow();
 	expectCoreRegistered(pi);
 	// The commands cover the gap the missing routing leaves, so they are registered here.
 	expect([...pi.commands.keys()]).toContain(COMMAND_SPIRITS_ROLE);
@@ -132,7 +120,7 @@ test("a host that cannot take a virtual model keeps the core and says so once", 
 
 test("a host that cannot take the commands keeps the core and says so once", async () => {
 	const pi = new HostWithoutCommandApi();
-	expect(() => spiritsExtension(pi)).not.toThrow();
+	expect(() => spiritsExtension(asExtensionApi(pi))).not.toThrow();
 	expectCoreRegistered(pi);
 	expect(pi.commands.size).toBe(0);
 
@@ -148,7 +136,7 @@ test("a host that cannot take the commands keeps the core and says so once", asy
 // load, and pi catches handler errors on its own. What must not happen is the notice going out twice.
 test("a header the host will not draw costs the header only", async () => {
 	const pi = new FakePi();
-	spiritsExtension(pi);
+	spiritsExtension(asExtensionApi(pi));
 
 	const base = fakeCatalog();
 	const ctx = {
@@ -175,7 +163,7 @@ test("a header the host will not draw costs the header only", async () => {
 test("a footer that refuses a status write does not stop the request", () => {
 	const pi = new FakePi();
 	pi.settings = { defaultProvider: "anthropic", defaultModel: "claude-sonnet-4-5" };
-	registerDualModelRouting(pi, {
+	registerDualModelRouting(asExtensionApi(pi), {
 		onRole: () => {
 			throw new Error("setStatus is gone");
 		},
@@ -203,7 +191,7 @@ test("a throwing role reporter still records the request", () => {
 	const pi = new FakePi();
 	pi.settings = { defaultProvider: "anthropic", defaultModel: "claude-sonnet-4-5" };
 	const seen: string[] = [];
-	registerDualModelRouting(pi, {
+	registerDualModelRouting(asExtensionApi(pi), {
 		onRole: () => {
 			throw new Error("setStatus is gone");
 		},
@@ -245,16 +233,12 @@ test("a physical parent model still hands its own model to the child", () => {
 test("a host that refuses tool_call keeps the core and loses only the bash action guard", async () => {
 	// The fake's `on` is an overloaded signature, so the forward goes through the prototype with the
 	// loose signature this host is pretending not to have.
-	const subscribe = FakePi.prototype.on as (event: string, handler: unknown) => () => void;
 	class HostWithoutToolCall extends FakePi {
-		override on(event: string, handler: unknown): () => void {
-			if (event === "tool_call") throw new Error("tool_call is gone");
-			return subscribe.call(this, event, handler);
-		}
+		override readonly on: ExtensionAPI["on"] = withoutEvent(this.handlers, "tool_call", "tool_call is gone");
 	}
 
 	const pi = new HostWithoutToolCall();
-	expect(() => spiritsExtension(pi)).not.toThrow();
+	expect(() => spiritsExtension(asExtensionApi(pi))).not.toThrow();
 	expectCoreRegistered(pi);
 
 	const first = fakeCatalog();
@@ -304,7 +288,7 @@ test("設定ファイルの変更は再読み込みまで反映されない", as
 
 		// `/reload` は拡張の factory を呼び直すため、そこで新しいキーが登録される。
 		const second = new FakePi();
-		expect(() => spiritsExtension(second)).not.toThrow();
+		expect(() => spiritsExtension(asExtensionApi(second))).not.toThrow();
 		expect([...second.shortcuts.keys()]).toEqual(["alt+,"]);
 	});
 });
@@ -313,7 +297,7 @@ test("a loaded bash action guard stops a shell loop", async () => {
 	process.env[ENV_ACTION_GUARD] = "enforce";
 	try {
 		const pi = new FakePi();
-		spiritsExtension(pi);
+		spiritsExtension(asExtensionApi(pi));
 		const handlers = pi.handlers.get("tool_call") ?? [];
 		expect(handlers.length).toBeGreaterThan(0);
 

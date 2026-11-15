@@ -1,7 +1,7 @@
 // spec "dual-model-routing / ワークフローのステップ別ロール": the table in the spec and
 // `STEP_DEFINITIONS` are one list, and a step name must never read as a role name.
 import { expect, test } from "bun:test";
-import { MODEL_ROLES, MODEL_ROLE_STRONG, STEP_DEFINITIONS } from "../src/constants.ts";
+import { MODEL_ROLE_STRONG, MODEL_ROLES, STEP_DEFINITIONS } from "../src/constants.ts";
 
 /** The table of the `dual-model-routing` spec, written out as the spec states it. */
 interface SpecRow {

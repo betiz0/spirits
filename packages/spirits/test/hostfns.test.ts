@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { callableTool, fakeToolCall } from "./host/fake-pi.ts";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -16,7 +17,7 @@ function newRepl(toolContext: ExtensionToolContext = makeToolContext()): { repl:
 
 function textResult(text: string, structuredContent?: JsonValue, isError = false): AgentToolCallOutcome {
 	return {
-		toolCall: {},
+		toolCall: fakeToolCall("nested"),
 		result: { content: [{ type: "text", text }], details: undefined, structuredContent },
 		isError,
 	};
@@ -172,7 +173,7 @@ test("tool uncaught error", async () => {
 
 test("tool error result with structured content", async () => {
 	const ctx = makeToolContext({
-		tools: [{ name: "sh", outputSchema: { type: "object" } }],
+		tools: [callableTool("sh", { outputSchema: { type: "object" } })],
 		executeTool: async () => textResult("boom", { output: "boom", exit_code: 1 }, true),
 	});
 	const { repl } = newRepl(ctx);
@@ -193,7 +194,7 @@ test("tool error result with undeclared schema", async () => {
 
 test("tool error result without structured content", async () => {
 	const ctx = makeToolContext({
-		tools: [{ name: "plain", outputSchema: { type: "object" } }],
+		tools: [callableTool("plain", { outputSchema: { type: "object" } })],
 		executeTool: async () => textResult("plain failed", undefined, true),
 	});
 	const { repl } = newRepl(ctx);
@@ -206,7 +207,7 @@ test("tool bash non-zero exit resolves to structured output", async () => {
 	// The shape pi's bash tool returns for a non-zero exit: isError plus a structured result whose
 	// `output` holds the whole command output.
 	const ctx = makeToolContext({
-		tools: [{ name: "bash", outputSchema: { type: "object" } }],
+		tools: [callableTool("bash", { outputSchema: { type: "object" } })],
 		executeTool: async () =>
 			textResult(
 				"Command exited with code 1",
@@ -262,7 +263,7 @@ function bashContext(exitCode = 0): { ctx: ExtensionToolContext; commands: strin
 	const calls: unknown[] = [];
 	const output = exitCode === 0 ? "one\n" : "cat: no such file\n";
 	const ctx = makeToolContext({
-		tools: [{ name: "bash", outputSchema: { type: "object" } }],
+		tools: [callableTool("bash", { outputSchema: { type: "object" } })],
 		executeTool: async (_name, args) => {
 			commands.push(String((args as { command?: unknown }).command ?? ""));
 			calls.push(args);

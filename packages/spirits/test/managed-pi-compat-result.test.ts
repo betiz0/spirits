@@ -1,21 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-	buildObservationEvidence,
-	CLEAR_BOUNDARY_ITEMS,
-	COMPATIBILITY_MET_DEFINITION,
-	computeCompatibilityMet,
-	computeRunnerCompleted,
-	countStates,
-	formatStateCounts,
-	matrixPurposeCounts,
-	nonRequiredIssues,
-	OBSERVATION_EVIDENCE,
-	requiredObservationsNotMet,
-	REQUIRED_OBSERVATIONS,
-	ROLE_CLEAR_MODEL_ITEM,
-	RUNNER_COMPLETED_DEFINITION,
-	SUMMARY_READING_NOTES,
-} from "../../../scripts/managed-pi-compat/evidence.ts";
+import { buildObservationEvidence, CLEAR_BOUNDARY_ITEMS, COMPATIBILITY_MET_DEFINITION, computeCompatibilityMet, computeRunnerCompleted, countStates, formatStateCounts, matrixPurposeCounts, nonRequiredIssues, OBSERVATION_EVIDENCE, REQUIRED_OBSERVATIONS, requiredObservationsNotMet, ROLE_CLEAR_MODEL_ITEM, RUNNER_COMPLETED_DEFINITION, SUMMARY_READING_NOTES } from "../../../scripts/managed-pi-compat/evidence.ts";
 import type { CompatResult } from "../../../scripts/managed-pi-compat/runner.ts";
 
 function confirmedResults(): CompatResult[] {

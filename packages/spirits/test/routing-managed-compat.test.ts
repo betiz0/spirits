@@ -5,7 +5,7 @@
 import { expect, test } from "bun:test";
 import type { ModelRoute } from "@earendil-works/pi-coding-agent";
 import type { PiModel } from "../src/types/host.ts";
-import { fakeModel } from "./host/fake-pi.ts";
+import { asExtensionApi, fakeModel, slashCommandInfo } from "./host/fake-pi.ts";
 import { registerDualModelRouting } from "../src/routing/register.ts";
 import { AUTO_SELECTION, fakeCatalog, FakePi, makeRequest } from "./routing/fake-pi.ts";
 
@@ -16,7 +16,7 @@ function host(): FakePi {
 	const pi = new FakePi();
 	// The review skill is the starter of the step the cases below drive, and a step only opens where
 	// pi reports the command.
-	pi.slashCommands = [{ name: "skill:sprt-opsx-review-change", source: "skill" }];
+	pi.slashCommands = [slashCommandInfo("skill:sprt-opsx-review-change", "skill")];
 	pi.settings = {
 		defaultProvider: "anthropic",
 		defaultModel: "claude-sonnet-4-5",
@@ -27,7 +27,7 @@ function host(): FakePi {
 
 test("loads on the host with nothing to report", async () => {
 	const pi = host();
-	const routing = registerDualModelRouting(pi);
+	const routing = registerDualModelRouting(asExtensionApi(pi));
 	const { ctx, notices } = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"] });
 
 	expect(Object.keys(routing)).toEqual(["phase"]);
@@ -44,7 +44,7 @@ test("loads on the host with nothing to report", async () => {
 
 test("keeps the skill-driven strong step", async () => {
 	const pi = host();
-	registerDualModelRouting(pi);
+	registerDualModelRouting(asExtensionApi(pi));
 	const { ctx } = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"], model: AUTO_SELECTION });
 	const input = pi.handlers.get("input")![0]!;
 

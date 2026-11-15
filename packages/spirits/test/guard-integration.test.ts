@@ -8,6 +8,7 @@
  */
 
 import { expect, test } from "bun:test";
+import { asExtensionApi, callableTool, fakeToolCall } from "./host/fake-pi.ts";
 import { spawnSync } from "node:child_process";
 import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import type { AgentToolCallOutcome, JsonValue } from "../src/types/host.ts";
@@ -36,7 +37,7 @@ function session(mode: "enforce" | "warn" | "off"): Session {
 	let pi: FakePi;
 	try {
 		pi = new FakePi();
-		spiritsExtension(pi);
+		spiritsExtension(asExtensionApi(pi));
 	} finally {
 		delete process.env[ENV_ACTION_GUARD];
 	}
@@ -61,7 +62,7 @@ function session(mode: "enforce" | "warn" | "off"): Session {
 			if (verdict?.block === true) {
 				// pi's `createErrorToolResult`: the reason as text, no structured content.
 				return {
-					toolCall: {},
+					toolCall: fakeToolCall("nested"),
 					result: { content: [{ type: "text", text: verdict.reason ?? "blocked" }], details: {} },
 					isError: true,
 				};
@@ -73,7 +74,7 @@ function session(mode: "enforce" | "warn" | "off"): Session {
 	const context: ExtensionToolContext = makeToolContext({
 		cwd: PROJECT,
 		// The shape pi's bash declares, which is what lets a non-zero exit come back as data.
-		tools: [{ name: "bash", outputSchema: { type: "object" } }],
+		tools: [callableTool("bash", { outputSchema: { type: "object" } })],
 		executeTool: (name, args) => execute(name, args, TSREPL_CALL_ID),
 	});
 
@@ -102,7 +103,7 @@ function run(command: string): AgentToolCallOutcome {
 		wall_time_seconds: (Date.now() - started) / 1000,
 	};
 	return {
-		toolCall: {},
+		toolCall: fakeToolCall("nested"),
 		result: {
 			content: [{ type: "text", text: exitCode === 0 ? output : `Command exited with code ${exitCode}` }],
 			details: {},

@@ -11,7 +11,7 @@
 import { expect, test } from "bun:test";
 import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import type { PiModel } from "../src/types/host.ts";
-import { fakeModel } from "./host/fake-pi.ts";
+import { fakeModel, slashCommandInfo } from "./host/fake-pi.ts";
 import type { HostFnScope } from "../src/repl/registry.ts";
 import { MODEL_ROLE_STRONG, SKILL_COMMAND_PREFIX } from "../src/constants.ts";
 import type { RoutingSettings } from "../src/config.ts";
@@ -36,7 +36,7 @@ function harness(options: { settings?: RoutingSettings } = {}) {
 	let settings = options.settings ?? SETTINGS;
 	// The session has the deep-verify skill, which is the starter of the step this file enters.
 	const phase = createRoutingPhase({
-		listCommands: () => [{ name: "skill:sprt-opsx-verify-deep", source: "skill" }],
+		listCommands: () => [slashCommandInfo("skill:sprt-opsx-verify-deep", "skill")],
 	});
 	const models: PiModel[] = [];
 	const spawn: SpawnFn = async (params) => {
@@ -122,7 +122,7 @@ test("a change during the queue wait is picked up by the waiting call", async ()
 	// alone can produce the expected child: only reading both after the wait gives OPUS.
 	let settings: RoutingSettings = { ...SETTINGS, strong: { provider: LUNA.provider, modelId: LUNA.id } };
 	const phase = createRoutingPhase({
-		listCommands: () => [{ name: "skill:sprt-opsx-verify-deep", source: "skill" }],
+		listCommands: () => [slashCommandInfo("skill:sprt-opsx-verify-deep", "skill")],
 	});
 	const models: PiModel[] = [];
 	const resolvers: Array<() => void> = [];

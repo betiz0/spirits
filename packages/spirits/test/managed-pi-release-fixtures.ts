@@ -9,10 +9,7 @@
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	MANAGED_PI_EXTENSION_ASSET_NAME,
-	MANAGED_PI_MANIFEST_ASSET_NAME,
-} from "../src/constants.ts";
+import { MANAGED_PI_EXTENSION_ASSET_NAME, MANAGED_PI_MANIFEST_ASSET_NAME } from "../src/constants.ts";
 import { managedRoot } from "../src/managed-pi/layout.ts";
 import { firstSupportedManifest, type ManagedManifest } from "../src/managed-pi/manifest.ts";
 import { createOverlayPackageJson, sha256Hex } from "../src/managed-pi/overlay.ts";

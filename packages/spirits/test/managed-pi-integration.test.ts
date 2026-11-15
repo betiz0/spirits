@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { classifyManagedPiArgs } from "../src/managed-pi/classify.ts";
@@ -10,14 +10,7 @@ import { readCurrentSet } from "../src/managed-pi/layout.ts";
 import { repairManagedSet } from "../src/managed-pi/repair.ts";
 import { updateManagedSet } from "../src/managed-pi/update.ts";
 import { classifyUpdateArgs } from "../src/update/classify.ts";
-import {
-	cleanupManagedFixture,
-	directoryExists,
-	FAKE_RPC_PI_SCRIPT,
-	makeManagedFixture,
-	PI_SCRIPT,
-	type ManagedFixture,
-} from "./managed-pi-fixtures.ts";
+import { cleanupManagedFixture, directoryExists, FAKE_RPC_PI_SCRIPT, makeManagedFixture, PI_SCRIPT, type ManagedFixture } from "./managed-pi-fixtures.ts";
 
 const fixtures: ManagedFixture[] = [];
 afterAll(async () => {

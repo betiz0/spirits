@@ -14,13 +14,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	checkTypeMirror,
-	compareMirrorDeclarations,
-	readHostDeclarations,
-	readMirrorDeclarations,
-	SPIRITS_LOCAL_NAMES,
-} from "../../../scripts/check-pi-type-mirror.ts";
+import { checkTypeMirror, compareMirrorDeclarations, readHostDeclarations, readMirrorDeclarations, SPIRITS_LOCAL_NAMES } from "../../../scripts/check-pi-type-mirror.ts";
 
 /** Write a fixture host whose published surface is `types.ts`, renamed as the case asks. */
 async function fixture(options: {

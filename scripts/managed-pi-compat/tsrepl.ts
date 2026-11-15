@@ -10,7 +10,7 @@
 
 import type { ExtensionAPI, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { createTsreplTool } from "../../packages/spirits/src/tools.ts";
-import { makeToolContext } from "../../packages/spirits/test/support.ts";
+import { erasedToolContext } from "../../packages/spirits/test/host/fake-pi.ts";
 import type { CompatState } from "./runner.ts";
 import type { RpcRecord } from "./rpc.ts";
 
@@ -33,7 +33,7 @@ export async function executeCapturedTsrepl(
 		{ code },
 		undefined,
 		() => {},
-		makeToolContext({ cwd }),
+		erasedToolContext(tool, { cwd }),
 	);
 	const text = result.content.map((part) => (part.type === "text" ? part.text : "")).join("");
 	return { text, isError: result.isError === true, details: result.details, bypassedPiHooks: true };

@@ -1,10 +1,6 @@
 import { expect, test } from "bun:test";
-import {
-	parseSseChunks,
-	requestFakeToolCall,
-	startFakeProvider,
-} from "../../../scripts/managed-pi-compat/fake-provider.ts";
-import { executeCapturedTsrepl, createProbeTsreplTool } from "../../../scripts/managed-pi-compat/tsrepl.ts";
+import { parseSseChunks, requestFakeToolCall, startFakeProvider } from "../../../scripts/managed-pi-compat/fake-provider.ts";
+import { createProbeTsreplTool, executeCapturedTsrepl } from "../../../scripts/managed-pi-compat/tsrepl.ts";
 
 async function streamChatCompletions(
 	baseUrl: string,

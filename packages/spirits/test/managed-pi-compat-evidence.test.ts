@@ -2,20 +2,8 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	buildRuntimeEvidence,
-	identifyRuntime,
-	redactSecrets,
-} from "../../../scripts/managed-pi-compat/evidence.ts";
-import {
-	assertOfficialArtifactSha,
-	assertOfficialBundleSha,
-	buildOfficialIdentity,
-	classifyOfficialArtifactSha,
-	classifyOfficialBundleSha,
-	createOfficialLaunchVerifier,
-	OfficialArtifactError,
-} from "../../../scripts/managed-pi-compat/official.ts";
+import { buildRuntimeEvidence, identifyRuntime, redactSecrets } from "../../../scripts/managed-pi-compat/evidence.ts";
+import { assertOfficialArtifactSha, assertOfficialBundleSha, buildOfficialIdentity, classifyOfficialArtifactSha, classifyOfficialBundleSha, createOfficialLaunchVerifier, OfficialArtifactError } from "../../../scripts/managed-pi-compat/official.ts";
 import { MANAGED_PI_FIRST_ARTIFACT_SHA256 } from "../src/constants.ts";
 import { firstSupportedManifest } from "../src/managed-pi/manifest.ts";
 

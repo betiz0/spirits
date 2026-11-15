@@ -6,12 +6,7 @@ import { computeEnvDefaults } from "../bin/env-defaults.ts";
 import { copyCallerEnv, installManagedSetAfterUpdate, runDefaultManaged, runManagedStartup } from "../bin/startup.ts";
 import { installManagedSet } from "../src/managed-pi/install.ts";
 import type { ManagedSpawnRequest } from "../src/managed-pi/launch.ts";
-import {
-	cleanupManagedFixture,
-	directoryExists,
-	makeManagedFixture,
-	type ManagedFixture,
-} from "./managed-pi-fixtures.ts";
+import { cleanupManagedFixture, directoryExists, makeManagedFixture, type ManagedFixture } from "./managed-pi-fixtures.ts";
 import { makeReleaseFixture, stopManagedReleaseFixtures } from "./managed-pi-release-fixtures.ts";
 
 const fixtures: ManagedFixture[] = [];

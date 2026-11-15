@@ -5,16 +5,49 @@
  * to, and can fire events the way pi does. `fakeCatalog` is the `ExtensionContext` a route reads.
  */
 
-import type { AgentSettledEvent, BeforeAgentStartEvent, BeforeAgentStartEventResult, ContextEvent, ContextEventResult, ExtensionAPI, ExtensionCommandContext, ExtensionContext, ExtensionHandler, ExtensionToolContext, ExtensionVirtualModel, InputEvent, InputEventResult, ModelRouteRequest, ResourcesDiscoverEvent, ResourcesDiscoverResult, SessionBeforeCompactEvent, SessionBeforeCompactResult, SessionEntry, SessionStartEvent, SessionTreeEvent, SlashCommandInfo, ToolCallEvent, ToolCallEventResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionCommandContext,
+	ExtensionContext,
+	ExtensionToolContext,
+	ExtensionVirtualModel,
+	ModelRouteRequest,
+	SessionEntry,
+	SlashCommandInfo,
+	ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import type { AgentMessage, ExtensionMode, PiModel, RegisteredCommandOptions, ThinkingLevel } from "../../src/types/host.ts";
 import type { TSchema } from "typebox";
+import {
+	asExtensionApi,
+	assistantEntry,
+	customEntry,
+	fakeCommandContext as hostCommandContext,
+	fakeContext,
+	fakeCustomScreen,
+	fakeModel,
+	fakeModelRegistry,
+	fakeProjection,
+	fakeSessionManager,
+	fakeToolCallOutcome,
+	fakeToolContext as hostToolContext,
+	fakeUi,
+	hostEventRegistrar,
+	messageEntry,
+	modelChangeEntry,
+	nextEntryId,
+	slashCommandInfo,
+	thinkingLevelChangeEntry,
+	type StopReason,
+	userMessage,
+} from "../host/fake-pi.ts";
 import { registerDualModelRouting, type RoutingHooks, type RoutingRegistrationResult } from "../../src/routing/register.ts";
 import { PI_VIRTUAL_MODEL_API } from "../../src/constants.ts";
 import type { RecordedShortcut } from "../support.ts";
 
 type RecordedHandler = (event: unknown, ctx: ExtensionContext) => unknown;
 
-export class FakePi implements ExtensionAPI {
+export class FakePi {
 	readonly tools: ToolDefinition[] = [];
 	readonly registrations: ExtensionVirtualModel[] = [];
 	/** Handlers by event type, in registration order. */
@@ -50,7 +83,7 @@ export class FakePi implements ExtensionAPI {
 	/** pi's command list: this host's registered commands first, then what the test installed. */
 	getCommands(): SlashCommandInfo[] {
 		return [
-			...[...this.commands.keys()].map((name) => ({ name, source: "extension" as const })),
+			...[...this.commands.keys()].map((name) => slashCommandInfo(name)),
 			...this.slashCommands,
 		];
 	}
@@ -96,38 +129,14 @@ export class FakePi implements ExtensionAPI {
 
 	unregisterVirtualModel(): void {}
 
-	on(
-		event: "before_agent_start",
-		handler: ExtensionHandler<BeforeAgentStartEvent, BeforeAgentStartEventResult>,
-	): () => void;
-	on(event: "session_start", handler: ExtensionHandler<SessionStartEvent>): () => void;
-	on(event: "session_tree", handler: ExtensionHandler<SessionTreeEvent>): () => void;
-	on(
-		event: "resources_discover",
-		handler: ExtensionHandler<ResourcesDiscoverEvent, ResourcesDiscoverResult>,
-	): () => void;
-	on(event: "input", handler: ExtensionHandler<InputEvent, InputEventResult>): () => void;
-	on(event: "agent_settled", handler: ExtensionHandler<AgentSettledEvent>): () => void;
-	on(event: "context", handler: ExtensionHandler<ContextEvent, ContextEventResult>): () => void;
-	on(event: "tool_call", handler: ExtensionHandler<ToolCallEvent, ToolCallEventResult>): () => void;
-	on(
-		event: "session_before_compact",
-		handler: ExtensionHandler<SessionBeforeCompactEvent, SessionBeforeCompactResult>,
-	): () => void;
-	on(event: string, handler: unknown): () => void {
-		const list = this.handlers.get(event) ?? [];
-		const recorded = handler as RecordedHandler;
-		list.push(recorded);
-		this.handlers.set(event, list);
-		const unsubscribe = () => {
-			const index = list.indexOf(recorded);
-			if (index !== -1) list.splice(index, 1);
-		};
-		const unsubscribers = this.unsubscribers.get(event) ?? [];
-		unsubscribers.push(unsubscribe);
-		this.unsubscribers.set(event, unsubscribers);
-		return unsubscribe;
-	}
+	/**
+	 * The host's own `on()` type, recording into `handlers` and `unsubscribers`.
+	 *
+	 * The host declares `on()` once per event type, so a fake that named one overload per event it
+	 * happens to use cannot satisfy that member. The recorder takes the host's member type and hands the
+	 * handler back to the test's own map, which is what `fire()` and `handlersFor()` read.
+	 */
+	readonly on: ExtensionAPI["on"] = hostEventRegistrar(this.handlers, this.unsubscribers);
 
 	handlersFor(event: string): number {
 		return (this.handlers.get(event) ?? []).length;
@@ -167,28 +176,33 @@ export function makeSettledEvent(aborted = false): unknown {
 
 /** A routing request as pi would build one for the `spirits/auto` selection. */
 export function makeRequest(overrides: Partial<ModelRouteRequest> = {}): ModelRouteRequest {
+	// pi always hands the route the conversation, so an override that names none still asks with one.
+	const { messages = [], ...rest } = overrides;
 	return {
-		model: { provider: "spirits", id: "auto" },
+		model: fakeModel("spirits", "auto"),
 		thinkingLevel: "medium",
 		reason: "user",
-		...overrides,
+		messages,
+		...rest,
 	};
 }
 
 /** A custom entry as pi stores it, for building a fake session branch. */
 export function makeCustomEntry(customType: string, data: unknown): SessionEntry {
-	return { type: "custom", customType, data };
+	return customEntry(customType, data, nextEntryId());
 }
 
 /** A message entry as pi stores it. Its presence is what makes a session an already asked one. */
 export function makeMessageEntry(): SessionEntry {
-	const message: AgentMessage = { role: "user", content: "asked" };
-	return { type: "message", message };
+	const message: AgentMessage = userMessage("asked");
+	return messageEntry(message, nextEntryId());
 }
 
 /** One of the entries pi writes for its own state changes, on a branch from the launch on. */
 export function makeStateChangeEntry(type: "model_change" | "thinking_level_change"): SessionEntry {
-	return { type };
+	return type === "model_change"
+		? modelChangeEntry("anthropic", "claude-sonnet-4-5", nextEntryId())
+		: thinkingLevelChangeEntry("high", nextEntryId());
 }
 
 /**
@@ -233,8 +247,8 @@ export function fakeCatalog(options: {
 		notices,
 		statuses,
 		custom,
-		ctx: {
-			ui: {
+		ctx: fakeContext({
+			ui: fakeUi({
 				setHeader: () => {},
 				setWidget: () => {},
 				notify: (message: string) => notices.push(message),
@@ -242,37 +256,30 @@ export function fakeCatalog(options: {
 				// pi's `custom()` builds the component through the factory and resolves with what `done()`
 				// carries. The fake runs the factory with a `done` that closes at once, so a test sees the
 				// component the screen built without a terminal in front of it.
-				custom: (factory: (tui: unknown, theme: unknown, keybindings: unknown, done: (result: unknown) => void) => unknown) => {
-					// A theme that adds no escape sequences, so a test can read the row text back as written.
-					components.push(factory({}, { fg: (_color: string, text: string) => text }, {}, () => {}));
-					// What a user does while the screen is open, so a test can drive a custom screen without a
-					// terminal in front of it.
-					options.onCustom?.(components.at(-1));
-					return Promise.resolve(options.customResult);
-				},
-			},
+				custom: fakeCustomScreen({ components, onCustom: options.onCustom, customResult: options.customResult }),
+			}),
 			mode: options.mode ?? "tui",
 			thinkingLevel: options.thinkingLevel,
 			model: options.model,
 			// pi's projection contributes one model-visible message per conversation entry and none
 			// for state-only entries, which is what a clear boundary counts.
-			sessionManager: {
+			sessionManager: fakeSessionManager({
 				getBranch: () => [...(options.branch ?? [])],
-				buildSessionProjection: () => ({
-					entries: (options.branch ?? []).map((entry) => ({
-						sourceEntry: entry,
-						messages: entry.type === "message" ? [entry.message] : [],
-					})),
-					messages: [],
-				}),
-			},
-			modelRegistry: {
+				buildSessionProjection: () =>
+					fakeProjection({
+						entries: (options.branch ?? []).map((entry) => ({
+							sourceEntry: entry,
+							messages: entry.type === "message" ? [entry.message] : [],
+						})),
+					}),
+			}),
+			modelRegistry: fakeModelRegistry({
 				getAvailable: () => [...(options.available ?? [])],
 				find: (provider: string, modelId: string) =>
 					(options.available ?? []).find((model) => model.provider === provider && model.id === modelId),
 				hasConfiguredAuth: (model: PiModel) => authed.has(model.provider),
-			},
-		} as unknown as ExtensionContext,
+			}),
+		}),
 	};
 }
 
@@ -292,34 +299,34 @@ export function fakeToolContext(
 	const { ctx, notices } = fakeCatalog(options);
 	return {
 		notices,
-		ctx: {
+		ctx: hostToolContext({
 			...ctx,
 			cwd: "/work",
 			signal: undefined,
 			tools: [],
-			executeTool: async () => ({ toolCall: {}, result: { content: [], details: undefined }, isError: false }),
-		},
-	} as unknown as { ctx: ExtensionToolContext; notices: string[] };
+			executeTool: async () => fakeToolCallOutcome(),
+		}),
+	};
 }
 
 /**
  * Assistant message entry as pi stores it: the model that answered (the physical model a virtual
  * selection routed to) and how the response ended.
  */
-export function makeAssistantEntry(provider: string, modelId: string, stopReason = "stop"): SessionEntry {
-	return { type: "message", message: { role: "assistant", content: [], provider, model: modelId, stopReason } };
+export function makeAssistantEntry(provider: string, modelId: string, stopReason: StopReason = "stop"): SessionEntry {
+	return assistantEntry(provider, modelId, stopReason, nextEntryId());
 }
 
 /** A user message entry: pi stores no model on it. */
 export function makeUserEntry(text: string): SessionEntry {
-	return { type: "message", message: { role: "user", content: text } };
+	return messageEntry(userMessage(text), nextEntryId());
 }
 
 /**
  * The `spirits/auto` selection, as pi reports it on the context of a session that chose it. pi's
  * catalog entry carries the virtual api id, which is how a reader tells it from a physical model.
  */
-export const AUTO_SELECTION: PiModel = { provider: "spirits", id: "auto", api: PI_VIRTUAL_MODEL_API };
+export const AUTO_SELECTION: PiModel = fakeModel("spirits", "auto", { api: PI_VIRTUAL_MODEL_API });
 
 /**
  * Command context: the event context plus the `reload()` a command handler gets. `reloads` counts
@@ -341,30 +348,9 @@ export function fakeCommandContext(
 		statuses,
 		custom,
 		reloads: () => reloadCount,
-		ctx: { ...ctx, reload: async () => { reloadCount += 1; } } as ExtensionCommandContext,
-	};
-}
-
-/**
- * One model record, in the shape the host's `Model` demands.
- *
- * A routing decision reads `provider` and `id`, and pi's own record also names the model, its api, the
- * base url, the modalities, the cost, and the two token limits. A test that writes the two keys it reads
- * would not be a model at all, so the rest comes from here with limits no test depends on.
- */
-export function fakeModel(provider: string, id: string, extra: Partial<PiModel> = {}): PiModel {
-	return {
-		id,
-		name: id,
-		api: "anthropic-messages",
-		provider,
-		baseUrl: "https://example.invalid",
-		input: ["text"],
-		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-		reasoning: true,
-		contextWindow: 200000,
-		maxTokens: 8192,
-		...extra,
+		ctx: hostCommandContext({ ...ctx, reload: async () => {
+				reloadCount += 1;
+			} }),
 	};
 }
 
@@ -386,7 +372,7 @@ export interface ReportedRouting extends RoutingRegistrationResult {
 /** `registerDualModelRouting` plus the role reports, which the host's result does not carry. */
 export function registerReportedRouting(pi: Parameters<typeof registerDualModelRouting>[0], hooks: RoutingHooks = {}): ReportedRouting {
 	const roles: string[] = [];
-	const routing = registerDualModelRouting(pi, {
+	const routing = registerDualModelRouting(asExtensionApi(pi), {
 		...hooks,
 		onRole: (role, ctx) => {
 			roles.push(role);

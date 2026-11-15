@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { VERSION_FLAGS, formatVersionLine, isCompiledRun, resolveSpiritsVersion } from "../bin/version.ts";
+import { formatVersionLine, isCompiledRun, resolveSpiritsVersion, VERSION_FLAGS } from "../bin/version.ts";
 
 test("isCompiledRun is false for an uncompiled run", () => {
 	expect(isCompiledRun()).toBe(false);

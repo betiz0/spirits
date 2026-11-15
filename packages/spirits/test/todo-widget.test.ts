@@ -1,19 +1,12 @@
 import { expect, test } from "bun:test";
+import { asExtensionApi, customEntry, fakeProjection, nextEntryId } from "./host/fake-pi.ts";
 import type { AgentSettledEvent, BeforeAgentStartEvent, BeforeAgentStartEventResult, ContextEvent, ContextEventResult, ExtensionHandler, ExtensionToolContext, ExtensionUIContext, InputEvent, InputEventResult, ResourcesDiscoverEvent, ResourcesDiscoverResult, SessionEntry, SessionStartEvent, SessionBeforeCompactEvent, SessionBeforeCompactResult, SessionTreeEvent, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import type { ExtensionMode } from "../src/types/host.ts";
 import { resolveTodoConfig, type EnvLike, type TodoConfig } from "../src/config.ts";
 import { DEFAULT_TODO_TOGGLE_KEY, ENV_TODO_MAX_LINES } from "../src/constants.ts";
 import { TODO_ENTRY_TYPE, type TodoItem, type TodoSnapshot } from "../src/todo/state.ts";
 import { createManageTodosTool } from "../src/todo/tool.ts";
-import {
-	createTodoPanelState,
-	registerTodoPanel,
-	renderTodoLines,
-	renderTodoSummaryLines,
-	TODO_WIDGET_KEY,
-	updateTodoPanel,
-	type TodoPanelState,
-} from "../src/todo/widget.ts";
+import { createTodoPanelState, registerTodoPanel, renderTodoLines, renderTodoSummaryLines, TODO_WIDGET_KEY, type TodoPanelState, updateTodoPanel } from "../src/todo/widget.ts";
 import { makeToolContext, type RecordedShortcut } from "./support.ts";
 
 function snapshot(items: TodoItem[]): TodoSnapshot {
@@ -25,13 +18,13 @@ function item(id: number, done = false, text = `task ${id}`): TodoItem {
 }
 
 function todoEntry(data: unknown): SessionEntry {
-	return { type: "custom", customType: TODO_ENTRY_TYPE, data };
+	return customEntry(TODO_ENTRY_TYPE, data, nextEntryId());
 }
 
 type SetWidgetCall = { key: string; content: unknown; options?: { placement?: string } };
 
 function panelContext(mode: ExtensionMode, branch: readonly SessionEntry[], calls: SetWidgetCall[]): ExtensionToolContext {
-	const ctx = makeToolContext({ sessionManager: { getBranch: () => branch, buildSessionProjection: () => ({ entries: [], messages: [] }) } });
+	const ctx = makeToolContext({ sessionManager: { getBranch: () => branch, buildSessionProjection: () => fakeProjection({ entries: [] }) } });
 	ctx.mode = mode;
 	const record = ((key: string, content: unknown, options?: { placement?: string }) => {
 		calls.push({ key, content, options });
@@ -216,7 +209,7 @@ test("successful tool call updates the widget", async () => {
 
 test("session_start renders the branch state for every reason", async () => {
 	const pi = new FakePi();
-	registerTodoPanel(pi, todoConfig(), expanded());
+	registerTodoPanel(asExtensionApi(pi), todoConfig(), expanded());
 	const branch: SessionEntry[] = [todoEntry({ nextId: 2, items: [{ id: 1, text: "A1", done: false }] })];
 
 	for (const reason of ["startup", "reload", "new", "resume", "fork"] as const) {
@@ -231,7 +224,7 @@ test("session_start renders the branch state for every reason", async () => {
 
 test("session_tree re-renders for the new leaf", async () => {
 	const pi = new FakePi();
-	registerTodoPanel(pi, todoConfig(), expanded());
+	registerTodoPanel(asExtensionApi(pi), todoConfig(), expanded());
 	const first: SessionEntry[] = [todoEntry({ nextId: 2, items: [{ id: 1, text: "A1", done: false }] })];
 	const second: SessionEntry[] = [
 		todoEntry({
@@ -260,7 +253,7 @@ test("session_tree re-renders for the new leaf", async () => {
 
 test("empty branch clears the widget", async () => {
 	const pi = new FakePi();
-	registerTodoPanel(pi, todoConfig(), expanded());
+	registerTodoPanel(asExtensionApi(pi), todoConfig(), expanded());
 	const calls: SetWidgetCall[] = [];
 
 	await pi.sessionStartHandlers[0]({ type: "session_start", reason: "reload" }, panelContext("tui", [], calls));
@@ -272,7 +265,7 @@ test("uses the configured max lines", async () => {
 	process.env[ENV_TODO_MAX_LINES] = "3";
 	try {
 		const pi = new FakePi();
-		registerTodoPanel(pi, todoConfig(process.env), expanded());
+		registerTodoPanel(asExtensionApi(pi), todoConfig(process.env), expanded());
 		const branch: SessionEntry[] = [
 			todoEntry({
 				nextId: 5,
@@ -323,7 +316,7 @@ test("session_start で既定へ戻る", async () => {
 	// 既定が展開のランでは、折りたたんでいてもセッション開始で展開へ戻る。
 	const expanding = new FakePi();
 	const expandedState = createTodoPanelState(false);
-	registerTodoPanel(expanding, todoConfig(), expandedState);
+	registerTodoPanel(asExtensionApi(expanding), todoConfig(), expandedState);
 	expandedState.toggle();
 	const expandedCalls: SetWidgetCall[] = [];
 	await expanding.sessionStartHandlers[0](
@@ -336,7 +329,7 @@ test("session_start で既定へ戻る", async () => {
 	// startCollapsed が true のランでは、展開状態から開始してもセッション開始で折りたたまれる。
 	const collapsing = new FakePi();
 	const collapsedState = createTodoPanelState(false);
-	registerTodoPanel(collapsing, { ...todoConfig(), startCollapsed: true }, collapsedState);
+	registerTodoPanel(asExtensionApi(collapsing), { ...todoConfig(), startCollapsed: true }, collapsedState);
 	expect(collapsedState.collapsed()).toBe(false);
 	const collapsedCalls: SetWidgetCall[] = [];
 	await collapsing.sessionStartHandlers[0](
@@ -350,7 +343,7 @@ test("session_start で既定へ戻る", async () => {
 test("session_tree は開閉状態を変えない", async () => {
 	const pi = new FakePi();
 	const state = createTodoPanelState(false);
-	registerTodoPanel(pi, todoConfig(), state);
+	registerTodoPanel(asExtensionApi(pi), todoConfig(), state);
 	state.toggle();
 	const branch: SessionEntry[] = [
 		todoEntry({ nextId: 3, items: [{ id: 1, text: "A1", done: false }, { id: 2, text: "A2", done: false }] }),
@@ -386,20 +379,20 @@ test("折りたたみ中の manage_todos 成功後も折りたたみのまま新
 // spec "session-todo / TODO パネルはキー入力で開閉できる"
 test("設定されたキーでショートカットを登録する", () => {
 	const pi = new FakePi();
-	registerTodoPanel(pi, { ...todoConfig(), toggleKey: "ctrl+shift+k" }, expanded());
+	registerTodoPanel(asExtensionApi(pi), { ...todoConfig(), toggleKey: "ctrl+shift+k" }, expanded());
 
 	expect([...pi.shortcuts.keys()]).toEqual(["ctrl+shift+k"]);
 	expect(pi.shortcuts.get("ctrl+shift+k")?.description).toBeTruthy();
 	// 既定値で登録した場合も、登録されるキーは解決済みのキー 1 つだけ。
 	const defaults = new FakePi();
-	registerTodoPanel(defaults, todoConfig(), expanded());
+	registerTodoPanel(asExtensionApi(defaults), todoConfig(), expanded());
 	expect([...defaults.shortcuts.keys()]).toEqual([DEFAULT_TODO_TOGGLE_KEY]);
 });
 
 test("ショートカットで折りたたみと展開が切り替わる", () => {
 	const pi = new FakePi();
 	const state = createTodoPanelState(false);
-	registerTodoPanel(pi, todoConfig(), state);
+	registerTodoPanel(asExtensionApi(pi), todoConfig(), state);
 	const branch: SessionEntry[] = [
 		todoEntry({ nextId: 6, items: [item(1), item(2), item(3), item(4, true), item(5, true)] }),
 	];
@@ -422,7 +415,7 @@ test("ショートカットで折りたたみと展開が切り替わる", () =>
 
 test("ショートカットで開閉しても appendEntry は呼ばれない", () => {
 	const pi = new FakePi();
-	registerTodoPanel(pi, todoConfig(), expanded());
+	registerTodoPanel(asExtensionApi(pi), todoConfig(), expanded());
 	const branch: SessionEntry[] = [todoEntry({ nextId: 2, items: [{ id: 1, text: "A1", done: false }] })];
 
 	pi.fireShortcut(DEFAULT_TODO_TOGGLE_KEY, panelContext("tui", branch, []));
@@ -434,7 +427,7 @@ test("ショートカットで開閉しても appendEntry は呼ばれない", (
 test("TODO が 0 件ならショートカットは開閉状態を変えない", () => {
 	const pi = new FakePi();
 	const state = createTodoPanelState(false);
-	registerTodoPanel(pi, todoConfig(), state);
+	registerTodoPanel(asExtensionApi(pi), todoConfig(), state);
 	const calls: SetWidgetCall[] = [];
 
 	pi.fireShortcut(DEFAULT_TODO_TOGGLE_KEY, panelContext("tui", [], calls));
@@ -446,7 +439,7 @@ test("TODO が 0 件ならショートカットは開閉状態を変えない", 
 test("print モードではショートカットが何もしない", () => {
 	const pi = new FakePi();
 	const state = createTodoPanelState(false);
-	registerTodoPanel(pi, todoConfig(), state);
+	registerTodoPanel(asExtensionApi(pi), todoConfig(), state);
 	const branch: SessionEntry[] = [todoEntry({ nextId: 2, items: [{ id: 1, text: "A1", done: false }] })];
 	const calls: SetWidgetCall[] = [];
 

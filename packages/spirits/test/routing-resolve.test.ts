@@ -9,7 +9,7 @@ const SONNET: PiModel = fakeModel("anthropic", "claude-sonnet-4-5");
 const OPUS: PiModel = fakeModel("anthropic", "claude-opus-4-7");
 const LUNA: PiModel = fakeModel("openai", "gpt-5.6-luna");
 /** The routing model itself, which pi lists as available without any credentials. */
-const AUTO: PiModel = { provider: "spirits", id: "auto", api: PI_VIRTUAL_MODEL_API };
+const AUTO: PiModel = fakeModel("spirits", "auto", { api: PI_VIRTUAL_MODEL_API });
 
 /** Catalog whose listing and credentials are set apart, so both failure modes are reachable. */
 function fakeLookup(options: { available: readonly PiModel[]; authedProviders?: readonly string[] }): ModelLookup {

@@ -9,18 +9,19 @@
  */
 
 import { expect, test } from "bun:test";
+import { fakeModel, fakeModelRegistry } from "./host/fake-pi.ts";
 import type { ExtensionContext, ModelRouteRequest } from "@earendil-works/pi-coding-agent";
 import type { ExtensionModelRegistry, PiModel, ThinkingLevel } from "../src/types/host.ts";
 import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, STEP_DEFINITIONS } from "../src/constants.ts";
 import type { RoutingSettings } from "../src/config.ts";
-import { RolePanel, modelChoices, type RolePanelSnapshot } from "../src/commands/role-panel.ts";
+import { modelChoices, RolePanel, type RolePanelSnapshot } from "../src/commands/role-panel.ts";
 import { createChildModelResolver } from "../src/routing/child.ts";
 import { createNotificationGuard, createRoutingRoute, type RouteDecision, type RouterDeps } from "../src/routing/router.ts";
 import { modelKey } from "../src/routing/resolve.ts";
 import { AUTO_SELECTION, fakeToolContext } from "./routing/fake-pi.ts";
 
-const SONNET: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5", api: "openai" };
-const OPUS: PiModel = { provider: "anthropic", id: "claude-opus-4-7", api: "openai" };
+const SONNET: PiModel = fakeModel("anthropic", "claude-sonnet-4-5", { api: "openai" });
+const OPUS: PiModel = fakeModel("anthropic", "claude-opus-4-7", { api: "openai" });
 
 const STEP_ROLE_SETTING = STEP_DEFINITIONS.find((step) => step.name === "opsx-propose")!;
 const STEP_DEFAULT_STRONG = STEP_DEFINITIONS.find((step) => step.name === "sprt-opsx-review-change")!;
@@ -49,15 +50,15 @@ const STRONG_CASES = [
 ] as const;
 
 function registry(models: readonly PiModel[], authed: readonly string[] = ["anthropic"]): ExtensionModelRegistry {
-	return {
+	return fakeModelRegistry({
 		getAvailable: () => models.filter((model) => authed.includes(model.provider)),
 		find: (provider, modelId) => models.find((model) => model.provider === provider && model.id === modelId),
 		hasConfiguredAuth: (model) => authed.includes(model.provider),
-	};
+	});
 }
 
 function request(): ModelRouteRequest {
-	return { model: AUTO_SELECTION, thinkingLevel: "medium", reason: "user" };
+	return { model: AUTO_SELECTION, thinkingLevel: "medium", reason: "user", messages: [] };
 }
 
 test("the route, the child, and the panel agree on the model and the level", () => {

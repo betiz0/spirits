@@ -1,24 +1,20 @@
 import { expect, test } from "bun:test";
-import type { AgentSession, AgentSessionEvent, CreateAgentSessionOptions, SessionManager, SessionStats } from "@earendil-works/pi-coding-agent";
-import type { AgentMessage } from "../src/types/host.ts";
+import type { AgentSession, AgentSessionEvent, CreateAgentSessionOptions, DefaultResourceLoader, SessionManager, SessionStats } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage, PiModel } from "../src/types/host.ts";
+import { assistantMessage, fakeModel, fakeResourceLoader, fakeSession, fakeSessionStats, toolExecutionStart } from "./host/fake-pi.ts";
 import { createTsreplTool } from "../src/tools.ts";
-import {
-	type RlmResourceLoaderOptions,
-	type SpawnParams,
-	type SpawnSdk,
-	spawnChildSession,
-} from "../src/rlm/spawn.ts";
+import { spawnChildSession, type RlmResourceLoaderOptions, type SpawnParams, type SpawnSdk } from "../src/rlm/spawn.ts";
 
-const MODEL = { provider: "p", id: "m" };
+const MODEL: PiModel = fakeModel("p", "m");
 
 const CHILD_TOOL = createTsreplTool();
 
-const DEFAULT_STATS: SessionStats = {
+const DEFAULT_STATS: SessionStats = fakeSessionStats({
 	tokens: { input: 100, output: 20, cacheRead: 5, cacheWrite: 0, total: 120 },
 	cost: 0.01,
-};
+});
 
-class FakeSession implements AgentSession {
+class FakeSession {
 	sessionId = "child-1";
 	messages: AgentMessage[] = [];
 	abortCalls = 0;
@@ -84,12 +80,12 @@ class FakeSdk implements SpawnSdk {
 	loaderOptions: RlmResourceLoaderOptions | undefined;
 	reloadCalls = 0;
 	readonly events: string[] = [];
-	loader = {
+	loader = fakeResourceLoader({
 		reload: async (): Promise<void> => {
 			this.reloadCalls++;
 			this.events.push("reload");
 		},
-	};
+	});
 
 	async createAgentSession(options: CreateAgentSessionOptions): Promise<{ session: AgentSession }> {
 		this.events.push("createAgentSession");
@@ -99,7 +95,7 @@ class FakeSdk implements SpawnSdk {
 			throw this.createError;
 		}
 		await this.createGate;
-		return { session: this.session };
+		return { session: fakeSession(this.session) };
 	}
 
 	createSessionManager(cwd: string): SessionManager {
@@ -107,9 +103,9 @@ class FakeSdk implements SpawnSdk {
 		return this.sessionManager;
 	}
 
-	createResourceLoader(options: RlmResourceLoaderOptions): { reload: () => Promise<void> } {
+	createResourceLoader(options: RlmResourceLoaderOptions): DefaultResourceLoader {
 		this.loaderOptions = options;
-		return this.loader;
+		return fakeResourceLoader(this.loader);
 	}
 }
 
@@ -195,7 +191,7 @@ test("completed returns final text and usage", async () => {
 
 test("provider error becomes error outcome", async () => {
 	const sdk = new FakeSdk();
-	sdk.session.messages = [{ role: "assistant", stopReason: "error", errorMessage: "rate limit" }];
+	sdk.session.messages = [assistantMessage("", { stopReason: "error", errorMessage: "rate limit" })];
 	const result = await spawnChildSession(makeParams(), sdk);
 
 	expect(result.outcome).toBe("error");
@@ -207,7 +203,7 @@ test("provider error becomes error outcome", async () => {
 
 test("unexpected abort becomes error", async () => {
 	const sdk = new FakeSdk();
-	sdk.session.messages = [{ role: "assistant", stopReason: "aborted" }];
+	sdk.session.messages = [assistantMessage("", { stopReason: "aborted" })];
 	const result = await spawnChildSession(makeParams(), sdk);
 
 	expect(result.outcome).toBe("error");
@@ -338,11 +334,11 @@ test("budget aborts child at 51st call", async () => {
 	const promise = spawnChildSession(makeParams(), sdk);
 	await tick();
 	for (let i = 0; i < 50; i++) {
-		sdk.session.emit({ type: "tool_execution_start", toolName: "tsrepl" });
+		sdk.session.emit(toolExecutionStart("tsrepl"));
 	}
 	expect(sdk.session.abortCalls).toBe(0);
 
-	sdk.session.emit({ type: "tool_execution_start", toolName: "tsrepl" });
+	sdk.session.emit(toolExecutionStart("tsrepl"));
 	const result = await promise;
 
 	expect(sdk.session.abortCalls).toBe(1);
@@ -360,7 +356,7 @@ test("budget boundary 50 completes", async () => {
 	const promise = spawnChildSession(makeParams(), sdk);
 	await tick();
 	for (let i = 0; i < 50; i++) {
-		sdk.session.emit({ type: "tool_execution_start", toolName: "tsrepl" });
+		sdk.session.emit(toolExecutionStart("tsrepl"));
 	}
 	resolvePrompt();
 	const result = await promise;
@@ -382,7 +378,7 @@ test("partial summary shape", async () => {
 	const promise = spawnChildSession(makeParams(), sdk);
 	await tick();
 	for (let i = 0; i < 51; i++) {
-		sdk.session.emit({ type: "tool_execution_start", toolName: "tsrepl" });
+		sdk.session.emit(toolExecutionStart("tsrepl"));
 	}
 	const result = await promise;
 
@@ -403,7 +399,7 @@ test("usage returned on budget", async () => {
 	const promise = spawnChildSession(makeParams(), sdk);
 	await tick();
 	for (let i = 0; i < 51; i++) {
-		sdk.session.emit({ type: "tool_execution_start", toolName: "tsrepl" });
+		sdk.session.emit(toolExecutionStart("tsrepl"));
 	}
 	const result = await promise;
 

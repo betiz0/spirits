@@ -7,6 +7,7 @@
  */
 
 import { expect, test } from "bun:test";
+import { slashCommandInfo } from "./host/fake-pi.ts";
 import { readRoutingSettings } from "../src/config.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
 import { resolveRequestRole, resolveRequestThinkingLevel } from "../src/routing/router.ts";
@@ -90,7 +91,7 @@ test("prefers the step role over the step default and the lock", () => {
 
 	// The step list's default role reaching a request is the phase's half of the same order: the phase
 	// settles on the step's default and the resolver leaves that alone.
-	const phase = createRoutingPhase({ listCommands: () => [{ name: "skill:sprt-opsx-review-change", source: "skill" }] });
+	const phase = createRoutingPhase({ listCommands: () => [slashCommandInfo("skill:sprt-opsx-review-change", "skill")] });
 	phase.handleInput("/skill:sprt-opsx-review-change some-change");
 	expect(phase.current()).toBe("strong");
 	expect(resolveRequestRole(phase.step(), settingsOf({}), phase.current())).toBe("strong");

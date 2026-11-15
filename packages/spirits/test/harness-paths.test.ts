@@ -1,14 +1,7 @@
 import { expect, test } from "bun:test";
 import path from "node:path";
 import { ENV_AGENT_DIR } from "../src/constants.ts";
-import {
-	getAgentDir,
-	memoryDir,
-	notesPath,
-	promptBackupPath,
-	promptOverridePath,
-	skillsDir,
-} from "../src/harness/paths.ts";
+import { getAgentDir, memoryDir, notesPath, promptBackupPath, promptOverridePath, skillsDir } from "../src/harness/paths.ts";
 
 const AGENT_DIR = "/tmp/spirits-agent-paths-test";
 

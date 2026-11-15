@@ -3,12 +3,7 @@ import { lstat, mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { installManagedSet } from "../src/managed-pi/install.ts";
 import { launchManagedPi, type ManagedSpawnRequest } from "../src/managed-pi/launch.ts";
-import {
-	cleanupManagedFixture,
-	directoryExists,
-	makeManagedFixture,
-	type ManagedFixture,
-} from "./managed-pi-fixtures.ts";
+import { cleanupManagedFixture, directoryExists, makeManagedFixture, type ManagedFixture } from "./managed-pi-fixtures.ts";
 
 const fixtures: ManagedFixture[] = [];
 afterAll(async () => {

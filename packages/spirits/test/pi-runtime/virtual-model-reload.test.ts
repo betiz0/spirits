@@ -8,6 +8,7 @@
  */
 
 import { expect, test } from "bun:test";
+import { fakeModel } from "../host/fake-pi.ts";
 import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { ROUTING_MODEL_ID, ROUTING_PROVIDER_ID } from "../../src/constants.ts";
 import { ALL_THINKING_LEVELS } from "../../src/routing/register.ts";
@@ -65,7 +66,7 @@ function registration(served: { count: number }) {
 		route: () => {
 			served.count++;
 			// pi reads only the provider and id of the returned model to find the catalog entry.
-			return { model: { provider: PHYSICAL_PROVIDER, id: PHYSICAL_MODEL }, thinkingLevel: "high" as const };
+			return { model: fakeModel(PHYSICAL_PROVIDER, PHYSICAL_MODEL), thinkingLevel: "high" as const };
 		},
 	};
 }

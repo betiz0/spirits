@@ -1,21 +1,12 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createCompatRunner } from "../../../scripts/managed-pi-compat/runner.ts";
 import { runRpcProbe } from "../../../scripts/managed-pi-compat/rpc.ts";
-import {
-	classifyAuthRead,
-	classifyDedicatedRead,
-	classifyDedicatedWrite,
-	classifyExternalExtensionRead,
-	classifySettingsWrite,
-	classifyWriteBackCompatibility,
-	REDACTED_AGENT_FIXTURE_DIR,
-	seedRedactedAgentFixture,
-} from "../../../scripts/managed-pi-compat/data.ts";
+import { classifyAuthRead, classifyDedicatedRead, classifyDedicatedWrite, classifyExternalExtensionRead, classifySettingsWrite, classifyWriteBackCompatibility, REDACTED_AGENT_FIXTURE_DIR, seedRedactedAgentFixture } from "../../../scripts/managed-pi-compat/data.ts";
 import { computeManagedEnv } from "../src/managed-pi/environment.ts";
-import { resolveManagedAgentPaths, ManagedAgentGuardError } from "../src/managed-pi/agent-dir.ts";
+import { ManagedAgentGuardError, resolveManagedAgentPaths } from "../src/managed-pi/agent-dir.ts";
 import { writeBundledSkills } from "../src/harness/bundled-skills/index.ts";
 import { createBundledSkills } from "../src/harness/bundled-skills/definition.ts";
 import { FAKE_RPC_PI_SCRIPT } from "./managed-pi-fixtures.ts";

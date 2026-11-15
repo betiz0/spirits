@@ -2,12 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	MANAGED_PI_EXTENSION_ASSET_NAME,
-	MANAGED_PI_MANIFEST_ASSET_NAME,
-	RELEASE_ARTIFACT_NAME,
-	THEME_ASSET_NAMES,
-} from "../src/constants.ts";
+import { MANAGED_PI_EXTENSION_ASSET_NAME, MANAGED_PI_MANIFEST_ASSET_NAME, RELEASE_ARTIFACT_NAME, THEME_ASSET_NAMES } from "../src/constants.ts";
 import { firstSupportedManifest } from "../src/managed-pi/manifest.ts";
 import { sha256Hex } from "../src/managed-pi/overlay.ts";
 import { buildManagedInputs } from "../../../scripts/build-managed-pi-inputs.ts";

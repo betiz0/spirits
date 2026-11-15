@@ -7,13 +7,14 @@
 
 import { expect, test } from "bun:test";
 import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, SKILL_COMMAND_PREFIX } from "../src/constants.ts";
+import { slashCommandInfo } from "./host/fake-pi.ts";
 import type { SlashCommandInfo } from "@earendil-works/pi-coding-agent";
 import { createRoutingPhase } from "../src/routing/phase.ts";
 import type { RoutingPhaseHooks } from "../src/routing/phase.ts";
 
 /** A phase whose host offers exactly these command names, as skills or templates. */
 function phaseWithCommands(names: readonly string[], hooks?: RoutingPhaseHooks) {
-	const commands: SlashCommandInfo[] = names.map((name) => ({ name, source: name.startsWith("skill:") ? "skill" : "prompt" }));
+	const commands: SlashCommandInfo[] = names.map((name) => slashCommandInfo(name, name.startsWith("skill:") ? "skill" : "prompt"));
 	return createRoutingPhase({ listCommands: () => commands, ...(hooks ? { hooks } : {}) });
 }
 

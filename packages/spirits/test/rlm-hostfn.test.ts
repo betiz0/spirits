@@ -6,16 +6,11 @@ import { PI_VIRTUAL_MODEL_API } from "../src/constants.ts";
 import type { HostFnEntry, HostFnScope } from "../src/repl/registry.ts";
 import { createTsreplTool } from "../src/tools.ts";
 import { DEFAULT_MAX_DEPTH } from "../src/rlm/depth.ts";
-import {
-	RLM_ABORTED_NOTICE,
-	createRlmHostFn,
-	type ChildModelResolver,
-	type SpawnFn,
-} from "../src/rlm/hostfn.ts";
+import { createRlmHostFn, RLM_ABORTED_NOTICE, type ChildModelResolver, type SpawnFn } from "../src/rlm/hostfn.ts";
 import type { RlmRunResult, RlmTokens, SpawnParams } from "../src/rlm/spawn.ts";
 import { makeScope, makeToolContext } from "./support.ts";
 
-const MODEL = { provider: "p", id: "m" };
+const MODEL = fakeModel("p", "m");
 const USAGE: RlmTokens = { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, total: 15 };
 
 class FakePi {
@@ -869,7 +864,7 @@ test("error outcome throws with cause", async () => {
 // ---------------------------------------------------------------------------
 
 /** The `spirits/auto` selection: virtual, so it must never reach a child session. */
-const AUTO: PiModel = { provider: "spirits", id: "auto", api: PI_VIRTUAL_MODEL_API };
+const AUTO: PiModel = fakeModel("spirits", "auto", { api: PI_VIRTUAL_MODEL_API });
 /** The physical model a resolver hands back. */
 const RESOLVED: PiModel = fakeModel("anthropic", "claude-sonnet-4-5");
 const NO_TOKENS = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };

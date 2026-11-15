@@ -3,15 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { FAKE_RPC_PI_SCRIPT } from "./managed-pi-fixtures.ts";
-import {
-	classifyAuxiliaryProbe,
-	classifyCellFailure,
-	classifyCellOutcome,
-	classifyNormalToolPath,
-	createProbeTsreplTool,
-	executeCapturedTsrepl,
-	NO_REACHABLE_TOOL_DEFINITION,
-} from "../../../scripts/managed-pi-compat/tsrepl.ts";
+import { classifyAuxiliaryProbe, classifyCellFailure, classifyCellOutcome, classifyNormalToolPath, createProbeTsreplTool, executeCapturedTsrepl, NO_REACHABLE_TOOL_DEFINITION } from "../../../scripts/managed-pi-compat/tsrepl.ts";
 import { runRpcProbe } from "../../../scripts/managed-pi-compat/rpc.ts";
 
 test("probe marks the bypassed path", async () => {

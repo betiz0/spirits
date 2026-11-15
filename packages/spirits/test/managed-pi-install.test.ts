@@ -2,14 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { installManagedSet } from "../src/managed-pi/install.ts";
-import {
-	managedCurrentPath,
-	managedExtensionPath,
-	managedPiDir,
-	managedReleasesDir,
-	managedSetDir,
-	readCurrentSet,
-} from "../src/managed-pi/layout.ts";
+import { managedCurrentPath, managedExtensionPath, managedPiDir, managedReleasesDir, managedSetDir, readCurrentSet } from "../src/managed-pi/layout.ts";
 import { cleanupManagedFixture, directoryExists, makeManagedFixture, type ManagedFixture } from "./managed-pi-fixtures.ts";
 
 const fixtures: ManagedFixture[] = [];

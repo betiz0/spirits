@@ -16,20 +16,7 @@ import { join, relative } from "node:path";
 import { API } from "typescript/unstable/async";
 import { SyntaxKind } from "typescript/unstable/ast";
 import type { Node, SourceFile } from "typescript/unstable/ast";
-import {
-	isArrowFunction,
-	isCallExpression,
-	isExportDeclaration,
-	isFunctionDeclaration,
-	isFunctionExpression,
-	isImportDeclaration,
-	isImportTypeNode,
-	isLiteralTypeNode,
-	isMethodDeclaration,
-	isNoSubstitutionTemplateLiteral,
-	isStringLiteral,
-	isVariableDeclaration,
-} from "typescript/unstable/ast/is";
+import { isArrowFunction, isCallExpression, isExportDeclaration, isFunctionDeclaration, isFunctionExpression, isImportDeclaration, isImportTypeNode, isLiteralTypeNode, isMethodDeclaration, isNoSubstitutionTemplateLiteral, isStringLiteral, isVariableDeclaration } from "typescript/unstable/ast/is";
 
 export interface Edge {
 	/** Absolute path of the importing file. */

@@ -1,11 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { DEFAULT_UPDATE_IDLE_TIMEOUT_SECONDS } from "../src/constants.ts";
-import {
-	UpdateIdleTimeoutError,
-	fetchWithIdleTimeout,
-	resolveIdleTimeoutMs,
-	resolveIdleTimeoutSeconds,
-} from "../src/update/timeout.ts";
+import { fetchWithIdleTimeout, resolveIdleTimeoutMs, resolveIdleTimeoutSeconds, UpdateIdleTimeoutError } from "../src/update/timeout.ts";
 
 const runningServers: Array<ReturnType<typeof Bun.serve>> = [];
 

@@ -9,6 +9,7 @@
  */
 
 import { expect, test } from "bun:test";
+import { asExtensionApi, fakeModel, slashCommandInfo } from "./host/fake-pi.ts";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { PiModel } from "../src/types/host.ts";
 import { COMMAND_SPIRITS_ROLE, ROLE_ENTRY_TYPE, STEP_ENTRY_TYPE } from "../src/constants.ts";
@@ -17,25 +18,25 @@ import { registerManagedCommands } from "../src/commands/register.ts";
 import { formatRoleStatus } from "../src/commands/role.ts";
 import type { RoleStatusReport } from "../src/commands/role.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
-import { FakePi, fakeCommandContext, makeCustomEntry } from "./routing/fake-pi.ts";
+import { fakeCommandContext, FakePi, makeCustomEntry } from "./routing/fake-pi.ts";
 
-const FAKE_MODEL: PiModel = { provider: "compat-fake", id: "fake-model", api: "openai" };
-const FAKE_STRONG: PiModel = { provider: "compat-fake", id: "fake-strong", api: "openai" };
+const FAKE_MODEL: PiModel = fakeModel("compat-fake", "fake-model", { api: "openai" });
+const FAKE_STRONG: PiModel = fakeModel("compat-fake", "fake-strong", { api: "openai" });
 const CATALOG = [FAKE_MODEL, FAKE_STRONG];
 /** The routing entry, which is what a session has to select for routing to be in force. */
-const AUTO: PiModel = { provider: "spirits", id: "auto", api: "pi-virtual" };
+const AUTO: PiModel = fakeModel("spirits", "auto", { api: "pi-virtual" });
 
 function wire(settings: Record<string, unknown>) {
 	const pi = new FakePi();
 	pi.settings = settings;
 	const phase = createRoutingPhase({
 		listCommands: () => [
-			{ name: "skill:openspec-apply-change", source: "skill" },
-			{ name: "skill:sprt-opsx-verify-deep", source: "skill" },
+			slashCommandInfo("skill:openspec-apply-change", "skill"),
+			slashCommandInfo("skill:sprt-opsx-verify-deep", "skill"),
 		],
 	});
 	// A routing that already answered one strong request, which is the state `status` reports on.
-	registerManagedCommands(pi, {
+	registerManagedCommands(asExtensionApi(pi), {
 		phase,
 		patchSettings: () => {},
 		patchSettingsPath: () => {},
@@ -211,7 +212,7 @@ test("names the settings values routing ignores", async () => {
 test("says no request has run since the last reload", async () => {
 	const pi = new FakePi();
 	pi.settings = { defaultProvider: "compat-fake", defaultModel: "fake-model" };
-	registerManagedCommands(pi, { phase: createRoutingPhase(), patchSettings: () => {} });
+	registerManagedCommands(asExtensionApi(pi), { phase: createRoutingPhase(), patchSettings: () => {} });
 
 	const report = await status(pi);
 

@@ -3,11 +3,7 @@ import { readlink } from "node:fs/promises";
 import { join } from "node:path";
 import { MANAGED_PI_MANIFEST_ASSET_NAME, SPIRITS_APP_NAME } from "../src/constants.ts";
 import { managedCurrentPath, managedInstalledStatePath } from "../src/managed-pi/layout.ts";
-import {
-	fetchManagedManifestOfRelease,
-	installManagedSetFromRelease,
-	runManagedInstallFromRelease,
-} from "../src/managed-pi/release-assets.ts";
+import { fetchManagedManifestOfRelease, installManagedSetFromRelease, runManagedInstallFromRelease } from "../src/managed-pi/release-assets.ts";
 import { releaseTagForVersion } from "../src/update/release.ts";
 import { makeReleaseFixture, stopManagedReleaseFixtures } from "./managed-pi-release-fixtures.ts";
 

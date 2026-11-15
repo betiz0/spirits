@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
+import { callableTool, fakeToolCall } from "./host/fake-pi.ts";
 import { readFile, rm } from "node:fs/promises";
-import { Repl, type ReplOptions, resolveCellTimeouts } from "../src/repl/cell.ts";
+import { Repl, resolveCellTimeouts, type ReplOptions } from "../src/repl/cell.ts";
 import { HostFnRegistry } from "../src/repl/registry.ts";
 import { createBuiltinHostFns, createShHostFn } from "../src/repl/hostfns.ts";
 import { makeToolContext } from "./support.ts";
@@ -243,11 +244,11 @@ test("cell metrics distinguish timeouts", async () => {
 
 test("cell metrics record tool calls", async () => {
 	const ctx = makeToolContext({
-		tools: [{ name: "sh", outputSchema: { type: "object" } }],
+		tools: [callableTool("sh", { outputSchema: { type: "object" } })],
 		executeTool: async (name) =>
 			name === "sh"
 				? {
-						toolCall: {},
+						toolCall: fakeToolCall("nested"),
 						result: {
 							content: [{ type: "text", text: "boom" }],
 							details: undefined,
@@ -256,7 +257,7 @@ test("cell metrics record tool calls", async () => {
 						isError: true,
 					}
 					: {
-							toolCall: {},
+							toolCall: fakeToolCall("nested"),
 							result: { content: [{ type: "text", text: `unknown tool ${name}` }], details: undefined },
 							isError: true,
 						},
@@ -424,9 +425,9 @@ test("timeout message not misclassified", async () => {
 // change add-action-surface-guard: `sh` is measured as the tool that ran, not as its own name.
 test("sh host fn records", async () => {
 	const ctx = makeToolContext({
-		tools: [{ name: "bash", outputSchema: { type: "object" } }],
+		tools: [callableTool("bash", { outputSchema: { type: "object" } })],
 		executeTool: async () => ({
-			toolCall: {},
+			toolCall: fakeToolCall("nested"),
 			result: {
 				content: [{ type: "text", text: "one\n" }],
 				details: undefined,

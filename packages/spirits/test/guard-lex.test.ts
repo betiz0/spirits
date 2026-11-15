@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { lex, type LexedCommand, type LexResult, stdoutTargets } from "../src/guard/lex.ts";
+import { lex, stdoutTargets, type LexedCommand, type LexResult } from "../src/guard/lex.ts";
 
 /** Words of the nth command, as plain strings. */
 function words(result: LexResult, index = 0): string[] {

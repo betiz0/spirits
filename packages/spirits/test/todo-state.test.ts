@@ -1,16 +1,7 @@
 import { expect, test } from "bun:test";
+import { customEntry, messageEntry, nextEntryId, userMessage } from "./host/fake-pi.ts";
 import type { CustomEntry, SessionEntry, SessionMessageEntry } from "@earendil-works/pi-coding-agent";
-import {
-	applyTodoUpdates,
-	BLANK_TEXT_REASON,
-	EMPTY_UPDATES_REASON,
-	emptyTodoSnapshot,
-	resolveTodoSnapshot,
-	TODO_ENTRY_TYPE,
-	UPDATE_FIELDS_REASON,
-	unknownIdReason,
-	type TodoSnapshot,
-} from "../src/todo/state.ts";
+import { applyTodoUpdates, BLANK_TEXT_REASON, EMPTY_UPDATES_REASON, emptyTodoSnapshot, resolveTodoSnapshot, TODO_ENTRY_TYPE, type TodoSnapshot, unknownIdReason, UPDATE_FIELDS_REASON } from "../src/todo/state.ts";
 
 class FakeSessionManager {
 	readonly #branch: readonly SessionEntry[];
@@ -31,15 +22,15 @@ class FakeSessionManager {
 }
 
 function todoEntry(data: unknown): CustomEntry {
-	return { type: "custom", customType: TODO_ENTRY_TYPE, data };
+	return customEntry(TODO_ENTRY_TYPE, data, nextEntryId());
 }
 
 function goalEntry(goal: string): CustomEntry {
-	return { type: "custom", customType: "spirits_goal", data: { goal } };
+	return customEntry("spirits_goal", { goal }, nextEntryId());
 }
 
 function userEntry(text: string): SessionMessageEntry {
-	return { type: "message", message: { role: "user", content: text } };
+	return messageEntry(userMessage(text), nextEntryId());
 }
 
 const ONE_TWO: TodoSnapshot = {

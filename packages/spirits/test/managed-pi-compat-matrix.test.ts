@@ -1,16 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-	clearPurposeObservations,
-	deriveRows,
-	matrixRows,
-	modelPurposeObservations,
-	observePurpose,
-	purposesFor,
-	rolePurposeObservations,
-	roleStatusObservation,
-	validateMatrix,
-	validatePurposeObservations,
-} from "../../../scripts/managed-pi-compat/matrix.ts";
+import { clearPurposeObservations, deriveRows, matrixRows, modelPurposeObservations, observePurpose, purposesFor, rolePurposeObservations, roleStatusObservation, validateMatrix, validatePurposeObservations } from "../../../scripts/managed-pi-compat/matrix.ts";
 
 const STRONG_ATTEMPT = {
 	attempted: true,

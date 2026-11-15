@@ -9,6 +9,7 @@
  */
 
 import { expect, test } from "bun:test";
+import { asExtensionApi, customEntry, fakeModel, nextEntryId, slashCommandInfo } from "./host/fake-pi.ts";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { PiModel } from "../src/types/host.ts";
 import { COMMAND_SPIRITS_ROLE, ROLE_ENTRY_TYPE, STEP_ENTRY_TYPE } from "../src/constants.ts";
@@ -16,10 +17,10 @@ import { registerManagedCommands } from "../src/commands/register.ts";
 import { parseRoleCommand, resolveModelTarget } from "../src/commands/role.ts";
 import type { SettingsPatch, SettingsPath } from "../src/commands/settings-store.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
-import { FakePi, fakeCommandContext } from "./routing/fake-pi.ts";
+import { fakeCommandContext, FakePi } from "./routing/fake-pi.ts";
 
-const FAKE_MODEL: PiModel = { provider: "compat-fake", id: "fake-model", name: "Fake", api: "openai" };
-const FAKE_STRONG: PiModel = { provider: "compat-fake", id: "fake-strong", name: "Fake Strong", api: "openai" };
+const FAKE_MODEL: PiModel = fakeModel("compat-fake", "fake-model", { name: "Fake", api: "openai" });
+const FAKE_STRONG: PiModel = fakeModel("compat-fake", "fake-strong", { name: "Fake Strong", api: "openai" });
 const CATALOG = [FAKE_MODEL, FAKE_STRONG];
 
 /** One wiring of the command surface, with both settings writers replaced by recorders. */
@@ -28,7 +29,7 @@ function wire(branch: readonly SessionEntry[] = []) {
 	const phase = createRoutingPhase();
 	const flat: SettingsPatch[] = [];
 	const paths: Array<{ path: SettingsPath; value: unknown }> = [];
-	registerManagedCommands(pi, {
+	registerManagedCommands(asExtensionApi(pi), {
 		phase,
 		patchSettings: (patch) => flat.push(patch),
 		patchSettingsPath: (path, value) => paths.push({ path, value }),
@@ -119,7 +120,7 @@ test("a model reference keeps its spaces", () => {
 // spec scenarios "空白を含むモデル参照" and "ID に空白を含む": the reference runs to the end of the
 // line, and the resolution matches it against `provider/id` and the id, not against the display name.
 test("resolves and saves a model whose id has spaces", async () => {
-	const spaced: PiModel = { provider: "Local", id: "Qwen3.8 Flash Next", api: "openai" };
+	const spaced: PiModel = fakeModel("Local", "Qwen3.8 Flash Next", { api: "openai" });
 	const { pi, paths } = wire();
 
 	const { notices } = await run(pi, "normal model Local/Qwen3.8 Flash Next", { available: [spaced] });
@@ -129,7 +130,7 @@ test("resolves and saves a model whose id has spaces", async () => {
 
 	// A model whose display name has the spaces but whose id does not is not reachable by that name: the
 	// rule matches the id, as the retired model-selection command did (design Decision 7).
-	const namedOnly: PiModel = { provider: "Local", id: "qwen3.8-flash-next", name: "Qwen3.8 Flash Next", api: "openai" };
+	const namedOnly: PiModel = fakeModel("Local", "qwen3.8-flash-next", { name: "Qwen3.8 Flash Next", api: "openai" });
 	const named = wire();
 	const refused = await run(named.pi, "normal model Qwen3.8 Flash Next", { available: [namedOnly] });
 	expect(named.paths).toEqual([]);
@@ -197,8 +198,8 @@ test("a role lock records the session entry and saves the default role", async (
 // step record the routing layer keeps has to say the same thing the phase does.
 test("a role lock ends the running step", async () => {
 	const pi = new FakePi();
-	const phase = createRoutingPhase({ listCommands: () => [{ name: "skill:openspec-apply-change", source: "skill" }] });
-	registerManagedCommands(pi, { phase, patchSettings: () => {}, patchSettingsPath: () => {} });
+	const phase = createRoutingPhase({ listCommands: () => [slashCommandInfo("skill:openspec-apply-change", "skill")] });
+	registerManagedCommands(asExtensionApi(pi), { phase, patchSettings: () => {}, patchSettingsPath: () => {} });
 
 	// The routing layer's own `input` handler feeds the phase; the command surface only ends steps.
 	phase.handleInput("/skill:openspec-apply-change x");
@@ -277,7 +278,7 @@ test("refuses an ambiguous reference", async () => {
 // The routing entry routes requests instead of answering them, so it can never be a role target. The
 // test reads the api, not the name: a routing entry called anything else is still excluded.
 test("the routing model is never a role target", () => {
-	const routing: PiModel = { provider: "other", id: "router", api: "pi-virtual" };
+	const routing: PiModel = fakeModel("other", "router", { api: "pi-virtual" });
 	expect(resolveModelTarget([routing, FAKE_MODEL], "other/router")).toHaveProperty("error");
 	expect(resolveModelTarget([routing, FAKE_MODEL], "fake-model")).toEqual({ model: FAKE_MODEL });
 });
@@ -290,7 +291,7 @@ test("reloads last", async () => {
 	const order: string[] = [];
 	const pi = new FakePi();
 	const phase = createRoutingPhase();
-	registerManagedCommands(pi, {
+	registerManagedCommands(asExtensionApi(pi), {
 		phase,
 		patchSettings: () => order.push("write"),
 	});
@@ -320,7 +321,7 @@ test("a role lock draws the badge before the reload", async () => {
 	const order: string[] = [];
 	const pi = new FakePi();
 	const phase = createRoutingPhase();
-	registerManagedCommands(pi, {
+	registerManagedCommands(asExtensionApi(pi), {
 		phase,
 		badge: { update: (role) => order.push(`badge:${role}`) },
 		patchSettings: () => order.push("write"),
@@ -347,7 +348,7 @@ test("a role lock draws the badge before the reload", async () => {
 test("keeps the session lock when the settings write fails", async () => {
 	const pi = new FakePi();
 	const phase = createRoutingPhase();
-	registerManagedCommands(pi, {
+	registerManagedCommands(asExtensionApi(pi), {
 		phase,
 		patchSettings: () => {
 			throw new Error("the file is locked");
@@ -367,7 +368,7 @@ test("keeps the session lock when the settings write fails", async () => {
 test("a failed settings write for a step is reported the same way", async () => {
 	const pi = new FakePi();
 	const phase = createRoutingPhase();
-	registerManagedCommands(pi, {
+	registerManagedCommands(asExtensionApi(pi), {
 		phase,
 		patchSettingsPath: () => {
 			throw new Error("EACCES: permission denied");
@@ -388,10 +389,10 @@ test("a failed settings write for a step is reported the same way", async () => 
 test("a reload restores the step the session recorded", async () => {
 	const pi = new FakePi();
 	const phase = createRoutingPhase();
-	registerManagedCommands(pi, { phase, patchSettings: () => {} });
+	registerManagedCommands(asExtensionApi(pi), { phase, patchSettings: () => {} });
 	const branch: SessionEntry[] = [
-		{ type: "custom", customType: ROLE_ENTRY_TYPE, data: { role: "strong" } },
-		{ type: "custom", customType: STEP_ENTRY_TYPE, data: { step: "opsx-apply" } },
+		customEntry(ROLE_ENTRY_TYPE, { role: "strong" }, nextEntryId()),
+		customEntry(STEP_ENTRY_TYPE, { step: "opsx-apply" }, nextEntryId()),
 	];
 
 	await run(pi, "", { branch, mode: "rpc" });
@@ -404,8 +405,8 @@ test("a reload restores the step the session recorded", async () => {
 test("a start that is not a reload restores no step", async () => {
 	const pi = new FakePi();
 	const phase = createRoutingPhase();
-	registerManagedCommands(pi, { phase, patchSettings: () => {} });
-	const branch: SessionEntry[] = [{ type: "custom", customType: STEP_ENTRY_TYPE, data: { step: "opsx-apply" } }];
+	registerManagedCommands(asExtensionApi(pi), { phase, patchSettings: () => {} });
+	const branch: SessionEntry[] = [customEntry(STEP_ENTRY_TYPE, { step: "opsx-apply" }, nextEntryId())];
 
 	await pi.fire("session_start", { type: "session_start", reason: "resume" }, fakeCommandContext({ branch }).ctx);
 

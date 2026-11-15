@@ -1,23 +1,9 @@
 import { expect, test } from "bun:test";
+import { customEntry, nextEntryId } from "./host/fake-pi.ts";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	classifyAutoChild,
-	classifyChildAbort,
-	classifyChildAnswer,
-	classifyChildCreation,
-	classifyChildUsage,
-	classifyFixtureInsufficiency,
-	classifyPhysicalChild,
-	fixtureProvidesChildTarget,
-	isFixtureInsufficiency,
-	isVirtualRequestedModel,
-	rlmUsageOutcome,
-	writeRlmFixture,
-	type AutoChildObservation,
-	type ChildAbortObservation,
-} from "../../../scripts/managed-pi-compat/rlm.ts";
+import { classifyAutoChild, classifyChildAbort, classifyChildAnswer, classifyChildCreation, classifyChildUsage, classifyFixtureInsufficiency, classifyPhysicalChild, fixtureProvidesChildTarget, isFixtureInsufficiency, isVirtualRequestedModel, rlmUsageOutcome, type AutoChildObservation, type ChildAbortObservation, writeRlmFixture } from "../../../scripts/managed-pi-compat/rlm.ts";
 
 /**
  * The `rlm auto parent` observation of a dedicated-Pi run whose fixture offered a child target, with
@@ -275,8 +261,8 @@ test("an abort that was never sent is not-run with its reason", () => {
 test("rlm_usage outcome is read from the entry payload", () => {
 	// pi.appendEntry stores the payload under `data`, so a check on entry.outcome never matches and
 	// silently turns a recorded abort into an unobserved one.
-	expect(rlmUsageOutcome({ type: "custom", customType: "rlm_usage", data: { outcome: "aborted" } })).toBe("aborted");
-	expect(rlmUsageOutcome({ type: "custom", customType: "rlm_usage", data: null })).toBeUndefined();
+	expect(rlmUsageOutcome(customEntry("rlm_usage", { outcome: "aborted" }, nextEntryId()))).toBe("aborted");
+	expect(rlmUsageOutcome(customEntry("rlm_usage", null, nextEntryId()))).toBeUndefined();
 	expect(rlmUsageOutcome({ type: "custom", customType: "rlm_usage" })).toBeUndefined();
 	expect(rlmUsageOutcome({ outcome: "error" })).toBe("error");
 });

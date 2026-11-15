@@ -1,18 +1,19 @@
 import type { ExtensionContext, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import type { CallableToolInfo, ExtensionModelRegistry, ReadonlySessionManager } from "../src/types/host.ts";
+import { fakeModelRegistry, fakeProjection, fakeSessionManager, fakeToolCallOutcome, fakeToolContext, fakeUi } from "./host/fake-pi.ts";
 import type { HostFnScope } from "../src/repl/registry.ts";
 import type { ToolCallRecord } from "../src/repl/metrics.ts";
 
-const EMPTY_SESSION_MANAGER: ReadonlySessionManager = {
+const EMPTY_SESSION_MANAGER: ReadonlySessionManager = fakeSessionManager({
 	getBranch: () => [],
-	buildSessionProjection: () => ({ entries: [], messages: [] }),
-};
+	buildSessionProjection: () => fakeProjection(),
+});
 
-const EMPTY_MODEL_REGISTRY: ExtensionModelRegistry = {
+const EMPTY_MODEL_REGISTRY: ExtensionModelRegistry = fakeModelRegistry({
 	getAvailable: () => [],
 	find: () => undefined,
 	hasConfiguredAuth: () => false,
-};
+});
 
 /** Build an `ExtensionToolContext` good enough for REPL tests. */
 export function makeToolContext(
@@ -23,31 +24,29 @@ export function makeToolContext(
 		thinkingLevel?: ExtensionToolContext["thinkingLevel"];
 		executeTool?: ExtensionToolContext["executeTool"];
 		tools?: readonly CallableToolInfo[];
-		sessionManager?: ReadonlySessionManager;
+		sessionManager?: object;
 	} = {},
 ): ExtensionToolContext {
-	return {
-		ui: {
+	return fakeToolContext({
+		ui: fakeUi({
 			setHeader: () => {},
 			setWidget: () => {},
 			setStatus: () => {},
 			notify: () => {},
-			// A tool context never opens a custom screen, so the one method the mirror requires is a no-op
+			// A tool context never opens a custom screen, so the one method a test could reach is a no-op
 			// that resolves with nothing, which is what a closed screen reports.
-			custom: <T>(): Promise<T> => Promise.resolve(undefined as T),
-		},
+			custom: <T,>(): Promise<T> => Promise.resolve(undefined as T),
+		}),
 		mode: "tui",
 		cwd: options.cwd ?? process.cwd(),
 		signal: options.signal,
 		model: options.model,
 		thinkingLevel: options.thinkingLevel,
-		sessionManager: options.sessionManager ?? EMPTY_SESSION_MANAGER,
+		sessionManager: fakeSessionManager(options.sessionManager ?? EMPTY_SESSION_MANAGER),
 		modelRegistry: EMPTY_MODEL_REGISTRY,
 		tools: options.tools ?? [],
-		executeTool:
-			options.executeTool ??
-			(async () => ({ toolCall: {}, result: { content: [], details: undefined }, isError: false })),
-	};
+		executeTool: options.executeTool ?? (async () => fakeToolCallOutcome()),
+	});
 }
 
 /**

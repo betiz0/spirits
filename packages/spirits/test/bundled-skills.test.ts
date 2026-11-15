@@ -1,16 +1,11 @@
 import { expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, readFile, readdir, stat, utimes, writeFile } from "node:fs/promises";
+import { asExtensionApi } from "./host/fake-pi.ts";
+import { chmod, mkdir, mkdtemp, readdir, readFile, stat, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ExtensionAPI, ResourcesDiscoverResult } from "@earendil-works/pi-coding-agent";
 import { createBundledSkills } from "../src/harness/bundled-skills/definition.ts";
-import {
-	registerBundledSkills,
-	resolveBundledSkillsVersion,
-	validateBundledSkills,
-	writeBundledSkills,
-	type BundledSkill,
-} from "../src/harness/bundled-skills/index.ts";
+import { registerBundledSkills, resolveBundledSkillsVersion, type BundledSkill, validateBundledSkills, writeBundledSkills } from "../src/harness/bundled-skills/index.ts";
 import { bundledSkillsDir, bundledSkillsVersionDir, skillsDir } from "../src/harness/paths.ts";
 import { formatSkillsForPrompt, loadSkills } from "./pi-runtime/load-skills.ts";
 
@@ -53,7 +48,7 @@ function captureResourcesHandlers(
 			return () => {};
 		},
 	} as unknown as ExtensionAPI;
-	registerBundledSkills(pi, { agentDir, ...options });
+	registerBundledSkills(asExtensionApi(pi), { agentDir, ...options });
 	return handlers;
 }
 

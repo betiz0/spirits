@@ -2,12 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	assertManagedLaunchArgs,
-	ensureManagedAgentDir,
-	ManagedAgentGuardError,
-	resolveManagedAgentPaths,
-} from "../src/managed-pi/agent-dir.ts";
+import { assertManagedLaunchArgs, ensureManagedAgentDir, ManagedAgentGuardError, resolveManagedAgentPaths } from "../src/managed-pi/agent-dir.ts";
 
 interface Workspace {
 	work: string;

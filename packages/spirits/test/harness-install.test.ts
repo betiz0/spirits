@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { asExtensionApi, fakeBeforeAgentStartEvent, fakeSystemPromptOptions } from "./host/fake-pi.ts";
 import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -9,7 +10,7 @@ import { registerContinualHarness } from "../src/harness/install.ts";
 import { memoryDir, notesPath, promptOverridePath } from "../src/harness/paths.ts";
 import { makeScope, makeToolContext, type RecordedShortcut } from "./support.ts";
 
-class FakePi implements ExtensionAPI {
+class FakePi {
 	readonly tools: ToolDefinition[] = [];
 	readonly entries: Array<{ customType: string; data: unknown }> = [];
 	/** Shortcuts registered through `registerShortcut()`, keyed by the key id as registered. */
@@ -94,11 +95,10 @@ async function writeMemoryFile(agentDir: string, name: string, content: string):
 }
 
 function makeEvent(): BeforeAgentStartEvent {
-	return {
-		type: "before_agent_start",
+	return fakeBeforeAgentStartEvent({
 		prompt: "hello",
-		systemPromptOptions: { sections: {} },
-	};
+		systemPromptOptions: fakeSystemPromptOptions({ sections: {} }),
+	});
 }
 
 async function fire(pi: FakePi, event: BeforeAgentStartEvent): Promise<void> {
@@ -110,7 +110,7 @@ async function fire(pi: FakePi, event: BeforeAgentStartEvent): Promise<void> {
 test("registers four codemode tools", async () => {
 	const agentDir = await makeAgentDir();
 	const pi = new FakePi();
-	registerContinualHarness(pi, { agentDir, env: {} });
+	registerContinualHarness(asExtensionApi(pi), { agentDir, env: {} });
 	expect(pi.tools.map((tool) => tool.name)).toEqual([
 		"spirits_skill_save",
 		"spirits_skill_list",
@@ -122,14 +122,14 @@ test("registers four codemode tools", async () => {
 
 test("returns goal and note host fns", async () => {
 	const agentDir = await makeAgentDir();
-	const hostFns = registerContinualHarness(new FakePi(), { agentDir, env: {} });
+	const hostFns = registerContinualHarness(asExtensionApi(new FakePi()), { agentDir, env: {} });
 	expect(hostFns.map((entry) => entry.name)).toEqual(["goal", "note"]);
 });
 
 test("before_agent_start adds spirits section", async () => {
 	const agentDir = await makeAgentDir();
 	const pi = new FakePi();
-	registerContinualHarness(pi, { agentDir, env: {} });
+	registerContinualHarness(asExtensionApi(pi), { agentDir, env: {} });
 	const event = makeEvent();
 	await fire(pi, event);
 	const section = event.systemPromptOptions.sections["spirits"] ?? "";
@@ -142,7 +142,7 @@ test("before_agent_start adds memory section", async () => {
 	const agentDir = await makeAgentDir();
 	await writeMemoryFile(agentDir, "notes.md", "- memory-marker\n");
 	const pi = new FakePi();
-	registerContinualHarness(pi, { agentDir, env: {} });
+	registerContinualHarness(asExtensionApi(pi), { agentDir, env: {} });
 	const event = makeEvent();
 	await fire(pi, event);
 	expect(event.systemPromptOptions.sections["spirits_memory"]).toContain("memory-marker");
@@ -151,7 +151,7 @@ test("before_agent_start adds memory section", async () => {
 test("before_agent_start keeps other sections", async () => {
 	const agentDir = await makeAgentDir();
 	const pi = new FakePi();
-	registerContinualHarness(pi, { agentDir, env: {} });
+	registerContinualHarness(asExtensionApi(pi), { agentDir, env: {} });
 	const event = makeEvent();
 	event.systemPromptOptions.sections["rules"] = "keep me";
 	event.systemPromptOptions.forceSystemPrompt = "fixed prompt";
@@ -163,7 +163,7 @@ test("before_agent_start keeps other sections", async () => {
 test("omits memory section without files", async () => {
 	const agentDir = await makeAgentDir();
 	const pi = new FakePi();
-	registerContinualHarness(pi, { agentDir, env: {} });
+	registerContinualHarness(asExtensionApi(pi), { agentDir, env: {} });
 	const event = makeEvent();
 	await fire(pi, event);
 	expect("spirits_memory" in event.systemPromptOptions.sections).toBe(false);
@@ -175,7 +175,7 @@ test("uses override in section", async () => {
 	await mkdir(path.dirname(override), { recursive: true });
 	await writeFile(override, "custom prompt");
 	const pi = new FakePi();
-	registerContinualHarness(pi, { agentDir, env: {} });
+	registerContinualHarness(asExtensionApi(pi), { agentDir, env: {} });
 	const event = makeEvent();
 	await fire(pi, event);
 	expect(event.systemPromptOptions.sections["spirits"]).toBe("custom prompt");
@@ -185,7 +185,7 @@ test("memory limits from env", async () => {
 	const agentDir = await makeAgentDir();
 	await writeMemoryFile(agentDir, "a.md", `${"x".repeat(5000)}\n`);
 	const pi = new FakePi();
-	registerContinualHarness(pi, { agentDir, env: { SPIRITS_MEMORY_CHAR_LIMIT: "300" } });
+	registerContinualHarness(asExtensionApi(pi), { agentDir, env: { SPIRITS_MEMORY_CHAR_LIMIT: "300" } });
 	const event = makeEvent();
 	await fire(pi, event);
 	expect(event.systemPromptOptions.sections["spirits_memory"]?.length).toBeLessThanOrEqual(300);
@@ -196,7 +196,7 @@ test("handler survives unreadable memory", async () => {
 	await writeMemoryFile(agentDir, "ok.md", "readable-line\n");
 	await symlink(path.join(agentDir, "missing-target"), path.join(memoryDir(agentDir), "x.md"));
 	const pi = new FakePi();
-	registerContinualHarness(pi, { agentDir, env: {} });
+	registerContinualHarness(asExtensionApi(pi), { agentDir, env: {} });
 	const event = makeEvent();
 	await fire(pi, event);
 	const memory = event.systemPromptOptions.sections["spirits_memory"] ?? "";
@@ -212,7 +212,7 @@ test("relative agent dir yields absolute paths", async () => {
 		const relative = path.join("sub", "agent");
 		await writeMemoryFile(relative, "notes.md", "- relative-marker\n");
 		const pi = new FakePi();
-		const hostFns = registerContinualHarness(pi, { agentDir: relative, env: {} });
+		const hostFns = registerContinualHarness(asExtensionApi(pi), { agentDir: relative, env: {} });
 		const event = makeEvent();
 		await fire(pi, event);
 		const memory = event.systemPromptOptions.sections["spirits_memory"] ?? "";

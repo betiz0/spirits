@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { ExtensionContext, ModelRouteRequest } from "@earendil-works/pi-coding-agent";
 import type { PiModel } from "../src/types/host.ts";
-import { fakeModel } from "./host/fake-pi.ts";
+import { fakeModel, slashCommandInfo } from "./host/fake-pi.ts";
 import type { RoutingSettings } from "../src/config.ts";
 import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG } from "../src/constants.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
@@ -16,9 +16,10 @@ const STRONG_SPEC = { provider: "anthropic", modelId: "claude-opus-4-7" };
 
 function makeRequest(overrides: Partial<ModelRouteRequest> = {}): ModelRouteRequest {
 	return {
-		model: { provider: "spirits", id: "auto" },
+		model: fakeModel("spirits", "auto"),
 		thinkingLevel: "high",
 		reason: "user",
+		messages: [],
 		...overrides,
 	};
 }
@@ -212,7 +213,7 @@ test("carries the resolved thinking level", () => {
 
 // A step's own level is the narrowest claim, so it wins over both role settings.
 test("carries the step thinking level", () => {
-	const phase = createRoutingPhase({ listCommands: () => [{ name: "skill:openspec-apply-change", source: "skill" }] });
+	const phase = createRoutingPhase({ listCommands: () => [slashCommandInfo("skill:openspec-apply-change", "skill")] });
 	const harness = createHarness({
 		settings: { ...DEFAULTS, thinking: { normal: "low" }, steps: { "opsx-apply": { thinking: "xhigh" } } },
 		available: [SONNET],

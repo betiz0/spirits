@@ -10,24 +10,18 @@
 import { expect, test } from "bun:test";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { PiModel } from "../src/types/host.ts";
-import { fakeModel } from "./host/fake-pi.ts";
+import { fakeModel, slashCommandInfo } from "./host/fake-pi.ts";
 import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, PI_VIRTUAL_MODEL_API, SKILL_COMMAND_PREFIX } from "../src/constants.ts";
 import type { RoutingSettings } from "../src/config.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
 import { createChildModelResolver } from "../src/routing/child.ts";
-import {
-	AUTO_SELECTION,
-	fakeToolContext,
-	makeAssistantEntry,
-	makeInputEvent,
-	makeUserEntry,
-} from "./routing/fake-pi.ts";
+import { AUTO_SELECTION, fakeToolContext, makeAssistantEntry, makeInputEvent, makeUserEntry } from "./routing/fake-pi.ts";
 
 const SONNET: PiModel = fakeModel("anthropic", "claude-sonnet-4-5");
 const OPUS: PiModel = fakeModel("anthropic", "claude-opus-4-7");
 const LUNA: PiModel = fakeModel("openai", "gpt-5.6-luna");
 /** A virtual model registered by someone else: spirits never routes it, so a child cannot run it. */
-const FOREIGN_VIRTUAL: PiModel = { provider: "other", id: "router", api: PI_VIRTUAL_MODEL_API };
+const FOREIGN_VIRTUAL: PiModel = fakeModel("other", "router", { api: PI_VIRTUAL_MODEL_API });
 
 /** Settings with both targets configured. */
 const SETTINGS: RoutingSettings = {
@@ -41,7 +35,7 @@ const SETTINGS: RoutingSettings = {
  * `readSettings` is a live read, so a settings edit between two children shows up in the next one.
  */
 /** The command list of a session that has the deep-verify skill, which is what opens its step. */
-const DEEP_VERIFY_COMMANDS = [{ name: "skill:sprt-opsx-verify-deep", source: "skill" as const }];
+const DEEP_VERIFY_COMMANDS = [slashCommandInfo("skill:sprt-opsx-verify-deep", "skill")];
 
 function harness(options: { settings?: RoutingSettings; branch?: readonly SessionEntry[] } = {}) {
 	let settings = options.settings ?? SETTINGS;

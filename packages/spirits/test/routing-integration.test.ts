@@ -6,13 +6,8 @@
 import { expect, test } from "bun:test";
 import type { ModelRoute } from "@earendil-works/pi-coding-agent";
 import type { PiModel } from "../src/types/host.ts";
-import { fakeModel } from "./host/fake-pi.ts";
-import {
-	MODEL_ROLE_NORMAL,
-	MODEL_ROLE_STRONG,
-	ROLE_STATUS_KEY,
-	SKILL_COMMAND_PREFIX,
-} from "../src/constants.ts";
+import { asExtensionApi, fakeModel, slashCommandInfo } from "./host/fake-pi.ts";
+import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, ROLE_STATUS_KEY, SKILL_COMMAND_PREFIX } from "../src/constants.ts";
 import spiritsExtension from "../src/index.ts";
 import { createRoleBadge } from "../src/commands/role.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
@@ -26,8 +21,8 @@ function harness() {
 	const pi = new FakePi();
 	// The skills these runs start with, as pi would report them.
 	pi.slashCommands = [
-		{ name: "skill:sprt-opsx-verify-deep", source: "skill" },
-		{ name: "skill:sprt-opsx-review-change", source: "skill" },
+		slashCommandInfo("skill:sprt-opsx-verify-deep", "skill"),
+		slashCommandInfo("skill:sprt-opsx-review-change", "skill"),
 	];
 	pi.settings = {
 		defaultProvider: "anthropic",
@@ -37,8 +32,8 @@ function harness() {
 	// The two layers `src/index.ts` joins, so a test can lock the role the way `/spirits-role <role>`
 	// does without writing a settings file.
 	const badge = createRoleBadge();
-	const routing = registerReportedRouting(pi, { onRole: (role, ctx) => badge.update(role, ctx) });
-	registerManagedCommands(pi, { phase: routing.phase, badge, lastRequest: () => undefined, patchSettings: () => {} });
+	const routing = registerReportedRouting(asExtensionApi(pi), { onRole: (role, ctx) => badge.update(role, ctx) });
+	registerManagedCommands(asExtensionApi(pi), { phase: routing.phase, badge, lastRequest: () => undefined, patchSettings: () => {} });
 	const { ctx, notices } = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"] });
 	const decision = () => {
 		const route = pi.route()(makeRequest(), ctx) as { model: PiModel };
@@ -71,13 +66,13 @@ test("runs normal, then strong during the skill, then normal after settle", asyn
 // the status line — not the lock the session happens to hold.
 test("the badge shows the role that answered the request", async () => {
 	const pi = new FakePi();
-	pi.slashCommands = [{ name: "skill:sprt-opsx-verify-deep", source: "skill" }];
+	pi.slashCommands = [slashCommandInfo("skill:sprt-opsx-verify-deep", "skill")];
 	pi.settings = {
 		defaultProvider: "anthropic",
 		defaultModel: "claude-sonnet-4-5",
 		models: { strong: "anthropic/claude-opus-4-7" },
 	};
-	spiritsExtension(pi);
+	spiritsExtension(asExtensionApi(pi));
 	const { ctx, statuses } = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"] });
 
 	expect(statuses.get(ROLE_STATUS_KEY)).toBeUndefined();

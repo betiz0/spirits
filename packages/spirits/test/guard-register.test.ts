@@ -2,6 +2,7 @@
  * The `tool_call` handler: what it blocks, what it leaves alone, and what it puts in the reason.
  */
 import { expect, test } from "bun:test";
+import { asExtensionApi } from "./host/fake-pi.ts";
 import type { ExtensionContext, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
 import { ENV_ACTION_GUARD } from "../src/constants.ts";
 import { registerBashGuard } from "../src/guard/register.ts";
@@ -30,7 +31,7 @@ function guarded(options: {
 	pi?: FakePi;
 }): { pi: FakePi; decide: (event: unknown, ctx?: ExtensionContext) => Promise<ToolCallEventResult | undefined> } {
 	const pi = options.pi ?? new FakePi();
-	registerBashGuard(pi, { env: options.env ?? { [ENV_ACTION_GUARD]: "enforce" } });
+	registerBashGuard(asExtensionApi(pi), { env: options.env ?? { [ENV_ACTION_GUARD]: "enforce" } });
 	const handler = pi.handlers.get("tool_call")?.[0];
 	if (handler === undefined) throw new Error("the guard subscribed no tool_call handler");
 	return {

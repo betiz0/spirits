@@ -9,29 +9,37 @@
  */
 
 import { expect, test } from "bun:test";
+import { asExtensionApi, assistantMessage, fakeCompactEvent, fakeCompactionPreparation, systemMessage, userMessage } from "./host/fake-pi.ts";
 import type { ContextEventResult, ExtensionCommandContext, SessionBeforeCompactEvent, SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { AgentMessage } from "../src/types/host.ts";
+import type { AgentMessage, AssistantMessage, UserMessage } from "../src/types/host.ts";
 import { CLEAR_ENTRY_TYPE, COMMAND_SPIRITS_CLEAR } from "../src/constants.ts";
 import { boundaryCompactionResult, clearedMessageCount } from "../src/commands/clear.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
 import { SessionManager } from "./pi-runtime/session-manager.ts";
-import { FakePi, fakeCommandContext } from "./routing/fake-pi.ts";
+import { fakeCommandContext, FakePi } from "./routing/fake-pi.ts";
+import { fakeCommandContext as hostCommandContext } from "./host/fake-pi.ts";
 
-/** A user turn, as pi stores it. */
-function ask(text: string): AgentMessage {
-	return { role: "user", content: text };
+/**
+ * One turn of a conversation.
+ *
+ * pi's session takes a message it can store, which is narrower than the union a context event reports:
+ * the report also carries the records pi puts beside the conversation. The builders therefore hand back
+ * the role's own type, which both places accept.
+ */
+function ask(text: string): UserMessage {
+	return userMessage(text);
 }
 
 /** An assistant turn, as pi stores it. */
-function reply(text: string): AgentMessage {
-	return { role: "assistant", content: text };
+function reply(text: string): AssistantMessage {
+	return assistantMessage(text);
 }
 
 /** A session with the system prompt pi puts in front of every conversation. */
 function session(): SessionManager {
 	const sessionManager = SessionManager.inMemory(process.cwd());
-	sessionManager.appendMessage({ role: "system", content: "system prompt and tool loadout" });
+	sessionManager.appendMessage(systemMessage("system prompt and tool loadout"));
 	return sessionManager;
 }
 
@@ -44,7 +52,7 @@ function lastTurnId(sessionManager: SessionManager): string {
 /** The context of a command: a real pi session behind pi's own command context shape. */
 function commandContext(sessionManager: SessionManager): ExtensionCommandContext {
 	const base = fakeCommandContext();
-	return { ...base.ctx, sessionManager } as unknown as ExtensionCommandContext;
+	return hostCommandContext({ ...base.ctx, sessionManager });
 }
 
 /** The command surface wired to a real pi session, the way pi wires `pi.appendEntry`. */
@@ -60,7 +68,7 @@ function managed(sessionManager: SessionManager): {
 	};
 	const base = fakeCommandContext();
 	const ctx = { ...base.ctx, sessionManager } as unknown as ExtensionCommandContext;
-	registerManagedCommands(pi, { phase: createRoutingPhase() });
+	registerManagedCommands(asExtensionApi(pi), { phase: createRoutingPhase() });
 
 	const command = pi.commands.get(COMMAND_SPIRITS_CLEAR);
 	if (!command) throw new Error(`${COMMAND_SPIRITS_CLEAR} was not registered`);
@@ -83,14 +91,13 @@ function compactionEvent(
 	firstKeptEntryId: string,
 	reason: "manual" | "threshold",
 ): SessionBeforeCompactEvent {
-	return {
-		type: "session_before_compact",
-		preparation: { firstKeptEntryId, tokensBefore: 9000 },
+	return fakeCompactEvent({
+		preparation: fakeCompactionPreparation({ firstKeptEntryId, tokensBefore: 9000 }),
 		branchEntries: [...sessionManager.getBranch()],
 		reason,
 		willRetry: false,
 		signal: new AbortController().signal,
-	};
+	});
 }
 
 function boundaryOf(sessionManager: SessionManager): SessionEntry | undefined {

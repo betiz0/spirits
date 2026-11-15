@@ -23,11 +23,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildManagedInputs } from "../../../scripts/build-managed-pi-inputs.ts";
 import { startFakeProvider, type FakeReply } from "../../../scripts/managed-pi-compat/fake-provider.ts";
-import {
-	loadOfficialArtifact,
-	OfficialArtifactError,
-	type OfficialArtifact,
-} from "../../../scripts/managed-pi-compat/official.ts";
+import { loadOfficialArtifact, OfficialArtifactError, type OfficialArtifact } from "../../../scripts/managed-pi-compat/official.ts";
 import { runRpcProbe, type RpcRecord } from "../../../scripts/managed-pi-compat/rpc.ts";
 import { ENV_ACTION_GUARD, MANAGED_PI_FIRST_ARTIFACT_NAME } from "../src/constants.ts";
 import { computeManagedEnv } from "../src/managed-pi/environment.ts";

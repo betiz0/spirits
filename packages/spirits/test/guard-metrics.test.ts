@@ -6,6 +6,7 @@
  * user's command text sitting in the session file for no reason.
  */
 import { expect, test } from "bun:test";
+import { asExtensionApi } from "./host/fake-pi.ts";
 import { ACTION_GUARD_ENTRY_TYPE, ENV_ACTION_GUARD } from "../src/constants.ts";
 import { registerBashGuard } from "../src/guard/register.ts";
 import { buildGuardEntry, recordGuardDecision, type GuardDecision } from "../src/guard/metrics.ts";
@@ -24,7 +25,7 @@ function guardEntries(pi: FakePi): Record<string, unknown>[] {
 /** A guard on its own host, plus the call that reaches its handler the way pi does. */
 function guarded(env: Record<string, string | undefined>): { pi: FakePi; decide: (command: string, parent?: string) => Promise<unknown> } {
 	const pi = new FakePi();
-	registerBashGuard(pi, { env });
+	registerBashGuard(asExtensionApi(pi), { env });
 	const handler = pi.handlers.get("tool_call")?.[0];
 	if (handler === undefined) throw new Error("the guard subscribed no tool_call handler");
 	return {

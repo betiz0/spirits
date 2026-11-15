@@ -1,13 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import {
-	type BrandingContext,
-	type BrandingSettings,
-	type HeaderComponent,
-	type HeaderTheme,
-	type HeaderThemeColor,
-	SpiritsHeader,
-	installBrandingHeader,
-} from "../src/branding/header.ts";
+import { installBrandingHeader, SpiritsHeader, type BrandingContext, type BrandingSettings, type HeaderComponent, type HeaderTheme, type HeaderThemeColor } from "../src/branding/header.ts";
 import { resolveSpiritsVersion } from "../src/version.ts";
 
 /** Deterministic theme stub for render assertions. */

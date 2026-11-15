@@ -11,12 +11,7 @@ import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, realpath, symlink, wri
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AGENT_BACKUP_DIR_PREFIX, AGENT_BACKUP_STATE_FILE_NAME, AGENT_BACKUP_TEMP_SUFFIX } from "../src/constants.ts";
-import {
-	agentBackupTimestamp,
-	backupAgentDirOnce,
-	formatByteSize,
-	type AgentBackupResult,
-} from "../src/managed-pi/agent-backup.ts";
+import { agentBackupTimestamp, backupAgentDirOnce, formatByteSize, type AgentBackupResult } from "../src/managed-pi/agent-backup.ts";
 
 const NOW = new Date("2026-11-10T09:12:33.000Z");
 

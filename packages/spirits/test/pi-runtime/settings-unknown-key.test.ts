@@ -7,6 +7,7 @@
  */
 
 import { expect, test } from "bun:test";
+import { unknownSetting } from "../host/fake-pi.ts";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -24,7 +25,7 @@ test("keeps unknown settings keys after saving a known setting", async () => {
 	try {
 		await writeFile(settingsPath, JSON.stringify(SPIRITS_SETTINGS, null, 2));
 		const settings = SettingsManager.create(cwd, agentDir);
-		expect(settings.getSettings().models).toEqual(SPIRITS_SETTINGS.models);
+		expect(unknownSetting(settings.getSettings(), "models")).toEqual(SPIRITS_SETTINGS.models);
 
 		settings.setDefaultModelAndProvider(DEFAULT_PROVIDER, DEFAULT_MODEL);
 		await settings.flush();

@@ -1,9 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-	allPathsUnder,
-	classifyEnv,
-	classifyHelpSideEffects,
-} from "../../../scripts/managed-pi-compat/probes.ts";
+import { allPathsUnder, classifyEnv, classifyHelpSideEffects } from "../../../scripts/managed-pi-compat/probes.ts";
 
 test("agent dir precedence", () => {
 	expect(

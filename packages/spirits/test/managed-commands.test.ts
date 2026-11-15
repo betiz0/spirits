@@ -10,25 +10,14 @@
  */
 
 import { afterAll, expect, test } from "bun:test";
+import { asExtensionApi, customEntry, entryWithoutId, fakeModel, messageEntry, systemMessage, userMessage } from "./host/fake-pi.ts";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage, PiModel } from "../src/types/host.ts";
-import {
-	CLEAR_ENTRY_TYPE,
-	COMMAND_SPIRITS_CLEAR,
-	COMMAND_SPIRITS_ROLE,
-	ROLE_ENTRY_TYPE,
-	ROLE_STATUS_KEY,
-	ROUTING_STATE_ENTRY_TYPE,
-} from "../src/constants.ts";
-import {
-	alreadyCleared,
-	boundaryCompactionResult,
-	clearBoundaryIndex,
-	clearedMessageCount,
-} from "../src/commands/clear.ts";
+import { CLEAR_ENTRY_TYPE, COMMAND_SPIRITS_CLEAR, COMMAND_SPIRITS_ROLE, ROLE_ENTRY_TYPE, ROLE_STATUS_KEY, ROUTING_STATE_ENTRY_TYPE } from "../src/constants.ts";
+import { alreadyCleared, boundaryCompactionResult, clearBoundaryIndex, clearedMessageCount } from "../src/commands/clear.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
 import { inheritedRole, roleBadgeText } from "../src/commands/role.ts";
 import { patchSettingsFile, patchSettingsPath } from "../src/commands/settings-store.ts";
@@ -36,10 +25,10 @@ import type { SettingsPatch } from "../src/commands/settings-store.ts";
 import { readRoutingSettings } from "../src/config.ts";
 import spiritsExtension from "../src/index.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
-import { FakePi, fakeCatalog, fakeCommandContext } from "./routing/fake-pi.ts";
+import { fakeCatalog, fakeCommandContext, FakePi } from "./routing/fake-pi.ts";
 
-const MODEL_A: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5", name: "Sonnet", api: "anthropic" };
-const MODEL_B: PiModel = { provider: "openai", id: "gpt-5-mini", name: "GPT-5 Mini", api: "openai" };
+const MODEL_A: PiModel = fakeModel("anthropic", "claude-sonnet-4-5", { name: "Sonnet", api: "anthropic" });
+const MODEL_B: PiModel = fakeModel("openai", "gpt-5-mini", { name: "GPT-5 Mini", api: "openai" });
 
 const tempDirs: string[] = [];
 function tempDir(name: string): string {
@@ -53,15 +42,15 @@ afterAll(() => {
 });
 
 function entry(id: string, customType: string, data?: unknown): SessionEntry {
-	return { type: "custom", id, customType, data };
+	return customEntry(customType, data, id);
 }
 
 function userEntry(id: string, text: string): SessionEntry {
-	return { type: "message", id, message: { role: "user", content: text } as AgentMessage };
+	return messageEntry(userMessage(text), id);
 }
 
 function systemEntry(id: string): SessionEntry {
-	return { type: "message", id, message: { role: "system", content: "prompt" } as AgentMessage };
+	return messageEntry(systemMessage("prompt"), id);
 }
 
 /** Commands and patches a wiring produced, with the settings writer replaced by a recorder. */
@@ -69,7 +58,7 @@ function wire(branch: readonly SessionEntry[] = []) {
 	const pi = new FakePi();
 	const phase = createRoutingPhase();
 	const patches: SettingsPatch[] = [];
-	registerManagedCommands(pi, { phase, patchSettings: (patch) => patches.push(patch) });
+	registerManagedCommands(asExtensionApi(pi), { phase, patchSettings: (patch) => patches.push(patch) });
 	return { pi, phase, patches };
 }
 
@@ -161,7 +150,7 @@ test("a reload draws the badge again", async () => {
 test("a resumed session takes the lock back from its entries before showing the badge", async () => {
 	const pi = new FakePi();
 	const phase = createRoutingPhase();
-	registerManagedCommands(pi, { phase, patchSettings: () => {} });
+	registerManagedCommands(asExtensionApi(pi), { phase, patchSettings: () => {} });
 	const started = fakeCommandContext({ branch: [entry("1", ROLE_ENTRY_TYPE, { role: "strong" })] });
 
 	await pi.fire("session_start", { type: "session_start", reason: "resume" }, started.ctx);
@@ -242,7 +231,7 @@ test("a saved role target is one string a reloaded read returns", async () => {
 	const path = join(tempDir("settings-normal-round-trip"), "settings.json");
 	const pi = new FakePi();
 	const phase = createRoutingPhase();
-	registerManagedCommands(pi, {
+	registerManagedCommands(asExtensionApi(pi), {
 		phase,
 		patchSettingsPath: (settingsPath, value) => patchSettingsPath({ settingsPath: path, path: settingsPath, value }),
 	});
@@ -310,7 +299,7 @@ test("a settings file with a byte-order mark is merged and written back without 
 // entry point を通して 2 コマンドだけを数える (それ以上でもそれ以下でもないことを見る)。
 test("registers spirits-role and spirits-clear on every load", () => {
 	const pi = new FakePi();
-	spiritsExtension(pi);
+	spiritsExtension(asExtensionApi(pi));
 	expect([...pi.commands.keys()].sort()).toEqual([COMMAND_SPIRITS_CLEAR, COMMAND_SPIRITS_ROLE].sort());
 });
 
@@ -353,7 +342,7 @@ test("the cleared count covers the conversation before the boundary and nothing 
 });
 
 test("a boundary that is not on the branch, or one with no id, drops nothing", () => {
-	const unlocatable: SessionEntry = { type: "custom", customType: CLEAR_ENTRY_TYPE };
+	const unlocatable: SessionEntry = entryWithoutId(CLEAR_ENTRY_TYPE);
 	const { ctx } = fakeCatalog({ branch: [userEntry("1", "first"), unlocatable] });
 	expect(clearedMessageCount(ctx.sessionManager)).toBe(0);
 });

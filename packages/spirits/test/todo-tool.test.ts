@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { asExtensionApi, customEntry, fakeProjection, nextEntryId } from "./host/fake-pi.ts";
 import type { AgentSettledEvent, BeforeAgentStartEvent, BeforeAgentStartEventResult, ExtensionAPI, ExtensionHandler, InputEvent, InputEventResult, ResourcesDiscoverEvent, ContextEvent, ContextEventResult, ResourcesDiscoverResult, SessionEntry, SessionStartEvent, SessionTreeEvent, SlashCommandInfo, ToolCallEvent, ToolCallEventResult, SessionBeforeCompactEvent, SessionBeforeCompactResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { ThinkingLevel } from "../src/types/host.ts";
 import type { TSchema } from "typebox";
@@ -9,7 +10,7 @@ import { createTodoPanelState } from "../src/todo/widget.ts";
 import { TODO_ENTRY_TYPE } from "../src/todo/state.ts";
 import { makeToolContext, type RecordedShortcut } from "./support.ts";
 
-class FakePi implements ExtensionAPI {
+class FakePi {
 	readonly tools: ToolDefinition[] = [];
 	readonly entries: Array<{ customType: string; data: unknown }> = [];
 	/** Shortcuts registered through `registerShortcut()`, keyed by the key id as registered. */
@@ -104,12 +105,12 @@ async function runTool(
 		{ updates },
 		undefined,
 		undefined,
-		makeToolContext({ sessionManager: { getBranch: () => branch, buildSessionProjection: () => ({ entries: [], messages: [] }) } }),
+		makeToolContext({ sessionManager: { getBranch: () => branch, buildSessionProjection: () => fakeProjection({ entries: [] }) } }),
 	);
 }
 
 function branchFrom(pi: FakePi): SessionEntry[] {
-	return pi.entries.map((entry) => ({ type: "custom", customType: entry.customType, data: entry.data }));
+	return pi.entries.map((entry) => (customEntry(entry.customType, entry.data, nextEntryId())));
 }
 
 function textOf(result: { content: readonly unknown[] }): string {
@@ -123,7 +124,7 @@ function textOf(result: { content: readonly unknown[] }): string {
 test("registers manage_todos as a direct sequential tool", () => {
 	const pi = new FakePi();
 	const { config, state } = panel();
-	registerManageTodos(pi, config, state);
+	registerManageTodos(asExtensionApi(pi), config, state);
 	const tool = pi.tools.find((candidate) => candidate.name === "manage_todos");
 	expect(tool).toBeDefined();
 	expect(tool?.exposure).toBe("direct");
@@ -132,7 +133,7 @@ test("registers manage_todos as a direct sequential tool", () => {
 
 test("spiritsExtension registers manage_todos", () => {
 	const pi = new FakePi();
-	spiritsExtension(pi);
+	spiritsExtension(asExtensionApi(pi));
 	expect(pi.tools.map((tool) => tool.name)).toContain("manage_todos");
 });
 
@@ -194,7 +195,7 @@ test("result lists all items with ids", async () => {
 test("guidelines say ids are assigned by the tool", () => {
 	const pi = new FakePi();
 	const { config, state } = panel();
-	registerManageTodos(pi, config, state);
+	registerManageTodos(asExtensionApi(pi), config, state);
 	const tool = pi.tools.find((candidate) => candidate.name === "manage_todos");
 	const guidelines = (tool?.promptGuidelines ?? []).join("\n");
 	expect(guidelines).toContain("ツールが採番");

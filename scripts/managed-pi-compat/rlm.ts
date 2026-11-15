@@ -63,7 +63,7 @@ export function isVirtualRequestedModel(model?: string): boolean {
  * `pi.appendEntry("rlm_usage", data)` stores the payload under `entry.data`, so a check that reads
  * `entry.outcome` never matches and silently turns a recorded abort into an unobserved one.
  */
-export function rlmUsageOutcome(entry: Record<string, unknown>): string | undefined {
+export function rlmUsageOutcome(entry: { type?: string; customType?: string; data?: unknown; outcome?: unknown }): string | undefined {
 	const data: unknown = entry.data;
 	if (data !== null && typeof data === "object") {
 		const outcome = (data as { outcome?: unknown }).outcome;

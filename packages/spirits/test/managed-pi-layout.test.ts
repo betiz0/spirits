@@ -2,15 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdir, mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	managedCurrentPath,
-	managedReleasesDir,
-	managedSetDir,
-	managedTempDir,
-	prepareManagedRoot,
-	readCurrentSet,
-	switchCurrent,
-} from "../src/managed-pi/layout.ts";
+import { managedCurrentPath, managedReleasesDir, managedSetDir, managedTempDir, prepareManagedRoot, readCurrentSet, switchCurrent } from "../src/managed-pi/layout.ts";
 
 const dirs: string[] = [];
 

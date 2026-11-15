@@ -1,14 +1,10 @@
 import { afterAll, expect, test } from "bun:test";
-import { chmod, lstat, mkdir, readFile, readdir, symlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, readdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ENV_AGENT_DIR, MANAGED_PI_MANIFEST_ASSET_NAME } from "../src/constants.ts";
 import { runDefaultManagedStartup, type DefaultManagedStartupOptions } from "../src/managed-pi/default-route.ts";
 import { installManagedSet } from "../src/managed-pi/install.ts";
-import {
-	makeReleaseFixture,
-	stopManagedReleaseFixtures,
-	type ReleaseFixture,
-} from "./managed-pi-release-fixtures.ts";
+import { makeReleaseFixture, stopManagedReleaseFixtures, type ReleaseFixture } from "./managed-pi-release-fixtures.ts";
 
 afterAll(stopManagedReleaseFixtures);
 

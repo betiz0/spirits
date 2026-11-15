@@ -1,4 +1,5 @@
 import type { PiModel } from "../src/types/host.ts";
+import { asExtensionApi, fakeModel } from "./host/fake-pi.ts";
 /**
  * Thinking-level resolution for the two roles.
  *
@@ -16,9 +17,9 @@ import { readRoutingSettings } from "../src/config.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
 import { resolveRequestThinkingLevel } from "../src/routing/router.ts";
-import { FakePi, fakeCommandContext } from "./routing/fake-pi.ts";
+import { fakeCommandContext, FakePi } from "./routing/fake-pi.ts";
 
-const PHYSICAL: PiModel = { provider: "compat-fake", id: "fake-model", api: "openai" };
+const PHYSICAL: PiModel = fakeModel("compat-fake", "fake-model", { api: "openai" });
 
 /** The settings of a session with one level per role, and nothing else configured. */
 const ROLE_LEVELS: RoutingSettings = { thinking: { normal: "low", strong: "high" } };
@@ -79,7 +80,7 @@ test("resolves the level by step, then role, then session", () => {
 // all. `setThinkingLevel` is the only way to move it, so counting those calls is the whole test.
 test("leaves the level alone on a physical model selection", async () => {
 	const pi = new FakePi();
-	registerManagedCommands(pi, { phase: createRoutingPhase(), patchSettings: () => {}, patchSettingsPath: () => {} });
+	registerManagedCommands(asExtensionApi(pi), { phase: createRoutingPhase(), patchSettings: () => {}, patchSettingsPath: () => {} });
 	const context = fakeCommandContext({ available: [PHYSICAL], model: PHYSICAL, thinkingLevel: "minimal" });
 
 	await pi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("normal thinking high", context.ctx);

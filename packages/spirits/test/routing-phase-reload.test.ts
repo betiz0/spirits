@@ -10,39 +10,37 @@
  */
 
 import { expect, test } from "bun:test";
+import { slashCommandInfo, asExtensionApi, customEntry, fakeModel, nextEntryId } from "./host/fake-pi.ts";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { PiModel } from "../src/types/host.ts";
 import { ROLE_ENTRY_TYPE, STEP_ENTRY_TYPE } from "../src/constants.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
 import { registerDualModelRouting } from "../src/routing/register.ts";
-import { AUTO_SELECTION, FakePi, fakeCommandContext, makeCustomEntry } from "./routing/fake-pi.ts";
+import { AUTO_SELECTION, fakeCommandContext, FakePi, makeCustomEntry } from "./routing/fake-pi.ts";
 
-const FAKE_MODEL: PiModel = { provider: "compat-fake", id: "fake-model", api: "openai" };
-const FAKE_STRONG: PiModel = { provider: "compat-fake", id: "fake-strong", api: "openai" };
+const FAKE_MODEL: PiModel = fakeModel("compat-fake", "fake-model", { api: "openai" });
+const FAKE_STRONG: PiModel = fakeModel("compat-fake", "fake-strong", { api: "openai" });
 const AVAILABLE = [FAKE_MODEL, FAKE_STRONG];
 
 /** The routing layer and the command surface over one fake host, as `src/index.ts` wires them. */
 function wire(options: { skills?: readonly string[]; settings?: Record<string, unknown> } = {}) {
 	const pi = new FakePi();
 	pi.settings = { defaultProvider: "compat-fake", defaultModel: "fake-model", ...(options.settings ?? {}) };
-	pi.slashCommands = (options.skills ?? ["skill:openspec-apply-change", "skill:sprt-opsx-verify-deep"]).map((name) => ({
-		name,
-		source: "skill" as const,
-	}));
+	pi.slashCommands = (options.skills ?? ["skill:openspec-apply-change", "skill:sprt-opsx-verify-deep"]).map((name) => slashCommandInfo(name, "skill"));
 	// The route result the host reads names the model and the level, and the role is the routing's own
 	// report (spec `dual-model-routing` / ModelRoute の role は使わない), so the wire keeps the report and
 	// reads a request's answer as the pair.
 	let reported: string | undefined;
-	const routing = registerDualModelRouting(pi, {
+	const routing = registerDualModelRouting(asExtensionApi(pi), {
 		onRole: (role) => {
 			reported = role;
 		},
 	});
-	registerManagedCommands(pi, { phase: routing.phase, patchSettings: () => {}, patchSettingsPath: () => {} });
+	registerManagedCommands(asExtensionApi(pi), { phase: routing.phase, patchSettings: () => {}, patchSettingsPath: () => {} });
 	/** The full resolution of one request, which is what the route, the child, and the list share. */
 	const route = () => {
 		const { ctx } = fakeCommandContext({ available: AVAILABLE, authedProviders: ["compat-fake"] });
-		const answered = pi.route()({ model: AUTO_SELECTION, thinkingLevel: "medium", reason: "user" }, ctx) as {
+		const answered = pi.route()({ model: AUTO_SELECTION, thinkingLevel: "medium", reason: "user", messages: [] }, ctx) as {
 			model: PiModel;
 			thinkingLevel?: string;
 		};
@@ -130,7 +128,7 @@ test("a reload keeps the continuing step", async () => {
 	expect(route()).toMatchObject({ role: "strong", model: FAKE_STRONG, thinkingLevel: "high" });
 	// The session file at that moment: the lock the user held, and the step that was running.
 	const branch = [
-		{ type: "custom", customType: ROLE_ENTRY_TYPE, data: { role: "normal" } },
+		customEntry(ROLE_ENTRY_TYPE, { role: "normal" }, nextEntryId()),
 		...pi.entries.map((entry) => ({ type: "custom", ...entry })),
 	] as unknown as SessionEntry[];
 
@@ -147,8 +145,8 @@ test("a reload keeps the continuing step", async () => {
 // spec scenario "a resume drops the step": resuming is opening a different conversation.
 test("a resume drops the step", async () => {
 	const branch: SessionEntry[] = [
-		{ type: "custom", customType: ROLE_ENTRY_TYPE, data: { role: "strong" } },
-		{ type: "custom", customType: STEP_ENTRY_TYPE, data: { step: "opsx-apply" } },
+		customEntry(ROLE_ENTRY_TYPE, { role: "strong" }, nextEntryId()),
+		customEntry(STEP_ENTRY_TYPE, { step: "opsx-apply" }, nextEntryId()),
 	];
 	const { pi, phase } = wire();
 
@@ -162,9 +160,9 @@ test("a resume drops the step", async () => {
 // The record of a step that ended is a record too, and it is the reason nothing comes back.
 test("a reload after the step ended restores nothing", async () => {
 	const branch: SessionEntry[] = [
-		{ type: "custom", customType: ROLE_ENTRY_TYPE, data: { role: "normal" } },
-		{ type: "custom", customType: STEP_ENTRY_TYPE, data: { step: "opsx-apply" } },
-		{ type: "custom", customType: STEP_ENTRY_TYPE, data: { step: null } },
+		customEntry(ROLE_ENTRY_TYPE, { role: "normal" }, nextEntryId()),
+		customEntry(STEP_ENTRY_TYPE, { step: "opsx-apply" }, nextEntryId()),
+		customEntry(STEP_ENTRY_TYPE, { step: null }, nextEntryId()),
 	];
 	const { pi, phase } = wire();
 
@@ -311,8 +309,8 @@ test("a tree move follows the step record of the new branch", async () => {
 
 	// The branch whose newest record is the running step, before the clear that ended it.
 	const branch: SessionEntry[] = [
-		{ type: "custom", customType: ROLE_ENTRY_TYPE, data: { role: "normal" } },
-		{ type: "custom", customType: STEP_ENTRY_TYPE, data: { step: "opsx-propose" } },
+		customEntry(ROLE_ENTRY_TYPE, { role: "normal" }, nextEntryId()),
+		customEntry(STEP_ENTRY_TYPE, { step: "opsx-propose" }, nextEntryId()),
 	];
 	await treeMove(pi, branch);
 
@@ -339,8 +337,8 @@ test("a tree move to a branch with no open step ends the step", async () => {
 	expect(await status()).toContain("step: opsx-propose");
 
 	const branch: SessionEntry[] = [
-		{ type: "custom", customType: ROLE_ENTRY_TYPE, data: { role: "normal" } },
-		{ type: "custom", customType: STEP_ENTRY_TYPE, data: { step: null } },
+		customEntry(ROLE_ENTRY_TYPE, { role: "normal" }, nextEntryId()),
+		customEntry(STEP_ENTRY_TYPE, { step: null }, nextEntryId()),
 	];
 	await treeMove(pi, branch);
 	expect(await status()).toContain("step: none");
@@ -435,8 +433,8 @@ test("a tree move appends no step record", async () => {
 test("a new session with no records takes the configured default", async () => {
 	const pi = new FakePi();
 	pi.settings = { defaultProvider: "compat-fake", defaultModel: "fake-model", models: { role: "strong" } };
-	const routing = registerDualModelRouting(pi);
-	registerManagedCommands(pi, { phase: routing.phase, patchSettings: () => {} });
+	const routing = registerDualModelRouting(asExtensionApi(pi));
+	registerManagedCommands(asExtensionApi(pi), { phase: routing.phase, patchSettings: () => {} });
 
 	await start(pi, "new");
 

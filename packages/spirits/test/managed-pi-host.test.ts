@@ -1,21 +1,6 @@
 import { expect, test } from "bun:test";
-import {
-	applyHostIdentity,
-	hostDescriptor,
-	hostExecutablePath,
-	hostPackageDir,
-	MANIFEST_HOST_KIND_PI,
-	OFFICIAL_PI_HOST,
-	type HostPackageJson,
-} from "../src/managed-pi/host.ts";
-import {
-	ENV_MANAGED_AGENT_DIR,
-	ENV_MANAGED_SESSION_DIR,
-	ENV_PACKAGE_DIR,
-	ENV_SKIP_VERSION_CHECK,
-	ENV_TELEMETRY,
-	SPIRITS_APP_NAME,
-} from "../src/constants.ts";
+import { applyHostIdentity, hostDescriptor, hostExecutablePath, hostPackageDir, MANIFEST_HOST_KIND_PI, OFFICIAL_PI_HOST, type HostPackageJson } from "../src/managed-pi/host.ts";
+import { ENV_MANAGED_AGENT_DIR, ENV_MANAGED_SESSION_DIR, ENV_PACKAGE_DIR, ENV_SKIP_VERSION_CHECK, ENV_TELEMETRY, SPIRITS_APP_NAME } from "../src/constants.ts";
 
 test("the official Pi descriptor names the host and its paths", () => {
 	expect(OFFICIAL_PI_HOST.id).toBe("pi");

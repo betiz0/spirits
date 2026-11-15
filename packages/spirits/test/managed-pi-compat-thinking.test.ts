@@ -11,11 +11,7 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	reasoningEffortFor,
-	startFakeProvider,
-	type FakeProviderRequest,
-} from "../../../scripts/managed-pi-compat/fake-provider.ts";
+import { reasoningEffortFor, startFakeProvider, type FakeProviderRequest } from "../../../scripts/managed-pi-compat/fake-provider.ts";
 import { runStagedRpcProbe, thinkingLevelRequest } from "../../../scripts/managed-pi-compat/rpc.ts";
 
 const dirs: string[] = [];

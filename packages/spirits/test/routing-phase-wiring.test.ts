@@ -1,5 +1,5 @@
 import type { PiModel } from "../src/types/host.ts";
-import { fakeModel } from "./host/fake-pi.ts";
+import { asExtensionApi, fakeModel, slashCommandInfo } from "./host/fake-pi.ts";
 import { expect, test } from "bun:test";
 
 import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, SKILL_COMMAND_PREFIX } from "../src/constants.ts";
@@ -17,10 +17,10 @@ function wire() {
 		models: { strong: "anthropic/claude-opus-4-7" },
 	};
 	// The session has the deep-verify skill, which is the starter of the step these cases drive.
-	pi.slashCommands = [{ name: "skill:sprt-opsx-verify-deep", source: "skill" }];
+	pi.slashCommands = [slashCommandInfo("skill:sprt-opsx-verify-deep", "skill")];
 	// The role a request takes is a report the route makes, not a key of the result the host reads
 	// (spec `dual-model-routing` / ModelRoute の role は使わない), so the wire reads it off the report.
-	const routing = registerReportedRouting(pi);
+	const routing = registerReportedRouting(asExtensionApi(pi));
 	const { ctx, notices } = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"] });
 	return {
 		pi,

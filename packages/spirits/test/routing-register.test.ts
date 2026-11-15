@@ -1,28 +1,11 @@
 import { expect, test } from "bun:test";
 import type { ModelRoute, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { PiModel, ThinkingLevel } from "../src/types/host.ts";
-import { fakeModel } from "./host/fake-pi.ts";
-import {
-	MODEL_ROLE_NORMAL,
-	MODEL_ROLE_STRONG,
-	ROLE_STATUS_KEY,
-	ROUTING_MODEL_ID,
-	ROUTING_PROVIDER_ID,
-	STEP_ENTRY_TYPE,
-} from "../src/constants.ts";
+import { asExtensionApi, fakeModel, slashCommandInfo } from "./host/fake-pi.ts";
+import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, ROLE_STATUS_KEY, ROUTING_MODEL_ID, ROUTING_PROVIDER_ID, STEP_ENTRY_TYPE } from "../src/constants.ts";
 import spiritsExtension from "../src/index.ts";
 import { registerDualModelRouting } from "../src/routing/register.ts";
-import {
-	AUTO_SELECTION,
-	fakeCatalog,
-	FakePi,
-	makeCustomEntry,
-	makeInputEvent,
-	makeMessageEntry,
-	makeRequest,
-	makeSettledEvent,
-	registerReportedRouting,
-} from "./routing/fake-pi.ts";
+import { AUTO_SELECTION, fakeCatalog, FakePi, makeCustomEntry, makeInputEvent, makeMessageEntry, makeRequest, makeSettledEvent, registerReportedRouting } from "./routing/fake-pi.ts";
 
 /** All pi thinking levels: the router passes the selection through and pi clamps it. */
 const ALL_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
@@ -43,7 +26,7 @@ function routingSettings(defaultRole?: string): Record<string, unknown> {
 function harness(options: { defaultRole?: string; model?: PiModel; branch?: readonly SessionEntry[] } = {}) {
 	const pi = new FakePi();
 	pi.settings = routingSettings(options.defaultRole);
-	const routing = registerReportedRouting(pi);
+	const routing = registerReportedRouting(asExtensionApi(pi));
 	const { ctx, notices } = fakeCatalog({
 		available: [SONNET, OPUS],
 		authedProviders: ["anthropic"],
@@ -67,7 +50,7 @@ function harness(options: { defaultRole?: string; model?: PiModel; branch?: read
 test("registers spirits/auto with every thinking level and no declared limits", () => {
 	const pi = new FakePi();
 
-	const routing = registerDualModelRouting(pi);
+	const routing = registerDualModelRouting(asExtensionApi(pi));
 
 	expect(pi.registrations.length).toBe(1);
 	const model = pi.registrations.at(0)!;
@@ -91,8 +74,8 @@ test("routes through the registered model after a reload", async () => {
 	pi.settings = { defaultProvider: "anthropic", defaultModel: "claude-sonnet-4-5" };
 
 	// `/reload` loads the extension into the same pi again, replacing the registration.
-	spiritsExtension(pi);
-	spiritsExtension(pi);
+	spiritsExtension(asExtensionApi(pi));
+	spiritsExtension(asExtensionApi(pi));
 
 	const registrations = pi.registrations.map((model) => `${model.provider}/${model.id}`);
 	expect(registrations).toEqual([`${ROUTING_PROVIDER_ID}/${ROUTING_MODEL_ID}`, `${ROUTING_PROVIDER_ID}/${ROUTING_MODEL_ID}`]);
@@ -162,7 +145,7 @@ test("keeps the lock across a branch move", async () => {
 test("keeps the lock across a physical model selection", async () => {
 	const pi = new FakePi();
 	pi.settings = routingSettings();
-	const routing = registerDualModelRouting(pi);
+	const routing = registerDualModelRouting(asExtensionApi(pi));
 	const auto = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"], model: AUTO_SELECTION });
 	const physical = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"], model: SONNET });
 	const routed = (catalog: ReturnType<typeof fakeCatalog>) =>
@@ -186,7 +169,7 @@ test("a tree move takes the step of the branch it lands on", async () => {
 		defaultModel: "claude-sonnet-4-5",
 		models: { strong: "anthropic/claude-opus-4-7", steps: { "opsx-propose": { role: "strong" } } },
 	};
-	const routing = registerReportedRouting(pi);
+	const routing = registerReportedRouting(asExtensionApi(pi));
 	const landed = fakeCatalog({
 		available: [SONNET, OPUS],
 		authedProviders: ["anthropic"],
@@ -210,8 +193,8 @@ test("a tree move onto a branch with no open step ends it", async () => {
 		defaultModel: "claude-sonnet-4-5",
 		models: { strong: "anthropic/claude-opus-4-7", steps: { "opsx-propose": { role: "strong" } } },
 	};
-	pi.slashCommands = [{ name: "skill:openspec-propose", source: "skill" }];
-	const routing = registerReportedRouting(pi);
+	pi.slashCommands = [slashCommandInfo("skill:openspec-propose", "skill")];
+	const routing = registerReportedRouting(asExtensionApi(pi));
 	const running = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"], model: AUTO_SELECTION });
 
 	await pi.fire("session_start", { type: "session_start", reason: "startup" }, running.ctx);
@@ -242,7 +225,7 @@ test("reports no role when the routing itself fails", () => {
 	// No default provider or model, and no previous response: the normal target cannot be resolved at all.
 	pi.settings = { models: { strong: "anthropic/claude-opus-4-7" } };
 	const reported: string[] = [];
-	registerDualModelRouting(pi, { onRole: (role) => reported.push(role) });
+	registerDualModelRouting(asExtensionApi(pi), { onRole: (role) => reported.push(role) });
 	const { ctx } = fakeCatalog({ available: [OPUS], authedProviders: ["anthropic"], model: AUTO_SELECTION });
 
 	expect(() => pi.route()(makeRequest(), ctx)).toThrow(/no normal model/);
@@ -263,7 +246,7 @@ test("starts on normal and records nothing without a default role", async () => 
 // A settled run closes a step that does not continue, so the next request is back on the lock.
 test("a settled step stops reporting its role", async () => {
 	const { pi, ctx, phase, decision } = harness();
-	pi.slashCommands = [{ name: "skill:sprt-opsx-verify-deep", source: "skill" }];
+	pi.slashCommands = [slashCommandInfo("skill:sprt-opsx-verify-deep", "skill")];
 
 	await pi.fire("input", makeInputEvent("/skill:sprt-opsx-verify-deep remove-pi-fork"), ctx);
 	expect(phase.step()?.name).toBe("sprt-opsx-verify-deep");

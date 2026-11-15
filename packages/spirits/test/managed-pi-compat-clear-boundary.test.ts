@@ -7,25 +7,8 @@
  */
 
 import { expect, test } from "bun:test";
-import {
-	CLEAR_COMPACTION_SUMMARY,
-	CLEAR_ENTRY_TYPE,
-} from "../src/constants.ts";
-import {
-	compactionRecords,
-	forkTargetOf,
-	judgeAutomaticCompaction,
-	judgeFork,
-	judgeManualCompaction,
-	judgeResume,
-	judgeTreeMove,
-	startBoundaryProvider,
-	NO_AUTOMATIC_COMPACTION,
-	treeTargetOf,
-	type AutomaticCompactionObservation,
-	type BranchRecord,
-	type ManualCompactionAttempt,
-} from "../../../scripts/managed-pi-compat/clear-boundary.ts";
+import { CLEAR_COMPACTION_SUMMARY, CLEAR_ENTRY_TYPE } from "../src/constants.ts";
+import { compactionRecords, forkTargetOf, judgeAutomaticCompaction, judgeFork, judgeManualCompaction, judgeResume, judgeTreeMove, NO_AUTOMATIC_COMPACTION, startBoundaryProvider, treeTargetOf, type AutomaticCompactionObservation, type BranchRecord, type ManualCompactionAttempt } from "../../../scripts/managed-pi-compat/clear-boundary.ts";
 
 const BEFORE = "compat-before-1";
 const AFTER = "compat-after-1";

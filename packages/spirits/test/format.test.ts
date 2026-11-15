@@ -1,13 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-	applyOutputLimit,
-	formatFailure,
-	formatRuntimeError,
-	formatSuccess,
-	OUTPUT_HEAD,
-	OUTPUT_LIMIT,
-	OUTPUT_TAIL,
-} from "../src/repl/format.ts";
+import { applyOutputLimit, formatFailure, formatRuntimeError, formatSuccess, OUTPUT_HEAD, OUTPUT_LIMIT, OUTPUT_TAIL } from "../src/repl/format.ts";
 import { Repl } from "../src/repl/cell.ts";
 import { createBuiltinHostFns } from "../src/repl/hostfns.ts";
 import { HostFnRegistry } from "../src/repl/registry.ts";

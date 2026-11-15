@@ -1,12 +1,6 @@
 import { expect, test } from "bun:test";
 import { PINNED_PI } from "../src/constants.ts";
-import {
-	firstSupportedManifest,
-	loadManagedManifest,
-	ManagedManifestError,
-	parseManagedManifest,
-	type ManagedManifest,
-} from "../src/managed-pi/manifest.ts";
+import { firstSupportedManifest, loadManagedManifest, ManagedManifestError, parseManagedManifest, type ManagedManifest } from "../src/managed-pi/manifest.ts";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

@@ -1,18 +1,14 @@
 import { expect, test } from "bun:test";
+import { fakeModel } from "./host/fake-pi.ts";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { HostFnEntry } from "../src/repl/registry.ts";
 import { DEFAULT_MAX_DEPTH, RLM_MAX_CHILD_DURATION_MS, RLM_MAX_TOOL_CALLS } from "../src/rlm/depth.ts";
 import { createRlmHostFn, type SpawnFn } from "../src/rlm/hostfn.ts";
 import type { RlmRunResult, RlmTokens } from "../src/rlm/spawn.ts";
-import {
-	TSREPL_DESCRIPTION,
-	createTsreplTool,
-	type TsreplDetails,
-	type TsreplParameters,
-} from "../src/tools.ts";
+import { createTsreplTool, TSREPL_DESCRIPTION, type TsreplDetails, type TsreplParameters } from "../src/tools.ts";
 import { makeToolContext } from "./support.ts";
 
-const MODEL = { provider: "p", id: "m" };
+const MODEL = fakeModel("p", "m");
 const ZERO_TOKENS: RlmTokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 
 class FakePi {

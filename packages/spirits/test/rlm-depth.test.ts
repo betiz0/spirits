@@ -1,13 +1,5 @@
 import { expect, test } from "bun:test";
-import {
-	DEFAULT_MAX_DEPTH,
-	RLM_MAX_CHILD_DURATION_MS,
-	RLM_MAX_TOOL_CALLS,
-	countsAgainstToolBudget,
-	depthLimitError,
-	isToolBudgetExceeded,
-	resolveChildMaxDepth,
-} from "../src/rlm/depth.ts";
+import { countsAgainstToolBudget, DEFAULT_MAX_DEPTH, depthLimitError, isToolBudgetExceeded, resolveChildMaxDepth, RLM_MAX_CHILD_DURATION_MS, RLM_MAX_TOOL_CALLS } from "../src/rlm/depth.ts";
 
 test("default max depth", () => {
 	expect(DEFAULT_MAX_DEPTH).toBe(2);

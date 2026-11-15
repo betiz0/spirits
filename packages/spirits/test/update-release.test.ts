@@ -1,11 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import {
-	NoStableReleaseError,
-	resolveApiBaseUrl,
-	resolveLatestStableRelease,
-	selectLatestStableTag,
-	tagToVersion,
-} from "../src/update/release.ts";
+import { NoStableReleaseError, resolveApiBaseUrl, resolveLatestStableRelease, selectLatestStableTag, tagToVersion } from "../src/update/release.ts";
 import type { FetchLike } from "../src/update/types.ts";
 
 interface Fixture {

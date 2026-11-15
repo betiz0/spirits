@@ -2,11 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import {
-	DEFAULT_MEMORY_FILE_LINE_LIMIT,
-	DEFAULT_MEMORY_INJECTION_CHAR_LIMIT,
-	DEFAULT_MEMORY_PREVIEW_LINES,
-} from "../src/constants.ts";
+import { DEFAULT_MEMORY_FILE_LINE_LIMIT, DEFAULT_MEMORY_INJECTION_CHAR_LIMIT, DEFAULT_MEMORY_PREVIEW_LINES } from "../src/constants.ts";
 import type { MemoryLimits } from "../src/config.ts";
 import { buildMemorySummary, createNoteHostFn } from "../src/harness/memory.ts";
 import { memoryDir, notesPath } from "../src/harness/paths.ts";

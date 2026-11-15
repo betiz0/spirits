@@ -1,4 +1,5 @@
 import type { PiModel } from "../src/types/host.ts";
+import { asExtensionApi, fakeModel } from "./host/fake-pi.ts";
 /**
  * The notice a setting change may need.
  *
@@ -14,11 +15,11 @@ import { COMMAND_SPIRITS_ROLE } from "../src/constants.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
 import { roleSettingWarning } from "../src/commands/role.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
-import { FakePi, fakeCommandContext } from "./routing/fake-pi.ts";
+import { fakeCommandContext, FakePi } from "./routing/fake-pi.ts";
 
-const FAKE_MODEL: PiModel = { provider: "compat-fake", id: "fake-model", api: "openai" };
-const FAKE_STRONG: PiModel = { provider: "compat-fake", id: "fake-strong", api: "openai" };
-const AUTO: PiModel = { provider: "spirits", id: "auto", api: "pi-virtual" };
+const FAKE_MODEL: PiModel = fakeModel("compat-fake", "fake-model", { api: "openai" });
+const FAKE_STRONG: PiModel = fakeModel("compat-fake", "fake-strong", { api: "openai" });
+const AUTO: PiModel = fakeModel("spirits", "auto", { api: "pi-virtual" });
 
 function wire(settings: Record<string, unknown>) {
 	const pi = new FakePi();
@@ -28,7 +29,7 @@ function wire(settings: Record<string, unknown>) {
 	// The lock writes a flat patch and every other change writes a path, so both writes are recorded: a
 	// warning is added to a change that happened, and "it happened" is half of what these cases check.
 	const patched: Record<string, unknown>[] = [];
-	registerManagedCommands(pi, {
+	registerManagedCommands(asExtensionApi(pi), {
 		phase,
 		patchSettings: (patch) => {
 			patched.push(patch);
