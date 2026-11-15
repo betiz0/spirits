@@ -1,3 +1,4 @@
+import type { AutocompleteItem } from "../src/types/host.ts";
 /**
  * The argument completion of `/spirits-role`.
  *
@@ -7,7 +8,7 @@
  */
 
 import { expect, test } from "bun:test";
-import type { AutocompleteItem } from "@earendil-works/pi-coding-agent";
+
 import { MODEL_ROLES, STEP_DEFINITIONS, THINKING_LEVELS } from "../src/constants.ts";
 import { roleCompletions } from "../src/commands/register.ts";
 

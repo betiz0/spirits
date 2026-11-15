@@ -1,26 +1,6 @@
 import { expect, test } from "bun:test";
-import type {
-	AgentSettledEvent,
-	BeforeAgentStartEvent,
-	BeforeAgentStartEventResult,
-	ContextEvent,
-	ContextEventResult,
-	ExtensionHandler,
-	ExtensionMode,
-	ExtensionToolContext,
-	ExtensionUIContext,
-	InputEvent,
-	InputEventResult,
-	ResourcesDiscoverEvent,
-	ResourcesDiscoverResult,
-	SessionEntry,
-	SessionStartEvent,
-	SessionBeforeCompactEvent,
-	SessionBeforeCompactResult,
-	SessionTreeEvent,
-	ToolCallEvent,
-	ToolCallEventResult,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentSettledEvent, BeforeAgentStartEvent, BeforeAgentStartEventResult, ContextEvent, ContextEventResult, ExtensionHandler, ExtensionToolContext, ExtensionUIContext, InputEvent, InputEventResult, ResourcesDiscoverEvent, ResourcesDiscoverResult, SessionEntry, SessionStartEvent, SessionBeforeCompactEvent, SessionBeforeCompactResult, SessionTreeEvent, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
+import type { ExtensionMode } from "../src/types/host.ts";
 import { resolveTodoConfig, type EnvLike, type TodoConfig } from "../src/config.ts";
 import { DEFAULT_TODO_TOGGLE_KEY, ENV_TODO_MAX_LINES } from "../src/constants.ts";
 import { TODO_ENTRY_TYPE, type TodoItem, type TodoSnapshot } from "../src/todo/state.ts";

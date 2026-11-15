@@ -13,7 +13,8 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentMessage, PiModel, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage, PiModel } from "../src/types/host.ts";
 import {
 	CLEAR_ENTRY_TYPE,
 	COMMAND_SPIRITS_CLEAR,

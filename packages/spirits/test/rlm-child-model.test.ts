@@ -9,7 +9,9 @@
  */
 
 import { expect, test } from "bun:test";
-import type { ExtensionToolContext, PiModel } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type { PiModel } from "../src/types/host.ts";
+import { fakeModel } from "./host/fake-pi.ts";
 import type { HostFnScope } from "../src/repl/registry.ts";
 import { MODEL_ROLE_STRONG, SKILL_COMMAND_PREFIX } from "../src/constants.ts";
 import type { RoutingSettings } from "../src/config.ts";
@@ -19,9 +21,9 @@ import { createChildModelResolver } from "../src/routing/child.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
 import { AUTO_SELECTION, fakeToolContext } from "./routing/fake-pi.ts";
 
-const SONNET: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5" };
-const OPUS: PiModel = { provider: "anthropic", id: "claude-opus-4-7" };
-const LUNA: PiModel = { provider: "openai", id: "gpt-5.6-luna" };
+const SONNET: PiModel = fakeModel("anthropic", "claude-sonnet-4-5");
+const OPUS: PiModel = fakeModel("anthropic", "claude-opus-4-7");
+const LUNA: PiModel = fakeModel("openai", "gpt-5.6-luna");
 const SETTINGS: RoutingSettings = {
 	defaultProvider: "anthropic",
 	defaultModelId: "claude-sonnet-4-5",

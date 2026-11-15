@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import type { ExtensionToolContext, PiModel } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type { PiModel } from "../src/types/host.ts";
+import { fakeModel } from "./host/fake-pi.ts";
 import { PI_VIRTUAL_MODEL_API } from "../src/constants.ts";
 import type { HostFnEntry, HostFnScope } from "../src/repl/registry.ts";
 import { createTsreplTool } from "../src/tools.ts";
@@ -869,7 +871,7 @@ test("error outcome throws with cause", async () => {
 /** The `spirits/auto` selection: virtual, so it must never reach a child session. */
 const AUTO: PiModel = { provider: "spirits", id: "auto", api: PI_VIRTUAL_MODEL_API };
 /** The physical model a resolver hands back. */
-const RESOLVED: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5" };
+const RESOLVED: PiModel = fakeModel("anthropic", "claude-sonnet-4-5");
 const NO_TOKENS = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 
 /** Resolver stub that records every selection it was asked about. */

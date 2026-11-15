@@ -1,10 +1,5 @@
-import type {
-	CallableToolInfo,
-	ExtensionContext,
-	ExtensionModelRegistry,
-	ExtensionToolContext,
-	ReadonlySessionManager,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type { CallableToolInfo, ExtensionModelRegistry, ReadonlySessionManager } from "../src/types/host.ts";
 import type { HostFnScope } from "../src/repl/registry.ts";
 import type { ToolCallRecord } from "../src/repl/metrics.ts";
 

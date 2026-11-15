@@ -4,7 +4,9 @@
  */
 
 import { expect, test } from "bun:test";
-import type { ModelRoute, PiModel } from "@earendil-works/pi-coding-agent";
+import type { ModelRoute } from "@earendil-works/pi-coding-agent";
+import type { PiModel } from "../src/types/host.ts";
+import { fakeModel } from "./host/fake-pi.ts";
 import {
 	MODEL_ROLE_NORMAL,
 	MODEL_ROLE_STRONG,
@@ -17,8 +19,8 @@ import { registerManagedCommands } from "../src/commands/register.ts";
 import { registerReportedRouting } from "./routing/fake-pi.ts";
 import { fakeCatalog, FakePi, makeInputEvent, makeRequest, makeSettledEvent } from "./routing/fake-pi.ts";
 
-const SONNET: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5" };
-const OPUS: PiModel = { provider: "anthropic", id: "claude-opus-4-7" };
+const SONNET: PiModel = fakeModel("anthropic", "claude-sonnet-4-5");
+const OPUS: PiModel = fakeModel("anthropic", "claude-opus-4-7");
 
 function harness() {
 	const pi = new FakePi();

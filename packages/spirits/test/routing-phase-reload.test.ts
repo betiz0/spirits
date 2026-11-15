@@ -10,7 +10,8 @@
  */
 
 import { expect, test } from "bun:test";
-import type { PiModel, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { PiModel } from "../src/types/host.ts";
 import { ROLE_ENTRY_TYPE, STEP_ENTRY_TYPE } from "../src/constants.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
 import { registerDualModelRouting } from "../src/routing/register.ts";

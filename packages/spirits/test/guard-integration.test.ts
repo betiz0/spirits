@@ -9,7 +9,8 @@
 
 import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
-import type { AgentToolCallOutcome, ExtensionToolContext, JsonValue } from "@earendil-works/pi-coding-agent";
+import type { ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type { AgentToolCallOutcome, JsonValue } from "../src/types/host.ts";
 import { ENV_ACTION_GUARD } from "../src/constants.ts";
 import spiritsExtension from "../src/index.ts";
 import { FakePi } from "./routing/fake-pi.ts";

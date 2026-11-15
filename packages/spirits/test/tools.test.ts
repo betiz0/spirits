@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import { type PiModel, type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import { type ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { PiModel } from "../src/types/host.ts";
+import { fakeModel } from "./host/fake-pi.ts";
 import spiritsExtension from "../src/index.ts";
 import { BASH_PIPE_ALLOW_FILTERS, TSREPL_CELL_ENTRY_TYPE } from "../src/constants.ts";
 import type { CellMetrics } from "../src/repl/metrics.ts";
@@ -13,7 +15,7 @@ import { sessionEntryToContextMessages, SessionManager } from "./pi-runtime/sess
 import { FakePi } from "./routing/fake-pi.ts";
 import { makeToolContext } from "./support.ts";
 
-const CHILD_MODEL: PiModel = { provider: "p", id: "m" };
+const CHILD_MODEL: PiModel = fakeModel("p", "m");
 const ZERO_TOKENS = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
 
 function textOf(result: { content: readonly unknown[] }): string {

@@ -9,13 +9,8 @@
  */
 
 import { expect, test } from "bun:test";
-import type {
-	AgentMessage,
-	ContextEventResult,
-	ExtensionCommandContext,
-	SessionBeforeCompactEvent,
-	SessionEntry,
-} from "@earendil-works/pi-coding-agent";
+import type { ContextEventResult, ExtensionCommandContext, SessionBeforeCompactEvent, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage } from "../src/types/host.ts";
 import { CLEAR_ENTRY_TYPE, COMMAND_SPIRITS_CLEAR } from "../src/constants.ts";
 import { boundaryCompactionResult, clearedMessageCount } from "../src/commands/clear.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";

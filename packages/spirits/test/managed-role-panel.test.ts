@@ -13,7 +13,8 @@
  */
 
 import { expect, test } from "bun:test";
-import type { ExtensionModelRegistry, ExtensionMode, PiModel, Theme } from "@earendil-works/pi-coding-agent";import { COMMAND_SPIRITS_ROLE, MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, ROLE_ENTRY_TYPE, STEP_DEFINITIONS } from "../src/constants.ts";
+import type { Theme } from "@earendil-works/pi-coding-agent";
+import type { ExtensionMode, ExtensionModelRegistry, PiModel } from "../src/types/host.ts";import { COMMAND_SPIRITS_ROLE, MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, ROLE_ENTRY_TYPE, STEP_DEFINITIONS } from "../src/constants.ts";
 import type { RoutingSettings } from "../src/config.ts";
 import { readRoutingSettings } from "../src/config.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";

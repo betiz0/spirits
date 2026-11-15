@@ -1,11 +1,6 @@
 import { expect, test } from "bun:test";
-import type {
-	CustomEntry,
-	ReadonlySessionManager,
-	SessionProjection,
-	SessionEntry,
-	SessionMessageEntry,
-} from "@earendil-works/pi-coding-agent";
+import type { CustomEntry, SessionProjection, SessionEntry, SessionMessageEntry } from "@earendil-works/pi-coding-agent";
+import type { ReadonlySessionManager } from "../src/types/host.ts";
 import { createGoalHostFn } from "../src/harness/goal.ts";
 import type { HostFnEntry } from "../src/repl/registry.ts";
 import { makeScope } from "./support.ts";

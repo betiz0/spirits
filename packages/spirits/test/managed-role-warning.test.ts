@@ -1,3 +1,4 @@
+import type { PiModel } from "../src/types/host.ts";
 /**
  * The notice a setting change may need.
  *
@@ -8,7 +9,7 @@
  */
 
 import { expect, test } from "bun:test";
-import type { PiModel } from "@earendil-works/pi-coding-agent";
+
 import { COMMAND_SPIRITS_ROLE } from "../src/constants.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
 import { roleSettingWarning } from "../src/commands/role.ts";

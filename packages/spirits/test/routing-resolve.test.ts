@@ -1,12 +1,13 @@
+import type { PiModel } from "../src/types/host.ts";
+import { fakeModel } from "./host/fake-pi.ts";
 import { expect, test } from "bun:test";
 import { PI_VIRTUAL_MODEL_API } from "../src/constants.ts";
 import type { ModelLookup } from "../src/routing/resolve.ts";
 import { resolveNormalTarget, resolveStrongTarget } from "../src/routing/resolve.ts";
-import type { PiModel } from "@earendil-works/pi-coding-agent";
 
-const SONNET: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5" };
-const OPUS: PiModel = { provider: "anthropic", id: "claude-opus-4-7" };
-const LUNA: PiModel = { provider: "openai", id: "gpt-5.6-luna" };
+const SONNET: PiModel = fakeModel("anthropic", "claude-sonnet-4-5");
+const OPUS: PiModel = fakeModel("anthropic", "claude-opus-4-7");
+const LUNA: PiModel = fakeModel("openai", "gpt-5.6-luna");
 /** The routing model itself, which pi lists as available without any credentials. */
 const AUTO: PiModel = { provider: "spirits", id: "auto", api: PI_VIRTUAL_MODEL_API };
 

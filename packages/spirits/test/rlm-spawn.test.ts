@@ -1,12 +1,6 @@
 import { expect, test } from "bun:test";
-import type {
-	AgentMessage,
-	AgentSession,
-	AgentSessionEvent,
-	CreateAgentSessionOptions,
-	SessionManager,
-	SessionStats,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentSession, AgentSessionEvent, CreateAgentSessionOptions, SessionManager, SessionStats } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage } from "../src/types/host.ts";
 import { createTsreplTool } from "../src/tools.ts";
 import {
 	type RlmResourceLoaderOptions,

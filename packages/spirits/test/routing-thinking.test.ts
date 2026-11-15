@@ -1,3 +1,4 @@
+import type { PiModel } from "../src/types/host.ts";
 /**
  * Thinking-level resolution for the two roles.
  *
@@ -8,7 +9,7 @@
  */
 
 import { expect, test } from "bun:test";
-import type { PiModel } from "@earendil-works/pi-coding-agent";
+
 import { COMMAND_SPIRITS_ROLE, THINKING_LEVELS } from "../src/constants.ts";
 import type { RoutingSettings } from "../src/config.ts";
 import { readRoutingSettings } from "../src/config.ts";

@@ -43,6 +43,12 @@ export type ReadonlySessionManager = ExtensionContext["sessionManager"];
 /** One message of the transcript a `context` event hands an extension. */
 export type AgentMessage = ContextEvent["messages"][number];
 
+/** A message the user wrote: the same union read at one role. The host lists the union, not the roles. */
+export type UserMessage = Extract<AgentMessage, { role: "user" }>;
+
+/** A message the model answered with, read the same way. */
+export type AssistantMessage = Extract<AgentMessage, { role: "assistant" }>;
+
 /** A tool a tool context can call, as the host reports it on the context. */
 export type CallableToolInfo = ExtensionToolContext["tools"][number];
 

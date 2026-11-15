@@ -8,7 +8,9 @@
  */
 
 import { expect, test } from "bun:test";
-import type { PiModel, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { PiModel } from "../src/types/host.ts";
+import { fakeModel } from "./host/fake-pi.ts";
 import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, PI_VIRTUAL_MODEL_API, SKILL_COMMAND_PREFIX } from "../src/constants.ts";
 import type { RoutingSettings } from "../src/config.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
@@ -21,9 +23,9 @@ import {
 	makeUserEntry,
 } from "./routing/fake-pi.ts";
 
-const SONNET: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5" };
-const OPUS: PiModel = { provider: "anthropic", id: "claude-opus-4-7" };
-const LUNA: PiModel = { provider: "openai", id: "gpt-5.6-luna" };
+const SONNET: PiModel = fakeModel("anthropic", "claude-sonnet-4-5");
+const OPUS: PiModel = fakeModel("anthropic", "claude-opus-4-7");
+const LUNA: PiModel = fakeModel("openai", "gpt-5.6-luna");
 /** A virtual model registered by someone else: spirits never routes it, so a child cannot run it. */
 const FOREIGN_VIRTUAL: PiModel = { provider: "other", id: "router", api: PI_VIRTUAL_MODEL_API };
 

@@ -2,22 +2,8 @@ import { expect, test } from "bun:test";
 import { mkdir, mkdtemp, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type {
-	AgentSettledEvent,
-	BeforeAgentStartEvent,
-	BeforeAgentStartEventResult,
-	ExtensionAPI,
-	ExtensionHandler,
-	InputEvent,
-	ThinkingLevel,
-	InputEventResult,
-	ResourcesDiscoverEvent,
-	ResourcesDiscoverResult,
-	SessionStartEvent,
-	SessionTreeEvent,
-	SlashCommandInfo,
-	ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentSettledEvent, BeforeAgentStartEvent, BeforeAgentStartEventResult, ExtensionAPI, ExtensionHandler, InputEvent, InputEventResult, ResourcesDiscoverEvent, ResourcesDiscoverResult, SessionStartEvent, SessionTreeEvent, SlashCommandInfo, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ThinkingLevel } from "../src/types/host.ts";
 import type { TSchema } from "typebox";
 import { registerContinualHarness } from "../src/harness/install.ts";
 import { memoryDir, notesPath, promptOverridePath } from "../src/harness/paths.ts";

@@ -1,13 +1,15 @@
 import { expect, test } from "bun:test";
-import type { ExtensionContext, ModelRouteRequest, PiModel } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ModelRouteRequest } from "@earendil-works/pi-coding-agent";
+import type { PiModel } from "../src/types/host.ts";
+import { fakeModel } from "./host/fake-pi.ts";
 import type { RoutingSettings } from "../src/config.ts";
 import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG } from "../src/constants.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
 import { createNotificationGuard, createRoutingRoute, type RouteDecision } from "../src/routing/router.ts";
 
-const SONNET: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5" };
-const OPUS: PiModel = { provider: "anthropic", id: "claude-opus-4-7" };
-const LUNA: PiModel = { provider: "openai", id: "gpt-5.6-luna" };
+const SONNET: PiModel = fakeModel("anthropic", "claude-sonnet-4-5");
+const OPUS: PiModel = fakeModel("anthropic", "claude-opus-4-7");
+const LUNA: PiModel = fakeModel("openai", "gpt-5.6-luna");
 
 const DEFAULTS: RoutingSettings = { defaultProvider: "anthropic", defaultModelId: "claude-sonnet-4-5" };
 const STRONG_SPEC = { provider: "anthropic", modelId: "claude-opus-4-7" };

@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
-import type { ModelRoute, PiModel, SessionEntry, ThinkingLevel } from "@earendil-works/pi-coding-agent";
+import type { ModelRoute, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { PiModel, ThinkingLevel } from "../src/types/host.ts";
+import { fakeModel } from "./host/fake-pi.ts";
 import {
 	MODEL_ROLE_NORMAL,
 	MODEL_ROLE_STRONG,
@@ -25,8 +27,8 @@ import {
 /** All pi thinking levels: the router passes the selection through and pi clamps it. */
 const ALL_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
-const SONNET: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5" };
-const OPUS: PiModel = { provider: "anthropic", id: "claude-opus-4-7" };
+const SONNET: PiModel = fakeModel("anthropic", "claude-sonnet-4-5");
+const OPUS: PiModel = fakeModel("anthropic", "claude-opus-4-7");
 
 /** Settings with a strong target and, when given, a default role, as the settings file holds them. */
 function routingSettings(defaultRole?: string): Record<string, unknown> {

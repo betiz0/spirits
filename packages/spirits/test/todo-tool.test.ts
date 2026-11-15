@@ -1,27 +1,6 @@
 import { expect, test } from "bun:test";
-import type {
-	AgentSettledEvent,
-	BeforeAgentStartEvent,
-	BeforeAgentStartEventResult,
-	ExtensionAPI,
-	ExtensionHandler,
-	InputEvent,
-	InputEventResult,
-	ResourcesDiscoverEvent,
-	ContextEvent,
-	ContextEventResult,
-	ResourcesDiscoverResult,
-	SessionEntry,
-	SessionStartEvent,
-	ThinkingLevel,
-	SessionTreeEvent,
-	SlashCommandInfo,
-	ToolCallEvent,
-	ToolCallEventResult,
-	SessionBeforeCompactEvent,
-	SessionBeforeCompactResult,
-	ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentSettledEvent, BeforeAgentStartEvent, BeforeAgentStartEventResult, ExtensionAPI, ExtensionHandler, InputEvent, InputEventResult, ResourcesDiscoverEvent, ContextEvent, ContextEventResult, ResourcesDiscoverResult, SessionEntry, SessionStartEvent, SessionTreeEvent, SlashCommandInfo, ToolCallEvent, ToolCallEventResult, SessionBeforeCompactEvent, SessionBeforeCompactResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { ThinkingLevel } from "../src/types/host.ts";
 import type { TSchema } from "typebox";
 import spiritsExtension from "../src/index.ts";
 import { resolveTodoConfig } from "../src/config.ts";

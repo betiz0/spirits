@@ -1,10 +1,12 @@
+import type { PiModel } from "../src/types/host.ts";
+import { fakeModel } from "./host/fake-pi.ts";
 import { expect, test } from "bun:test";
-import type { PiModel } from "@earendil-works/pi-coding-agent";
+
 import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, SKILL_COMMAND_PREFIX } from "../src/constants.ts";
 import { fakeCatalog, FakePi, makeInputEvent, makeRequest, makeSettledEvent, registerReportedRouting } from "./routing/fake-pi.ts";
 
-const SONNET: PiModel = { provider: "anthropic", id: "claude-sonnet-4-5" };
-const OPUS: PiModel = { provider: "anthropic", id: "claude-opus-4-7" };
+const SONNET: PiModel = fakeModel("anthropic", "claude-sonnet-4-5");
+const OPUS: PiModel = fakeModel("anthropic", "claude-opus-4-7");
 
 /** `spirits/auto` wired to a fake pi, with both roles resolvable. */
 function wire() {

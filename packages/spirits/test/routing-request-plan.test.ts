@@ -9,7 +9,8 @@
  */
 
 import { expect, test } from "bun:test";
-import type { ExtensionContext, ExtensionModelRegistry, ModelRouteRequest, PiModel, ThinkingLevel } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ModelRouteRequest } from "@earendil-works/pi-coding-agent";
+import type { ExtensionModelRegistry, PiModel, ThinkingLevel } from "../src/types/host.ts";
 import { MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, STEP_DEFINITIONS } from "../src/constants.ts";
 import type { RoutingSettings } from "../src/config.ts";
 import { RolePanel, modelChoices, type RolePanelSnapshot } from "../src/commands/role-panel.ts";

@@ -5,38 +5,8 @@
  * to, and can fire events the way pi does. `fakeCatalog` is the `ExtensionContext` a route reads.
  */
 
-import type {
-	AgentMessage,
-	AgentSettledEvent,
-	BeforeAgentStartEvent,
-	BeforeAgentStartEventResult,
-	ContextEvent,
-	ContextEventResult,
-	ExtensionAPI,
-	ExtensionCommandContext,
-	ExtensionContext,
-	ExtensionHandler,
-	ExtensionMode,
-	ExtensionToolContext,
-	ExtensionVirtualModel,
-	InputEvent,
-	InputEventResult,
-	ModelRouteRequest,
-	PiModel,
-	RegisteredCommandOptions,
-	ResourcesDiscoverEvent,
-	ResourcesDiscoverResult,
-	SessionBeforeCompactEvent,
-	SessionBeforeCompactResult,
-	SessionEntry,
-	SessionStartEvent,
-	SessionTreeEvent,
-	SlashCommandInfo,
-	ThinkingLevel,
-	ToolCallEvent,
-	ToolCallEventResult,
-	ToolDefinition,
-} from "@earendil-works/pi-coding-agent";
+import type { AgentSettledEvent, BeforeAgentStartEvent, BeforeAgentStartEventResult, ContextEvent, ContextEventResult, ExtensionAPI, ExtensionCommandContext, ExtensionContext, ExtensionHandler, ExtensionToolContext, ExtensionVirtualModel, InputEvent, InputEventResult, ModelRouteRequest, ResourcesDiscoverEvent, ResourcesDiscoverResult, SessionBeforeCompactEvent, SessionBeforeCompactResult, SessionEntry, SessionStartEvent, SessionTreeEvent, SlashCommandInfo, ToolCallEvent, ToolCallEventResult, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { AgentMessage, ExtensionMode, PiModel, RegisteredCommandOptions, ThinkingLevel } from "../../src/types/host.ts";
 import type { TSchema } from "typebox";
 import { registerDualModelRouting, type RoutingHooks, type RoutingRegistrationResult } from "../../src/routing/register.ts";
 import { PI_VIRTUAL_MODEL_API } from "../../src/constants.ts";
@@ -158,7 +128,6 @@ export class FakePi implements ExtensionAPI {
 		this.unsubscribers.set(event, unsubscribers);
 		return unsubscribe;
 	}
-
 
 	handlersFor(event: string): number {
 		return (this.handlers.get(event) ?? []).length;
@@ -373,6 +342,29 @@ export function fakeCommandContext(
 		custom,
 		reloads: () => reloadCount,
 		ctx: { ...ctx, reload: async () => { reloadCount += 1; } } as ExtensionCommandContext,
+	};
+}
+
+/**
+ * One model record, in the shape the host's `Model` demands.
+ *
+ * A routing decision reads `provider` and `id`, and pi's own record also names the model, its api, the
+ * base url, the modalities, the cost, and the two token limits. A test that writes the two keys it reads
+ * would not be a model at all, so the rest comes from here with limits no test depends on.
+ */
+export function fakeModel(provider: string, id: string, extra: Partial<PiModel> = {}): PiModel {
+	return {
+		id,
+		name: id,
+		api: "anthropic-messages",
+		provider,
+		baseUrl: "https://example.invalid",
+		input: ["text"],
+		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+		reasoning: true,
+		contextWindow: 200000,
+		maxTokens: 8192,
+		...extra,
 	};
 }
 

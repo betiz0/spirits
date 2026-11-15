@@ -11,7 +11,8 @@ import { expect, test } from "bun:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ExtensionContext, PiModel, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
+import type { PiModel } from "../src/types/host.ts";
 import {
 	COMMAND_SPIRITS_CLEAR,
 	COMMAND_SPIRITS_ROLE,
