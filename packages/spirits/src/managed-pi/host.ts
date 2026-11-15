@@ -89,6 +89,15 @@ export interface HostDescriptor {
 	readonly env: HostEnvNames;
 	/** Arguments that load the spirits extension bundle into the host. */
 	extensionArgs(bundlePath: string): readonly string[];
+	/**
+	 * Packages the host resolves for the extension at runtime, so a bundled extension leaves them
+	 * external instead of carrying its own copy.
+	 *
+	 * The first entry is {@link packageName}: the host's own API, which must be the same instance the
+	 * host loaded. The rest come from the host's dependency tree; a schema library among them has to
+	 * stay shared, because a tool parameter is compared against the host's own schema objects.
+	 */
+	readonly extensionExternals: readonly string[];
 }
 
 /** Manifest host kind of the official Pi, the kind a `schemaVersion: 1` manifest leaves implicit. */
@@ -97,6 +106,9 @@ export const MANIFEST_HOST_KIND_PI = "pi";
 /** Flag the official Pi reads to load one extension file. */
 const PI_EXTENSION_FLAG = "-e";
 
+/** Published package the official Pi artifact comes from. */
+const PI_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
+
 /** Package.json object and keys the official Pi reads for its identity. */
 const PI_IDENTITY_CONTAINER = "piConfig";
 const PI_IDENTITY_NAME_KEY = "name";
@@ -104,6 +116,12 @@ const PI_IDENTITY_CONFIG_DIR_KEY = "configDir";
 
 /** Config directory the official Pi uses when its package.json names none. */
 const PI_DEFAULT_CONFIG_DIR = ".pi";
+
+/** Terminal UI package the official Pi hands to an extension that draws its own screens. */
+const PI_TUI_PACKAGE_NAME = "@earendil-works/pi-tui";
+
+/** Schema library the official Pi and the extension share, so parameter schemas compare by identity. */
+const TYPEBOX_PACKAGE_NAME = "typebox";
 
 /** Environment variables a fork-era install may have left behind, dropped from the child. */
 const PI_REMOVED_ENV_NAMES: readonly string[] = [
@@ -116,7 +134,7 @@ const PI_REMOVED_ENV_NAMES: readonly string[] = [
 /** The official Pi artifact, the only host spirits ships against today. */
 export const OFFICIAL_PI_HOST: HostDescriptor = {
 	id: MANIFEST_HOST_KIND_PI,
-	packageName: "@earendil-works/pi-coding-agent",
+	packageName: PI_PACKAGE_NAME,
 	packageDirName: "pi",
 	executableName: "pi",
 	identity: {
@@ -139,6 +157,7 @@ export const OFFICIAL_PI_HOST: HostDescriptor = {
 	extensionArgs(bundlePath: string): readonly string[] {
 		return [PI_EXTENSION_FLAG, bundlePath];
 	},
+	extensionExternals: [PI_PACKAGE_NAME, PI_TUI_PACKAGE_NAME, TYPEBOX_PACKAGE_NAME],
 };
 
 /** Hosts spirits can run, keyed by manifest host kind. */

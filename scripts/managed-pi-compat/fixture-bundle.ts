@@ -14,7 +14,7 @@
 
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { managedManifestPath, managedSetDir } from "../../packages/spirits/src/managed-pi/layout.ts";
+import { managedExtensionPath, managedManifestPath, managedPiDir, managedSetDir } from "../../packages/spirits/src/managed-pi/layout.ts";
 import { loadManagedManifest, type ManagedManifest } from "../../packages/spirits/src/managed-pi/manifest.ts";
 import { sha256Hex } from "../../packages/spirits/src/managed-pi/overlay.ts";
 import { verifyManagedSet, writeInstalledStateForSet, type VerifiedManagedSet } from "../../packages/spirits/src/managed-pi/verify.ts";
@@ -48,7 +48,10 @@ export async function stageFixtureBundle(options: {
 	const setDir = managedSetDir(root, options.setId);
 	await rm(root, { recursive: true, force: true });
 	await mkdir(setDir, { recursive: true });
-	await cp(managedSetDir(options.artifactRoot, options.setId) + "/pi", join(setDir, "pi"), { recursive: true });
+	// The host directory name comes from the layout helpers, which ask the product's host descriptor.
+	await cp(managedPiDir(options.artifactRoot, options.setId), managedPiDir(root, options.setId), {
+		recursive: true,
+	});
 
 	const installed = await loadManagedManifest(managedManifestPath(options.artifactRoot, options.setId));
 	const bytes = await readFile(options.bundle);
@@ -57,10 +60,11 @@ export async function stageFixtureBundle(options: {
 		...installed,
 		extension: { ...installed.extension, artifact: { ...installed.extension.artifact, sha256: extensionSha256 } },
 	};
-	await writeFile(join(setDir, "spirits-extension.js"), bytes);
+	const extensionPath = managedExtensionPath(root, options.setId);
+	await writeFile(extensionPath, bytes);
 	await writeFile(managedManifestPath(root, options.setId), `${JSON.stringify(manifest, null, "\t")}\n`);
 	// The same verifier the install path uses, so a staged set that would not launch fails here rather
 	// than in the middle of an item.
 	await writeInstalledStateForSet(setDir, manifest);
-	return { set: await verifyManagedSet(root, options.setId), extensionPath: join(setDir, "spirits-extension.js"), extensionSha256 };
+	return { set: await verifyManagedSet(root, options.setId), extensionPath, extensionSha256 };
 }

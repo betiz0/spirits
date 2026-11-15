@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { dirname, join } from "node:path";
 import { REQUIRED_OBSERVATIONS } from "../../../scripts/managed-pi-compat/evidence.ts";
-import { parseHostDescriptor, substitutedIdentity } from "../../../scripts/managed-pi-compat/host.ts";
+import { parseSubstitutedHost, substitutedIdentity } from "../../../scripts/managed-pi-compat/substituted-host.ts";
 import { createCompatRunner } from "../../../scripts/managed-pi-compat/runner.ts";
 
 test("runner isolates HOME and agent dir", async () => {
@@ -178,25 +178,25 @@ test("a host descriptor that names less than the whole host is refused", () => {
 		bundle: "/bolt/spirits-bundle.js",
 		piVersion: "1.5.0",
 	};
-	const descriptor = parseHostDescriptor(JSON.stringify(whole), "bolt.json", "/home/u");
+	const descriptor = parseSubstitutedHost(JSON.stringify(whole), "bolt.json", "/home/u");
 	expect(descriptor.bundle).toBe("/bolt/spirits-bundle.js");
 	expect(substitutedIdentity(descriptor)).toEqual(whole);
 
 	// `~` is expanded on the machine that runs the check, not the one that wrote the file.
 	expect(
-		parseHostDescriptor(JSON.stringify({ ...whole, bundle: "~/bolt.js" }), "bolt.json", "/home/u").bundle,
+		parseSubstitutedHost(JSON.stringify({ ...whole, bundle: "~/bolt.js" }), "bolt.json", "/home/u").bundle,
 	).toBe("/home/u/bolt.js");
 
 	for (const key of ["label", "executable", "packageDir", "bundle", "piVersion"]) {
 		const partial: Record<string, string> = { ...whole };
 		delete partial[key];
-		expect(() => parseHostDescriptor(JSON.stringify(partial), "bolt.json", "/home/u")).toThrow(key);
+		expect(() => parseSubstitutedHost(JSON.stringify(partial), "bolt.json", "/home/u")).toThrow(key);
 	}
 	expect(() =>
-		parseHostDescriptor(JSON.stringify({ ...whole, executable: "bolt/pi" }), "bolt.json", "/home/u"),
+		parseSubstitutedHost(JSON.stringify({ ...whole, executable: "bolt/pi" }), "bolt.json", "/home/u"),
 	).toThrow("absolute path");
-	expect(() => parseHostDescriptor("{", "bolt.json", "/home/u")).toThrow("not valid JSON");
-	expect(() => parseHostDescriptor("[]", "bolt.json", "/home/u")).toThrow("JSON object");
+	expect(() => parseSubstitutedHost("{", "bolt.json", "/home/u")).toThrow("not valid JSON");
+	expect(() => parseSubstitutedHost("[]", "bolt.json", "/home/u")).toThrow("JSON object");
 });
 
 test("a substituted host is labelled, identified, and never compatibility met", async () => {

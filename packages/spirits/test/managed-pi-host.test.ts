@@ -20,6 +20,18 @@ test("the official Pi loads the bundle with -e", () => {
 	]);
 });
 
+test("the descriptor names the modules the host resolves for the bundle", () => {
+	// `build-managed-pi-inputs.ts` externalises exactly this list, so the bundle keeps sharing the host
+	// package it is loaded into, the terminal UI it draws on, and the library its tool parameters are
+	// schemas in. A build that dropped one would ship a second copy the host cannot match.
+	expect(OFFICIAL_PI_HOST.extensionExternals).toEqual([
+		"@earendil-works/pi-coding-agent",
+		"@earendil-works/pi-tui",
+		"typebox",
+	]);
+	expect(OFFICIAL_PI_HOST.extensionExternals[0]).toBe(OFFICIAL_PI_HOST.packageName);
+});
+
 test("the official Pi identity is the package.json piConfig.name overlay", () => {
 	expect(OFFICIAL_PI_HOST.identity.field).toBe("piConfig.name");
 	expect(OFFICIAL_PI_HOST.identity.kind).toBe("piConfig.name");

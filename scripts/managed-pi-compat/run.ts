@@ -123,15 +123,17 @@ import {
 	identifyRuntime,
 } from "./evidence.ts";
 import { stageFixtureBundle } from "./fixture-bundle.ts";
-import { parseHostDescriptor, substitutedIdentity, type HostDescriptor } from "./host.ts";
 import {
 	assertOfficialBundleSha,
 	buildOfficialIdentity,
+	createBundleVerifier,
 	createOfficialLaunchVerifier,
 	loadOfficialArtifact,
+	managedInputsPaths,
 	OfficialArtifactError,
 	type OfficialArtifact,
 } from "./official.ts";
+import { parseSubstitutedHost, substitutedIdentity, type SubstitutedHost } from "./substituted-host.ts";
 
 interface CliOptions {
 	mode: "fixture" | "official";
@@ -139,6 +141,8 @@ interface CliOptions {
 	host?: string;
 	artifactRoot?: string;
 	bundle?: string;
+	/** Output directory of `build-managed-pi-inputs.ts`: bundle and manifest in one place. */
+	inputs?: string;
 	bundleVersion?: string;
 	commit?: string;
 	out?: string;
@@ -300,7 +304,7 @@ interface LaunchContext {
 }
 
 const USAGE =
-	"Usage: bun scripts/managed-pi-compat/run.ts [--mode fixture|official] [--host <descriptor.json>] [--artifact-root <managed-root>] [--bundle <path>] [--commit <sha>] [--bundle-version <version>] [--out <path>] [--keep]\nA --host descriptor is a JSON object with label, executable, packageDir, bundle, piVersion and an optional note; the run records it as a substituted host and never as fixed-artifact compatibility.";
+	"Usage: bun scripts/managed-pi-compat/run.ts [--mode fixture|official] [--host <descriptor.json>] [--artifact-root <managed-root>] [--inputs <build-output-dir> | --bundle <path>] [--commit <sha>] [--bundle-version <version>] [--out <path>] [--keep]\nA --host descriptor is a JSON object with label, executable, packageDir, bundle, piVersion and an optional note; the run records it as a substituted host and never as fixed-artifact compatibility.\n--inputs takes the directory build-managed-pi-inputs.ts wrote, so the measured bundle and the manifest that pins its digest come from one build; --artifact-root then only supplies the host tarball.";
 
 /**
  * A path the caller typed at their own prompt.
@@ -331,6 +335,8 @@ function parseArgs(args: readonly string[]): CliOptions {
 			options.artifactRoot = inputPath(args[++index] ?? "");
 		} else if (arg === "--bundle") {
 			options.bundle = inputPath(args[++index] ?? "");
+		} else if (arg === "--inputs") {
+			options.inputs = inputPath(args[++index] ?? "");
 		} else if (arg === "--bundle-version") {
 			options.bundleVersion = args[++index];
 		} else if (arg === "--commit") {
@@ -350,20 +356,26 @@ function parseArgs(args: readonly string[]): CliOptions {
 		for (const [flag, value] of [
 			["--artifact-root", options.artifactRoot],
 			["--bundle", options.bundle],
+			["--inputs", options.inputs],
 			["--bundle-version", options.bundleVersion],
 			["--commit", options.commit],
 		] as const) {
 			if (value !== undefined) throw new Error(`--host cannot be combined with ${flag}`);
 		}
 	}
+	if (options.inputs && options.bundle !== undefined) {
+		// The inputs directory carries the bundle its own manifest pins the digest of. A second bundle
+		// would leave the run unsure which file the recorded identity describes.
+		throw new Error("--inputs already names the bundle its manifest pairs with; --bundle cannot be combined with it");
+	}
 	return options;
 }
 
-/** Read and judge the `--host` descriptor. */
-async function readHostDescriptor(path: string): Promise<HostDescriptor> {
+/** Read and judge the `--host` file. */
+async function readSubstitutedHost(path: string): Promise<SubstitutedHost> {
 	const file = Bun.file(expandHome(path));
 	if (!(await file.exists())) throw new Error(`host descriptor not found: ${path}`);
-	return parseHostDescriptor(await file.text(), path, homedir());
+	return parseSubstitutedHost(await file.text(), path, homedir());
 }
 
 function expandHome(path: string): string {
@@ -548,19 +560,28 @@ async function main(): Promise<number> {
 		});
 
 		// Resolve the launch context. Official mode verifies the artifact before anything is written.
+		// `--inputs` is the directory `build-managed-pi-inputs.ts` wrote: the bundle, plus the manifest
+		// that records its digest, both from one build.
+		const inputs = options.inputs ? managedInputsPaths(options.inputs) : undefined;
+		const bundle = options.bundle ?? inputs?.bundlePath;
 		let launch: LaunchContext | undefined;
 		// Re-checked before every spawn: a staged executable that changed after extraction must not start.
 		let verifyLaunch: () => Promise<void> = async () => {};
 		if (options.host) {
 			// A host someone described: the same matrix, recorded under its own name, never as the fixed
 			// artifact's compatibility evidence.
-			const descriptor = await readHostDescriptor(options.host);
+			const descriptor = await readSubstitutedHost(options.host);
 			const bundleBytes = new Uint8Array(await Bun.file(descriptor.bundle).arrayBuffer());
+			const bundleSha256 = sha256Hex(bundleBytes);
 			runner.setEvidence({
 				substitutedHost: substitutedIdentity(descriptor),
-				bundleSha256: sha256Hex(bundleBytes),
+				bundleSha256,
 				piVersion: descriptor.piVersion,
 			});
+			// A substituted host has no digest this check could trust as a root, so its executable goes
+			// unverified and the result says so (§10.5). The bundle is the one input the run can hold fixed,
+			// so every spawn re-reads it before launching.
+			verifyLaunch = createBundleVerifier(descriptor.bundle, bundleSha256);
 			launch = {
 				managedPi: descriptor.executable,
 				packageDir: descriptor.packageDir,
@@ -568,15 +589,16 @@ async function main(): Promise<number> {
 				piVersion: descriptor.piVersion,
 			};
 		} else if (options.mode === "official") {
-			if (!options.artifactRoot || !options.bundle || !options.commit) {
-				throw new Error("official mode requires --artifact-root, --bundle, and --commit");
+			if (!options.artifactRoot || bundle === undefined || !options.commit) {
+				throw new Error("official mode requires --artifact-root, --inputs or --bundle, and --commit");
 			}
 			const artifact: OfficialArtifact = await loadOfficialArtifact({
 				artifactRoot: expandHome(options.artifactRoot),
 				workRoot: runner.workRoot,
+				manifestPath: inputs?.manifestPath,
 			});
 			await writeOverlayPackage(artifact.packageDir, artifact.manifest.overlay.sha256);
-			const bundleSha256 = sha256Hex(new Uint8Array(await Bun.file(options.bundle).arrayBuffer()));
+			const bundleSha256 = sha256Hex(new Uint8Array(await Bun.file(bundle).arrayBuffer()));
 			// The bundle must be the extension the manifest pairs with this artifact, or the run would
 			// measure some other commit and still report itself as official.
 			assertOfficialBundleSha(artifact.manifest, bundleSha256);
@@ -587,7 +609,7 @@ async function main(): Promise<number> {
 				artifactSha256: artifact.artifactSha256,
 				executableSha256: artifact.executableSha256,
 				bundleSha256,
-				bundleVersion: options.bundleVersion,
+				bundleVersion: options.bundleVersion ?? artifact.manifest.extension.version,
 				targetCommit: options.commit,
 				workingTreeClean: runner.evidence.runnerProvenance?.clean,
 			});
@@ -595,7 +617,7 @@ async function main(): Promise<number> {
 			launch = {
 				managedPi: artifact.executablePath,
 				packageDir: artifact.packageDir,
-				extensionPath: options.bundle,
+				extensionPath: bundle,
 				piVersion: artifact.manifest.pi.version,
 				manifest: artifact.manifest,
 			};
@@ -603,11 +625,11 @@ async function main(): Promise<number> {
 			const artifactRoot = options.artifactRoot ? expandHome(options.artifactRoot) : managedRoot();
 			const setId = await readCurrentSet(artifactRoot);
 			if (setId) {
-				// `--bundle` in fixture mode stages a set around an extension the caller built, so the run
+				// A bundle the caller built (by `--bundle` or by `--inputs`) stages a set around it, so the run
 				// measures the code under review instead of the release that happens to be installed. Without
-				// it the run measures the installed set, which is what this mode has always meant.
-				const verified = options.bundle
-					? (await stageFixtureBundle({ artifactRoot, setId, bundle: options.bundle, workRoot: runner.workRoot })).set
+				// one the run measures the installed set, which is what this mode has always meant.
+				const verified = bundle
+					? (await stageFixtureBundle({ artifactRoot, setId, bundle, workRoot: runner.workRoot })).set
 					: await verifyManagedSet(artifactRoot, setId);
 				launch = {
 					managedPi: verified.piExecutable,
@@ -675,9 +697,12 @@ async function main(): Promise<number> {
 				// an observation too: a run that measured the installed set or a described host says which.
 				await run(HOST_VERIFICATION_ITEM, async () => {
 					if (options.host !== undefined) {
+						// What a substituted run did not check belongs in its result: there is no digest this
+						// check trusts for someone else's build, so the executable goes unverified. The bundle is
+						// the input the run can still hold fixed, and it is re-read before every spawn.
 						return {
 							state: "not-run" as const,
-							detail: `the run measured the substituted host ${options.host}; no fixed official artifact was extracted`,
+							detail: `the run measured the substituted host ${options.host}; its executable was not verified, while the measured bundle was re-checked before every spawn`,
 						};
 					}
 					if (options.mode !== "official") {

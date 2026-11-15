@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildRuntimeEvidence, identifyRuntime, redactSecrets } from "../../../scripts/managed-pi-compat/evidence.ts";
-import { assertOfficialArtifactSha, assertOfficialBundleSha, buildOfficialIdentity, classifyOfficialArtifactSha, classifyOfficialBundleSha, createOfficialLaunchVerifier, OfficialArtifactError } from "../../../scripts/managed-pi-compat/official.ts";
+import { assertOfficialArtifactSha, assertOfficialBundleSha, buildOfficialIdentity, classifyOfficialArtifactSha, classifyOfficialBundleSha, createBundleVerifier, createOfficialLaunchVerifier, managedInputsPaths, OfficialArtifactError } from "../../../scripts/managed-pi-compat/official.ts";
 import { MANAGED_PI_FIRST_ARTIFACT_SHA256 } from "../src/constants.ts";
 import { firstSupportedManifest } from "../src/managed-pi/manifest.ts";
 
@@ -72,6 +72,29 @@ test("official mode re-verifies the executable before launch", async () => {
 		await expect(verify()).rejects.toBeInstanceOf(OfficialArtifactError);
 	} finally {
 		for (const path of dirs) await rm(path, { recursive: true, force: true });
+	}
+});
+
+test("the build output directory names both files the run needs", () => {
+	// `--inputs` is the whole pairing: the bundle, and the manifest that records its digest. Naming the
+	// directory cannot mix a bundle with a manifest from another build.
+	expect(managedInputsPaths("/build/dist")).toEqual({
+		bundlePath: "/build/dist/spirits-managed-pi-extension.js",
+		manifestPath: "/build/dist/spirits-managed-pi-manifest.json",
+	});
+});
+
+test("a substituted run stops when the measured bundle changes mid-run", async () => {
+	const dir = await mkdtemp(join(tmpdir(), "spirits-compat-bundle-"));
+	try {
+		const bundlePath = join(dir, "spirits-managed-pi-extension.js");
+		await writeFile(bundlePath, "first build");
+		const verify = createBundleVerifier(bundlePath, new Bun.CryptoHasher("sha256").update("first build").digest("hex"));
+		await expect(verify()).resolves.toBeUndefined();
+		await writeFile(bundlePath, "second build");
+		await expect(verify()).rejects.toBeInstanceOf(OfficialArtifactError);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
 	}
 });
 

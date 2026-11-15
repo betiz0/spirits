@@ -22,13 +22,20 @@ import {
 	MANAGED_PI_FIRST_PI_VERSION,
 	MANAGED_PI_MANIFEST_ASSET_NAME,
 } from "../packages/spirits/src/constants.ts";
+import { hostDescriptor } from "../packages/spirits/src/managed-pi/host.ts";
 import { firstSupportedManifest, type ManagedManifest } from "../packages/spirits/src/managed-pi/manifest.ts";
 import { sha256Hex } from "../packages/spirits/src/managed-pi/overlay.ts";
 
 const ROOT = resolve(import.meta.dir, "..");
 const ENTRYPOINT = resolve(ROOT, "packages/spirits/src/index.ts");
-const TSCONFIG = resolve(ROOT, "tsconfig.json");
-const HOST_EXTERNALS = ["@earendil-works/pi-coding-agent", "@earendil-works/pi-tui", "typebox"];
+/**
+ * The package's own config. The root config mapped the host specifiers onto this checkout's copy of
+ * Pi, which is not what the managed route loads: the extension is typed and built against the host
+ * packages pinned in `packages/spirits`.
+ */
+const TSCONFIG = resolve(ROOT, "packages/spirits/tsconfig.json");
+/** Modules the host resolves for the bundle. Named by the host descriptor, not by this script. */
+const HOST_EXTERNALS: string[] = [...hostDescriptor().extensionExternals];
 
 /** Inputs of one build. */
 export interface BuildManagedInputsOptions {

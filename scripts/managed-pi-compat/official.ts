@@ -10,7 +10,12 @@
 import { existsSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { MANAGED_PI_FIRST_ARTIFACT_SHA256 } from "../../packages/spirits/src/constants.ts";
+import {
+	MANAGED_PI_EXTENSION_ASSET_NAME,
+	MANAGED_PI_FIRST_ARTIFACT_SHA256,
+	MANAGED_PI_MANIFEST_ASSET_NAME,
+} from "../../packages/spirits/src/constants.ts";
+import { hostDescriptor } from "../../packages/spirits/src/managed-pi/host.ts";
 import { loadManagedManifest, type ManagedManifest } from "../../packages/spirits/src/managed-pi/manifest.ts";
 import { sha256Hex } from "../../packages/spirits/src/managed-pi/overlay.ts";
 import type { CompatState } from "./runner.ts";
@@ -109,12 +114,31 @@ async function fileSha256(path: string): Promise<string> {
 	return sha256Hex(new Uint8Array(await Bun.file(path).arrayBuffer()));
 }
 
+/**
+ * The two files `build-managed-pi-inputs.ts` writes into one directory.
+ *
+ * Passing that directory to the runner instead of naming a bundle and a version again removes the
+ * chance of measuring a bundle whose digest some other manifest pairs with.
+ */
+export function managedInputsPaths(dir: string): { bundlePath: string; manifestPath: string } {
+	return {
+		bundlePath: join(dir, MANAGED_PI_EXTENSION_ASSET_NAME),
+		manifestPath: join(dir, MANAGED_PI_MANIFEST_ASSET_NAME),
+	};
+}
+
 /** Verify the manifest, the tarball digest, and extract the official artifact. */
 export async function loadOfficialArtifact(options: {
 	artifactRoot: string;
 	workRoot: string;
+	/**
+	 * Manifest that pairs the artifact with the measured bundle. Defaults to the staging directory's
+	 * own `manifest.json`; a build directory passed with `--inputs` names its own instead, while the
+	 * artifact root still supplies the tarball.
+	 */
+	manifestPath?: string;
 }): Promise<OfficialArtifact> {
-	const manifestPath = join(options.artifactRoot, "manifest.json");
+	const manifestPath = options.manifestPath ?? join(options.artifactRoot, "manifest.json");
 	const manifest = await loadManagedManifest(manifestPath);
 	assertOfficialArtifactSha(manifest.pi.artifact.sha256);
 	const manifestSha256 = await fileSha256(manifestPath);
@@ -137,9 +161,13 @@ export async function loadOfficialArtifact(options: {
 	if ((await extract.exited) !== 0) {
 		throw new OfficialArtifactError(`could not extract the official artifact: ${stderr.trim()}`);
 	}
-	// The official tarball nests the package under `pi/`; a fixture tarball may extract flat.
-	const packageDir = existsSync(join(piDir, "pi")) ? join(piDir, "pi") : piDir;
-	const executablePath = join(packageDir, "pi");
+	// The official tarball nests the package under the host descriptor's directory name; a fixture
+	// tarball may extract flat. `hostPackageDir`/`hostExecutablePath` take a release set directory, and
+	// this is a staging directory, so the two fields are joined here instead.
+	const host = hostDescriptor();
+	const nested = join(piDir, host.packageDirName);
+	const packageDir = existsSync(nested) ? nested : piDir;
+	const executablePath = join(packageDir, host.executableName);
 	const executableSha256 = await fileSha256(executablePath);
 	return {
 		manifest,
@@ -151,6 +179,24 @@ export async function loadOfficialArtifact(options: {
 		packageDir,
 		executablePath,
 		executableSha256,
+	};
+}
+
+/**
+ * Build the bundle check run immediately before every Pi spawn.
+ *
+ * A substituted host has no digest trust root, so the executable cannot be verified the way the
+ * official artifact is. The measured bundle is the one thing the run can still hold fixed: if it
+ * changed between spawns, the rows would come from different code than the recorded identity.
+ */
+export function createBundleVerifier(bundlePath: string, bundleSha256: string): () => Promise<void> {
+	return async () => {
+		const current = await fileSha256(bundlePath);
+		if (current !== bundleSha256) {
+			throw new OfficialArtifactError(
+				`the measured bundle ${bundlePath} changed from ${bundleSha256} to ${current} during the run`,
+			);
+		}
 	};
 }
 

@@ -209,11 +209,11 @@ role の所在は経路で違う。fork 経路では role は Pi の `pi.virtual
 
 ```sh
 # official モード(既定): 公式 artifact を検証し、対象 commit の bundle で測る
+bun scripts/build-managed-pi-inputs.ts --version <version> --out /tmp/managed
 bun scripts/managed-pi-compat/run.ts \
   --artifact-root <staged-official-artifact-root> \
-  --bundle <target-commit-bundle.js> \
+  --inputs /tmp/managed \
   --commit <sha> \
-  --bundle-version <version> \
   --out <tmp>/result.json
 
 # fixture モード: 隔離した managed root の fixture set を測る
@@ -227,11 +227,13 @@ bun scripts/managed-pi-compat/run.ts --mode fixture --bundle /tmp/spirits-compat
 bun scripts/managed-pi-compat/run.ts --host /tmp/pi-bolt-host.json --out <tmp>/result.json
 ```
 
-`--host` の記述子は JSON オブジェクトで、`label` / `executable` / `packageDir` / `bundle` / `piVersion` と任意の `note` を持つ。パスは絶対パスか `~` 始まりで、`--artifact-root` などの set を選ぶフラグとは併用できない。
+`--host` の記述子は JSON オブジェクトで、`label` / `executable` / `packageDir` / `bundle` / `piVersion` と任意の `note` を持つ。パスは絶対パスか `~` 始まりで、`--artifact-root` などの set を選ぶフラグとは併用できない。代用ホストの実行では拡張 bundle を spawn のたびに読み直して digest を再検証する。実行ファイルは検証しない(差し替えたビルドにはこの検査が信用する digest が無い)ため、その旨が `official artifact and bundle verified` 項目の butし書きに出る。製品側の起動時検証 (`src/managed-pi/verify.ts`) は変更しない。
+
+`--inputs` は `build-managed-pi-inputs.ts` の出力ディレクトリを渡す。bundle と、その digest を記録した manifest が 1 回のビルドからそろうので、`--bundle` のように別々の場所を指して取り違える余地が無い。併用しない限り `--bundle-version` は manifest の `extension.version` から決まり、`--artifact-root` には公式 tarball だけを置いておけばよく、staging 自身の `manifest.json` は読まない。
 
 - `--mode` は `official`(既定)か `fixture`。`--host` を渡すと mode は `substituted` になる。全結果に `mode` が付き、ラベルは official が `official`、fixture が `fixture-only`、代用ホストが `substituted-host`。fixture の成功も代用ホストの成功も、公式 Pi の互換性成立の根拠にはしない。代用ホストで測ったものは evidence に `substitutedHost`(label・実行ファイル・package dir・bundle・pi バージョン)として残り、要約にもその旨を 2 行出す。
 - `fixture` でも `--bundle` を受け付ける。指定すると、インストール済み set の Pi をそのままで、拡張だけを入れ替えた set を作業ルートの中に作って測る(既定はインストール済み set そのままなので、作業ツリーの変更は測らない)。set は製品の `verifyManagedSet` を通すため、起動できない set は項目の実行前に落ちる。Pi 側はコピーであって link ではない。`verifyManagedSet` は Pi ディレクトリの overlay package.json を見て、無ければ作るため、link にするとユーザーのインストール済み set まで書き換えうる。公式 tarball はコピーしない(fixture 経路は展開済みツリーを起動するだけ)。
-- `official` では `--artifact-root`(`manifest.json` と公式 tarball を置いたステージング領域)、`--bundle`(対象 commit からビルドした拡張 bundle)、`--commit`(対象 commit)が必須。manifest の `pi.artifact.sha256` が製品の信頼基準 `MANAGED_PI_FIRST_ARTIFACT_SHA256` と一致しない場合、結果を書かず非ゼロで終了する。
+- `official` では `--artifact-root`(公式 tarball を置いたステージング領域)、拡張 bundle(`--inputs` か `--bundle`)、`--commit`(対象 commit)が必須。bundle は manifest が `extension.artifact.sha256` で記録したものと一致しなければ測定しない。manifest の `pi.artifact.sha256` が製品の信頼基準 `MANAGED_PI_FIRST_ARTIFACT_SHA256` と一致しない場合、結果を書かず非ゼロで終了する。
 - ランナーは一時 HOME、一時 agent dir、一時作業ディレクトリを用意し、製品の `resolveManagedAgentPaths` / `ensureManagedAgentDir` で隔離 agent dir を解決する。実 `~/.spirits/agent` などのユーザーデータは読み書きせず、PATH 上の `pi` も使わない。
 - 結果は JSON と、その隣に `managed-pi-compat-result.md` の要約を出力する。通常実行でリポジトリの `docs/` を書き換えない。
 - 保存前に API キー・トークン・proxy 認証をマスクする。
