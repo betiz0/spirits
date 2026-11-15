@@ -54,6 +54,14 @@ ARTIFACT="spirits-linux-x64"
 TAG_PREFIX="spirits-v"
 NEW_TAG="$TAG_PREFIX$EXPECTED_VERSION"
 
+# The updater asks for the release asset by name, so the served file has to carry that name. Serving
+# the same bytes under another name produces an HTTP 404 with no hint of the mismatch, so check it
+# before starting a server.
+[ "$(basename "$NEW_BINARY")" = "$ARTIFACT" ] || {
+	echo "Error: the new binary must be named $ARTIFACT, the release asset name: $NEW_BINARY" >&2
+	exit 1
+}
+
 # Managed release asset names, the same contract as install.sh and spirits-release.yml.
 MANIFEST_ASSET="spirits-managed-pi-manifest.json"
 BUNDLE_ASSET="spirits-managed-pi-extension.js"
