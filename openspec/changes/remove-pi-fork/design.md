@@ -224,6 +224,27 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 
 `packages/spirits/src/managed-pi/host.ts` に `HostDescriptor` を置き、起動役と managed-pi はそれだけを読む。固定値は `constants.ts` の `PINNED_PI` に置く。Pi-Bolt は同じインターフェースの別インスタンスを追加し、manifest の host 種別で選ぶ。
 
+### 実装済みの記述子と上の表の照合 (2026-11-15)
+
+上表の実施状況を実測で写す。左は上の「依存」の行、中央は実装で値が出る場所、右は公式 Pi 1.5.0 で測った値。
+
+| 上の行 | 記述子のフィールド | 公式 Pi での実測 |
+|---|---|---|
+| `launch.ts` / `install.ts` / `verify.ts` / `layout.ts` の配置と実行ファイル名 | `packageDirName` / `executableName` (`hostPackageDir`、`hostExecutablePath`) | `pi` / `pi`。set 内の実体は `<set>/pi/pi` |
+| `-e` の拡張ロード引数 | `extensionArgs(bundlePath)` | `["-e", bundle]`。この前置が host のコマンド dispatch と衝突する (下記の `commandWords`) |
+| `overlay.ts` の identity | `identity` (`applyHostIdentity`) | `piConfig.name = "spirits"`、`configDir` 既定 `.pi`。overlay 後の package.json も検証対象 |
+| `environment.ts` の env 名 | `env.agentDir` / `sessionDir` / `packageDir` / `skipVersionCheck` / `telemetry` / `removed` | `SPIRITS_CODING_AGENT_DIR` / `SPIRITS_CODING_AGENT_SESSION_DIR` / `PI_PACKAGE_DIR` / `PI_SKIP_VERSION_CHECK` / `PI_TELEMETRY`。`removed` は旧版が残す 4 変数で、子の環境から落とす |
+| `build-managed-pi-inputs.ts` の externals | `extensionExternals` | `@earendil-works/pi-coding-agent` / `@earendil-works/pi-tui` / `typebox` |
+| `manifest.ts` の host 種別 | `hostDescriptor(kind)`、既定 `MANIFEST_HOST_KIND_PI` | `schemaVersion: 1` の manifest に host 欄は無く、`pi` に正規化される。未知の kind は `Unsupported managed host kind` で落ちる (黙って Pi として起動しない) |
+| `src/index.ts` の host API | 記述子ではなく pinned devDependency の型 | `registerVirtualModel` / `registerCommand` / `setStatus` / `setHeader` / `appendEntry` / `createAgentSession` は 1.5.0 で動作を確認 (互換性ランナー公式モードの観測) |
+
+この change で追加したフィールドが 2 つある。どちらも「公式 Pi に依存している箇所」の表に無く、実測で出てきた仮定である。
+
+- `commandWords`: host は自己的第一引数のときだけ dispatch するコマンド語。実測で `<host> list` は一覧を出し、`-e <bundle> list` は model への prompt になり、`<host> list -e <bundle>` は `Unknown option -e for "list"` になる。起動役は bundle を必ず前に置くため通過できず、これらの語を拒否して host 実行ファイルを案内する。`update` は起動役自身が分類するので含めない。
+- `extensionExternals`: 拡張が host と同じ instance を使うべき package の一覧。build script が独自のリストを持つと host の更新でずれる。
+
+Pi-Bolt 側は `commandWords` を自分の表で宣言する必要がある。host が持たない語をここに足すと正当な model への入力を拒否し、host にある語を忘れると起動役がそれを model prompt として host に渡す (拒否は安全側、見落としは挙動が変わる側)。
+
 ### manifest の `schemaVersion` の上げ方
 
 - 今回 `schemaVersion` は `1` のまま。`pi.*` は公式 Pi の記述として残す。
@@ -233,12 +254,24 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 
 ### 後続 change の未解決事項 (推測で設計を確定しない)
 
+「公式 Pi 側は実測で埋かり、Pi-Bolt 側は未実測」で分ける。未実測のものをこの change では確定しない。
+
+公式 Pi 1.5.0 で確認済み (Pi-Bolt の仮定としては使わない):
+
+- overlay は `piConfig.name` で適用できる。agent dir の env 名も app name から派生する。
+- RPC モードは駆動できる (互換性ランナーが公式 Pi の RPC で観測している)。
+- 拡張 API の `registerVirtualModel` / `registerCommand` / `setStatus` / `setHeader` / `appendEntry` / `createAgentSession` は揃っている。
+- theme は配布物に含まれ、`/settings` はそれで動く (実行ファイル隣の `theme/` は不要)。
+
+未解決 (後続 change で実測する):
+
 - Pi-Bolt の agent dir の向け直し (環境変数名、既定パス)。
-- Pi-Bolt で overlay (`package.json` の `piConfig.name`) が適用できるか。
+- Pi-Bolt で overlay (`package.json` の `piConfig.name` 相当) が適用できるか。
 - JIT 無しで tsrepl が実用速度で動くか。
 - Pi-Bolt の RPC モードが公式 Pi と同じプロトコルか。
-- Pi-Bolt の拡張 API が `registerVirtualModel` / `registerCommand` / `setStatus` / `setHeader` / `appendEntry` / `createAgentSession` を提供するか。
+- Pi-Bolt の拡張 API が上記 6 種を提供するか。
 - Pi-Bolt の CLI の identity・help・theme の扱い。
+- Pi-Bolt の `commandWords` と、拡張ロード引数の位置 (公式 Pi は host コマンドより後ろの `-e` を拒否する)。
 
 ## ファイル分類
 
