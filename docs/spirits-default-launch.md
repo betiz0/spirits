@@ -1,20 +1,20 @@
 # 既定の起動経路 (managed)
 
-`spirits` を打つと、既定では **managed** が起動する。managed は公式 Pi の固定成果物に spirits 拡張 bundle を `-e` で読み込ませた経路で、保存先は従来と同じ `~/.spirits/agent` である。設定・セッション・認証・外部拡張はそのまま引き継がれる。コピーも移行もしていない。
+`spirits` を打つと **managed** が起動する。managed は公式 Pi の固定成果物に spirits 拡張 bundle を `-e` で読み込ませた経路で、保存先は `~/.spirits/agent` である。設定・セッション・認証・外部拡張はそのまま読む。Pi 内蔵経路は削除済みで、`~/.spirits/bin` には起動役しか入らない。
 
-起動役のバイナリはそのまま残っており、`~/.spirits/bin/spirits` が経路を選んでから子プロセスを起動する。
+## 何が動くか
 
-## 何が変わるか
+| 項目 | 挙動 |
+|---|---|
+| 起動するもの | `~/.spirits/managed-pi/current/pi/pi` + `current/spirits-extension.js` |
+| agent dir | `SPIRITS_CODING_AGENT_DIR` が無ければ `~/.spirits/agent` |
+| CLI 引数 | そのままホストへ (`--continue`、`--resume`、`--session`、`--session-dir`、`--export` など) |
+| サブコマンド | `spirits update`、`spirits managed-pi`、`--version` / `-v` |
+| 初回起動 | agent dir のバックアップを 1 回だけ取ってから起動 |
+| 起動ヘッダー | 拡張がホストの header API で描く。アート・`spirits v<版>`・キーヒント |
+| role 表示 | 拡張の status line（[spirits-managed-pi.md](spirits-managed-pi.md) の「已知の制約」） |
 
-| 項目 | 従来 (fork) | 既定 (managed) |
-|---|---|---|
-| 起動するもの | バイナリ内の fork 版 pi | `~/.spirits/managed-pi/current/pi/pi` + 拡張 bundle |
-| agent dir | `~/.spirits/agent` | 同じ規則 (`SPIRITS_CODING_AGENT_DIR` が無ければ `~/.spirits/agent`) |
-| CLI 引数 | そのまま pi へ | `--` なしでそのまま Pi へ (`--continue`、`--resume`、`--session`、`--fork`、`--session-dir`、`--export` など) |
-| サブコマンド | `spirits update` など | 同じ。`update`、`managed-pi`、`--version` / `-v` の扱いは従来どおり |
-| 初回起動 | なし | agent dir のバックアップを 1 回だけ取ってから起動 |
-| 起動ヘッダー | spirits の独自ヘッダー | 公式 Pi のヘッダーに spirits の版を表示 |
-| role 表示 | フッターのモデル名隣の badge | 拡張の status line（[spirits-managed-pi.md](spirits-managed-pi.md) の「已知の制約」） |
+`spirits list` / `install` / `config` などの host コマンド語は起動役が拒否し、host 実行ファイルを案内する。`--` の後は model への入力になる（[`docs/spirits-host-upgrade.md`](spirits-host-upgrade.md) の「旧版の利用者への注意」）。
 
 `SPIRITS_CODING_AGENT_SESSION_DIR` は既定経路では固定しない。Pi はこの変数を「session ディレクトリそのもの」として扱い、既定値の `<agent dir>/sessions/<エンコードした cwd>/` を使わなくなるため、既定経路で固定すると既存のセッション配置が変わってしまう。継承値があればそのまま子に渡る（fork と同じ）。
 
@@ -26,7 +26,7 @@ managed の一式（公式 Pi と拡張 bundle）は、**起動役のバイナ�
 - `scripts/install.sh` … 実行ファイルを配置した後、同じタグの manifest URL を指定して導入する
 - 初回の `spirits` 起動 … 一式が無ければ、そのバイナリのリリースから取得して導入する
 
-一式が無く、取得もできなかった場合は、黙って fork に切り替えない。理由、`spirits managed-pi repair`、`SPIRITS_ROUTE=fork spirits` を表示して非ゼロで終わる。fork はその場で起動する。
+一式が無く、取得もできなかった場合は黙って別のホストを起動しない。理由、`spirits managed-pi repair`、取得元を表示して非ゼロで終わる。
 
 ## バックアップ
 
@@ -56,42 +56,21 @@ cp -a ~/.spirits/backups/agent-2026-11-10T09-12-33Z ~/.spirits/agent
 find ~/.spirits/backups/agent-2026-11-10T09-12-33Z -type l -exec ls -l {} +
 ```
 
-## fork へ戻る
+## 前のリリースへ戻す
 
-一時的になら環境変数だけで戻せる。
-
-```sh
-SPIRITS_ROUTE=fork spirits --continue
-```
-
-`SPIRITS_ROUTE` は `fork` のときだけ fork を起動し、未設定とそれ以外の値は既定（managed）になる。Pi 自身に `--fork` フラグがあるため、フラグ名としては提供しない。
-
-恒久的に戻す場合は、**退避しておいた `~/.spirits/bin` を戻す**。退避は、fork が既定だった頃のバイナリが入っているうちに（managed 既定版への更新の前に）取っておく。
+環境変数で経路を切り替える手段は無い。戻すときは実行ファイルごと戻す。
 
 ```sh
-# 退避（fork 既定のバイナリがまだ入っているうちに実行）
-cp -a ~/.spirits/bin ~/.spirits/bin.fork-<UTC 時刻>
+# 1. spirits を終了して ~/.spirits/bin を退避する
+cp -a ~/.spirits/bin ~/.spirits/bin-backup-$(date -u +%Y%m%dT%H%M%SZ)
+# 2. 直前のリリースの実行ファイルを取得して検証し、配置する
+gh release download spirits-v0.7.2 --repo betiz0/spirits --dir /tmp/rollback
+(cd /tmp/rollback && sha256sum -c spirits-linux-x64.sha256)
+mv /tmp/rollback/spirits-linux-x64 ~/.spirits/bin/spirits && chmod 755 ~/.spirits/bin/spirits
+spirits --version   # 戻した版が表示されること
 ```
 
-戻すときは、現在の bin ディレクトリを退けてから、退避しておいたものをはめ直す。
-
-```sh
-# spirits を終了してから
-mv ~/.spirits/bin ~/.spirits/bin.managed-<UTC 時刻>
-mv ~/.spirits/bin.fork-<UTC 時刻> ~/.spirits/bin
-spirits --version   # 退避しておいた版が表示されること
-```
-
-`bin/` には実行ファイルと `theme/` しかない。データ目録（`~/.spirits/agent`）と managed の一式（`~/.spirits/managed-pi`）は `bin/` の外なので、戻し操作の影響を受けない。現在のバイナリは `bin.managed-<UTC 時刻>` のまま残る。
-
-`VERSION` を指定した `install.sh` の再実行は、現状では戻し手段にできない:
-
-```sh
-VERSION=0.6.0 sh scripts/install.sh
-# Error: Failed to download https://github.com/betiz0/spirits/releases/download/spirits-v0.6.0/dark.json.
-```
-
-インストーラは実行ファイルの前にテーマ資産（`dark.json` / `light.json`）をそのタグから取得するが、`spirits-v0.6.0` のリリースにはテーマ資産が添付されておらず、配置まで進まずに失敗する（配置済みのファイルはそのまま）。退避を取り忘れた場合は、今のバイナリで `export SPIRITS_ROUTE=fork` を shell の rc に書いて起動経路を恒久的に fork へ固定できる（実行ファイル自体は managed 既定版のまま。fork を起動する手段は、fork を削除する変更までは消えない）。
+`~/.spirits/agent` と `~/.spirits/managed-pi` は `bin/` の外なので、戻し操作の影響を受けない。その版に合う一式が未導入なら、その実行ファイルが同じ規則で取得する。手順全体とフォーク Era の実行ファイルの作り方は [`docs/spirits-host-upgrade.md`](spirits-host-upgrade.md) の Rollback を見る。
 
 ## 一式が壊れたとき
 
@@ -102,7 +81,7 @@ spirits managed-pi repair        # 導入済み set の manifest から同じ組
 spirits managed-pi update        # 起動役バイナリのリリースの組を入れ直す（最新リリースではない）
 ```
 
-どちらも失敗したときは、上記と同じく理由・`spirits managed-pi repair`・`SPIRITS_ROUTE=fork spirits` が出る。agent dir と `~/.spirits/bin` は書き換えられない。
+どちらも失敗したときは理由と取得元を表示して非ゼロで終わる。agent dir と `~/.spirits/bin` は書き換えられない。
 
 ## 隔離経路 `spirits managed-pi`
 
@@ -130,20 +109,20 @@ diff <(jq -S . ~/.spirits/managed-pi/agent/settings.json) <(jq -S . ~/.spirits/a
 ```
 
 - `sessions/` の下のディレクトリ名は cwd をエンコードしたものであり、同名ディレクトリがある場合は既存ファイルを消さないよう `cp -n` を使う。
-- `settings.json` は fork 側が持っているキー（`enabledModels` など）を上書きしない。`models.strong` / `models.role` / `defaultProvider` / `defaultModel` / `defaultThinkingLevel` だけを `jq` で写す。
+- `settings.json` は既存のキー（`enabledModels` など）をまとめて上書きしない。`models.strong` / `models.role` / `defaultProvider` / `defaultModel` / `defaultThinkingLevel` だけを写す。
 - `auth.json` は認証情報なので、コピーより `spirits` 側でログインし直すほうが安全な場合がある。
 - `bundled-skills/` と `extensions/` は移行しない。起動時に作り直される／元の場所にあるべきものだから。
 - 移した session は既定経路で `spirits --session <file>` または `--continue` で開けることを確認してから、`~/.spirits/managed-pi/agent` を削除する。
 
 ## データの互換性
 
-fork と managed の間で agent dir の読み書きが通るかは [docs/agent-data-compat/](agent-data-compat/README.md) に実測を残した。既定経路の形（agent dir を fork と共有し、session dir を pin しない）で測った結果が `docs/agent-data-compat/default-route/` である。
+agent dir を読む経路は 1 つになった。fork 時代に測った往復の記録は [docs/agent-data-compat/](agent-data-compat/README.md) に歴史的証拠として残る（既定経路の形で測った結果が `docs/agent-data-compat/default-route/` にあり、23 項目のうち bidirectional 18 / one-way 1 / not-run 4）。`not-run` は headless な書き込み経路が product に無かったことの記録で、失敗ではない。one-way は `pi.virtual-model-state` だけで、managed 側が将来分を書かない代わりに読むことはできる。
 
-- 23 項目のうち bidirectional 18 / one-way 1 / not-run 4。managed が書き込んだ session・settings・
-  memory・skills・auth を fork 側がそのまま読める（`SPIRITS_ROUTE=fork` に相当する読み取りを fork バイナリで実測）。
-- not-run の 4 項目（`auth.json write` / `models.json write` / `models-store.json` / `trust.json`）は
-  headless な書き込み経路が product に無く、実測機会が無いことの記録であり、失敗ではない。
-- one-way は `pi.virtual-model-state` だけ。公式 Pi 1.5.0 に役割 API が無いため managed 側が将来分を
-  追記しないだけで、fork が書いた entry は読める。
+実測に使ったランナーは削除済みなので、現在の互換性の証拠は互換性ランナーの公式モードが出す。
 
-実データで確かめるなら、上記のバックアップを自分で取ったうえで実施する。
+```sh
+bun scripts/build-managed-pi-inputs.ts --version <版> --out dist
+bun scripts/managed-pi-compat/run.ts --inputs dist --artifact-root <公式 tarball の dir> --commit HEAD --out /tmp/compat/result.json
+```
+
+完了確認は `Compatibility met` が真、`failed` が 0 件、`not-run` を成功として数えないこと。実データで確かめるときは上記のバックアップを自分で取ったうえで、`~/.spirits/managed-pi/agent` を使う隔離経路で行う。

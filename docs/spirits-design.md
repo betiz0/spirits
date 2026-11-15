@@ -2,45 +2,48 @@
 
 - プロジェクト名: **spirits**
 - コマンド名: `spirits`
-- 版: v0.4
-- 更新日: 2026-10-11
+- 版: v0.5
+- 更新日: 2026-11-15
 - ライセンス: MIT
-- ステータス: 設計確定(M1 着手可)
+- ステータス: 設計確定 (ホストは公式 Pi の固定 artifact、単一の managed 経路)
 
 ---
 
 ## 1. 目的と位置づけ
 
-spirits は、エージェント型コーディングツール **Pi**(`earendil-works/pi`,旧 badlogic/pi-mono)をフォークし、Prime Intellect の **Prime Agent** が Python(IPython カーネル + RLM + Continual Harness)で実現している実行モデルを、**TypeScript / Bun ネイティブで再実装**するための派生プロジェクトである。
+spirits は、エージェント型コーディングツール **Pi**(`earendil-works/pi`)の**公式配布物の上で動く拡張 bundle と薄い起動役**であり、Prime Intellect の **Prime Agent** が Python(IPython カーネル + RLM + Continual Harness)で実現している実行モデルを、**TypeScript / Bun ネイティブで再実装**する。Pi のソースはリポジトリに含めない。実行時に使うのは `~/.spirits/managed-pi` に導入した公式 Pi の固定リリースで、コンパイルした `spirits` はその一式を検証してから spirits 拡張をロードして起動する。
 
 設計目標:
 
 1. モデルとの主インターフェースを「永続 TypeScript REPL(1ツール)」とする code-as-action 構成
 2. REPL 内から子エージェントを起動できる `rlm()` 相当の再帰機構(Phase 1 は同期呼び出し)
 3. プロンプト / スキル / メモリをエージェント自身が更新できる Continual Harness 相当の自己改善機構
-4. Pi 上流(upstream)への差分を最小化し、継続的に変更を取り込めるフォーク運用
+4. ホスト固有の仮定を 1 か所 (`src/managed-pi/host.ts` の記述子と `PINNED_PI`) に集め、ホストの版更新と差し替えをデータの変更として行えるようにする
 
 非目標:
 
 - IPython / Jupyter プロトコルとの互換性(参考実装として読むのみ)
 - セキュリティサンドボックスの提供(分離はサンドボックスではない)
-- Node.js ランタイムのサポート(Bun 専用)
+- Pi 本体へのソース差分(ホストのソース差分は常に 0。挙動は拡張 API と `piConfig.name` の overlay で寄せる)
+- Node.js ランタイムのサポート(Bun 専用。Node はロックファイル gate と数本のスクリプトだけ)
 - npm パッケージとしての配布(§4.5 のコンパイルバイナリ配布に一本化)
-- **macOS / Windows 向けバイナリ(v0.3: Linux x86_64 のみ)**
+- **macOS / Windows 向けバイナリ(Linux x86_64 のみ)**
 
 ## 2. 前提と確定事項
 
 | 項目 | 内容 | 状態 |
 |---|---|---|
 | ランタイム | Bun のみ。最低 >= 1.4.0、推奨 >= 1.4.2 | 確定 |
-| 上流 | `github.com/earendil-works/pi` を fork 元とする | 確定 |
-| 実装方式 | Pi コアは極力触らず、拡張(Extension)+ 独自パッケージで実装 | 確定 |
+| ホスト | 公式 `@earendil-works/pi-coding-agent` の配布物 (現在 1.5.0) を `~/.spirits/managed-pi` に導入して起動する。ソースは持たない | **確定(v0.5)** |
+| 型検査 | devDependencies に公式パッケージを完全 pin し、`tsc --noEmit` でホストと同じ宣言に対して検査する。手写しの型宣言は置かない | **確定(v0.5)** |
+| 実装方式 | 拡張(Extension)+ 起動役のみ。ホストのソース差分は 0 | 確定 |
 | 参照実装 | Prime Agent(MIT)のアーキテクチャを TS に移植。コードコピーはしない | 確定 |
-| 配布形態 | `bun build --compile` によるスタンドアロンバイナリ + `curl install.sh` 方式。ターゲットは Linux x86_64 のみ | **確定(v0.2/v0.3)** |
+| 配布形態 | `bun build --compile` による起動役 + `curl install.sh`。初回起動で固定したホスト一式を取得する。ターゲットは Linux x86_64 のみ | **確定(v0.2/v0.3/v0.5)** |
 | rlm() の実行形態 | Phase 1 は同期呼び出しで開始。非同期 fan-out は M5 で採否判断 | **確定(v0.2)** |
-| lockfile | `bun.lock` へ段階移行(M2: root `bun.lock` 導入、`package-lock.json` 保持) | **確定(v0.2)** |
+| lockfile | root の `bun.lock` 1 本。workspace は `packages/spirits` のみ | **確定(v0.5)** |
+| 依存の年齢 gate | `bunfig.toml` の `[install] minimumReleaseAge` (既定 172800 秒)。npm の `min-release-age` を Bun は読まない (実測) | **確定(v0.5)** |
 | ライセンス | MIT | **確定(v0.2)** |
-| 対応プロバイダ | Pi が対応する全プロバイダに委譲(spirits 側で制限しない) | 確定 |
+| 対応プロバイダ | ホストが対応する全プロバイダに委譲(spirits 側で制限しない) | 確定 |
 
 実行環境に関する根拠:
 
@@ -52,26 +55,33 @@ spirits は、エージェント型コーディングツール **Pi**(`earendil-
 ## 3. 全体アーキテクチャ
 
 ```
-┌──────────────────────────────────────────────────────┐
-│ Pi (upstream fork)                                   │
-│  ├─ agent loop / LLM プロバイダ I/F (変更なし)        │
-│  ├─ TUI / セッション永続化(JSONL) (変更なし)          │
-│  └─ Extension API                                    │
-│       │ registerTool / codemode / appendEntry 等      │
-│       ▼                                              │
-│  packages/spirits (拡張パッケージ, 本プロジェクトの中核)│
-│  ├─ repl/   永続 TS REPL(Bun.Transpiler + node:vm)   │
-│  ├─ rlm/    子エージェント起動(SDK createAgentSession)│
-│  └─ harness/ goal / memory / skill CRUD / code-mode  │
-│      (code-mode プロンプトも同梱)                            │
-│  配布: bun build --compile → 実行ファイル + `theme/`  │
-│        (Linux x86_64 のみ)                            │
-└──────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────┐
+│ ~/.spirits/bin/spirits  (起動役、Pi のソースを含まない)   │
+│  ├─ managed の一式を検証 → current/pi/pi を spawn        │
+│  ├─ 環境の既定値 (agent dir、テレメトリ無効化)          │
+│  └─ 自己更新 (実行ファイル → その版の managed 一式)     │
+│        │ -e current/spirits-extension.js                 │
+│        ▼                                                 │
+│ 公式 Pi (managed-pi/current/pi/pi、変更しない)           │
+│  ├─ agent loop / LLM プロバイダ I/F                     │
+│  ├─ TUI / セッション永続化 (JSONL)                       │
+│  └─ Extension API                                        │
+│       │ registerTool / registerVirtualModel / appendEntry │
+│       ▼                                                  │
+│  packages/spirits (拡張 bundle、本プロジェクトの中核)    │
+│  ├─ repl/   永続 TS REPL(Bun.Transpiler + node:vm)      │
+│  ├─ rlm/    子エージェント起動(SDK createAgentSession)  │
+│  ├─ harness/ goal / memory / skill CRUD / code-mode      │
+│  ├─ routing/ spirits/auto の role 振り分け               │
+│  └─ managed-pi/ update/ (導入・検証・自己更新)          │
+└─────────────────────────────────────────────────────────┘
 ```
+
+配布物は 2 層に分かれる。起動役は `bun build --compile` の単一実行ファイルで、ホストのソースを運ばない。ホストとそのテーマは `~/.spirits/managed-pi` の公式 artifact が提供し、実行ファイルと同じディレクトリには何も置かない。
 
 責務の分離(Prime Agent の設計を踏襲):
 
-- **ホスト(Pi + spirits 拡張)**: プロバイダ呼び出し、セッション永続化、子エージェントのライフサイクル、深度制限、コスト集計、権威ある状態の保持
+- **ホスト(公式 Pi + spirits 拡張)**: プロバイダ呼び出し、セッション永続化、子エージェントのライフサイクル、深度制限、コスト集計、権威ある状態の保持
 - **REPL(モデルに見える実行面)**: 作業用変数・状態の保持、ホスト提供関数の呼び出し、標準出力の捕捉
 
 Prime Agent ではホスト(どもの TS)とカーネル(Python)間を Jupyter comm の RPC で接続していたが、spirits では同一 Bun プロセス内のため、**RPC 層は廃し、REPL の vm コンテキストへ async 関数を直接注入**する。
@@ -148,10 +158,10 @@ import 許可範囲:
 
 - 非対応 OS からの install.sh 実行は、検出時点で「このバージョンは Linux x86_64 専用」と明示して終了する
 - macOS / Windows 対応が将来必要になった場合は `--target` の追加と CI ジョブ追加のみで拡張可能な構成を維持する
-- エンドユーザ環境に Bun / Node は一切不要(バイナリがランタイムを内包)
-- Pi 上流がコンパイルバイナリ向けに用意している仮想モジュール機構(拡張から pi パッケージを import する経路)をそのまま利用する
-- ビルドはソースから直接行う(`scripts/build-binaries.ts` の `Bun.build`)。pi の `dist` は使わず、root `tsconfig.json` の `paths` で pi ワークスペースのソースを解決し、pi コアの `VERSION` はビルド時に `packages/coding-agent/package.json` の version へ置換する
-- theme はバイナリと同じリリースで `theme/` として配布し、assets / export-html / native prebuilds は同梱しない。組み込みテーマ `dark.json` / `light.json` は実行ファイルと同じディレクトリの `theme/` に配置され、無いと `/settings` が `ENOENT` で失敗する。HTML エクスポート等の一部機能は劣化する(README に明記)
+- エンドユーザ環境に Bun / Node は一切不要(バイナリがランタイムを内包し、ホストは公式の自己完結実行ファイル)
+- ビルドは `scripts/build-binaries.ts` が `packages/spirits/bin/spirits.ts` だけを `Bun.build` する。Pi の `dist` も、ワークスペースのソースを解決する `paths` も使わない。実測として、ビルドした `dist/spirits-linux-x64` に `createAgentSession` と `InteractiveMode` の文字列は現れない
+- 拡張 bundle は `scripts/build-managed-pi-inputs.ts` が `packages/spirits/tsconfig.json` でビルドし、`HostDescriptor.extensionExternals` (`@earendil-works/pi-coding-agent`、`@earendil-works/pi-tui`、`typebox`) を外部のまま残す。ホストが解決する instance を二重に持たせないため
+- テーマはホストの artifact が提供する。リリースは旧版の自己更新との互換用に `dark.json` / `light.json` と `.sha256` を添付し続けるが、現行の起動役・インストーラ・自己更新は使わない(実測: インストーラは dark.json を要求しない)
 
 #### バージョンゲート
 
@@ -180,15 +190,15 @@ import 許可範囲:
 
 製品名・実行環境識別・送信名義を spirits に揃える。対象は CLI 表示、TUI ヘッダ、agent dir、テレメトリ。実装の詳細と代替案は `openspec/changes/add-product-identity/design.md` を参照。
 
-- **env override**: Pi コア `config.ts` は `PI_APP_NAME` / `PI_CONFIG_DIR` を読んでから `APP_NAME` / `APP_TITLE` / `CONFIG_DIR_NAME` を解決する。未設定時は従来どおり `package.json` の `piConfig` → フォールバック。`bin/bootstrap.ts` が pi を import する前に `PI_APP_NAME=spirits` を設定するため、コンパイルバイナリでもソース実行でも同じ identity になる
+- **identity の overlay**: 起動役は導入済みのホスト package.json に `piConfig.name = "spirits"` を書く (`configDir` 未指定なら `.pi`)。ホスト自身に env で名前を押し付けず、配布物の manifest を overlay することで、ホストが自分で読む identity を spirits に揃える。overlay 後の package.json も検証対象で、壊れた一式は起動しない
 - **設定ディレクトリ**: `CONFIG_DIR_NAME` は `.pi` のまま維持する。project 設定・skills・prompts・extensions は `.pi` から読み、リポジトリの `.pi/` 開発リソースと上流エコシステムの互換を保つ
 - **agent dir**: `ENV_AGENT_DIR` は `APP_NAME` から派生し `SPIRITS_CODING_AGENT_DIR` になる(**BREAKING**: 旧 `PI_CODING_AGENT_DIR` は読まない)。既定は `~/.spirits/agent/` で、env-defaults が未設定時に設定する。設定・認証・セッション・拡張の保存先は変わらない
 - **TUI ヘッダ**: spirits 拡張が `session_start` で `ctx.ui.setHeader` を呼び、最上部から ASCII アート(4 行)・ワードマーク・`resolveSpiritsVersion()` のバージョン・キーヒント・オンボーディング文をこの順で表示する。ASCII アートの本文と行別のテーマトークン割り当ては `colorful-startup-mark` が正本で、ビルトインテーマでは truecolor / 256 色のどちらでも 4 行の解決後の色が互いに異なることが要求される(行の順序は `product-identity`)。`quietStartup: true` 時はヘッダを設定せず、起動ヘルプの展開キーに `setExpanded` で追従する。アート以外の色もテーマトークン(`accent` / `dim` / `muted`)を使う
 - **テレメトリ**: env-defaults が `PI_TELEMETRY=0` を既定にし、pi.dev への install レポートと pi 名義の attribution ヘッダを送らない。有効化は `PI_TELEMETRY=1` の明示指定のみで、settings.json の opt-in は既定の無効化に上書きされて効かない
-- **provider 名義**: コア `provider-attribution.ts` の `x-opencode-client` ヘッダは、非 pi ディストリビューション(`APP_NAME !== "pi"`)では `isInstallTelemetryEnabled` が真のときのみ付与する(`x-opencode-session` は維持)。spirits はテレメトリを収集しない
-- **CLI 表示**: help のバナー説明文・agent dir 表示・再開/クラッシュ案内・update 行は非 pi ディストリビューションで spirits を表示する。agent dir 表示は `getAgentDir()` の解決値を使い、`spirits update` は pi のリリースではなく spirits 自身の最新 stable へ実行ファイルを置換する(自己更新できない環境ではインストーラ再実行の手段を表示する)
+- **CLI 表示**: オーバーレイした identity をホスト自身が読むので、ホストの help・起動行・エラー文は spirits を名乗る。実測では管理下の host 実行ファイルの `--help` が `spirits - AI coding assistant with read, bash, edit, write tools` を出し、`-- --version` は `1.5.0` を返す (ホストの版)。起動役自身の `--version` は `spirits <spirits 版> (Bun <bun>)` で、 spirits 自身の最新 stable を解決する
+- **ヘッダの描画**: 起動時のアートは spirits 拡張がホストの header API を通して描く (`installBrandingHeader`)。行別の色は theme token を解決して使うため、テーマはホストの artifact 側のもので動く
 
-コア差分は §5 の規律に従い `[spirits]` プレフィックスの独立コミットに分離する。
+ホスト側の表示・テレメトリ・provider ヘッダは、オーバーレイと `PI_TELEMETRY=0` の既定値で寄せる。ソース差分は作らない (§5)。
 
 ### 4.7 dual-model-routing(ロール別モデル振り分け)
 
@@ -198,23 +208,23 @@ OpenSpec ワークフローのうち変更レビューと深い検証の 2 ス�
 - **設定**: strong の対象は settings.json の `models.strong`(`"<provider>/<modelId>"` または `"<modelId>"`)。Pi の `Settings` 型は変更せず、未知キーを保持する既存挙動を `packages/spirits/test/pi-runtime/` で固定する
 - **ロールフェーズ**: 拡張メモリ内の 1 値の状態機械。`input` イベントで `/skill:sprt-opsx-review-change` と `/skill:sprt-opsx-verify-deep` を検知して strong へ入り、`agent_settled` で `aborted` の真偽に関わらず normal へ戻る
 - **フォールバック**: strong 未設定は無警告。設定済みで使えない場合は normal へ寄せて `ctx.ui.notify` を run 内 1 回。normal は既定 provider + 既定モデル、解決できなければ直近の成功レスポンス、どちらも無ければリクエストをエラーで終わらせる
-- **コア差分 3 箇所**: `ModelRoute` と `VirtualModelStateData` の `role`、`resolveModel` の透過と `AgentSession` による `pi.virtual-model-state` entry への保存および `AgentSession.routedRole`、footer 右側の `[<role>]` バッジ。コアは `"normal"` / `"strong"` という語彙を知らず、role は opaque な文字列ラベル
-- **バッジの意味**: 直近のリクエストが通ったロール。スキル起動直後と終了直後は 1 リクエスト遅れる
-- **層**: `packages/spirits/src/routing/` は `spirits:routing` 層として [`docs/architecture/convention-registry.md`](architecture/convention-registry.md) に登記し、依存先は `spirits:shared` と `packages/coding-agent` に限定する
+- **ロールの実装は拡張側**: ホストの `ModelRoute.role` は設定せず、role の記録・復元・表示は spirits の状態だけを正にする。ホストが所有する virtual model の状態 entry へ拡張は書き込まない
+- **バッジの意味**: 直近のリクエストが通ったロール。スキル起動直後と終了直後は 1 リクエスト遅れる。表示は拡張の status 行で、ホストの footer は使わない (`/spirits-role status` で routing・lock・step・解決結果を表示できる)
+- **層**: `packages/spirits/src/routing/` は `spirits:routing` 層として [`docs/architecture/convention-registry.md`](architecture/convention-registry.md) に登記し、依存先は `spirits:shared` とホスト (`host:pi-coding-agent`) に限定する
 
-コア差分は §5 の規律に従い `[spirits]` プレフィックスの独立コミットに分け、[`docs/spirits-core-diffs.md`](spirits-core-diffs.md) の登録簿に行を登録する。
+ホストへのソース差分は作らない。挙動が必要なら拡張 API か overlay で実現し、API が足りなければ不足を限定互換として記録し、ホストの版更新で解決する。
 
-## 5. フォーク運用方針
+## 5. ホスト版更新方針
 
-差分最小化が upstream 追従コストを決めるため、以下の規律を設ける。
+spirits は Pi をフォークしない。ホストは公式配布物であり、版の更新は「固定値をそろえて実測し直す」作業である。手順の正本は [`docs/spirits-host-upgrade.md`](spirits-host-upgrade.md)。
 
-1. **変更の置き場所**: 新規コードはすべて `packages/spirits/` 配下。既存 Pi コアへの変更は原則ゼロ。バイナリランタイムの都合に合わせ、M1 では `packages/spirits` をルートの npm workspaces / `tsconfig.json` / `biome.json` から除外し、`bun test` と `tsc --noEmit` で自己完結して検証する(除外の復帰と CI 組み込みは bun.lock 移行と合わせて別途行う)
-2. **やむを得ないコア変更**は 1 変更 = 1 コミットで分離し、先頭に `[spirits]` プレフィックスを付けて cherry-pick / rebase しやすく保つ
-3. **上流追従**: `upstream` リモートを登録し、main へ定期的に merge(頻度は月 1 回を目安)。手順、コミット構成、検証コマンドは [`docs/spirits-upstream-sync.md`](spirits-upstream-sync.md) に従う
-4. **lockfile(段階移行)**: root に `bun.lock` を導入し、spirits の CI / リリースは `bun install --frozen-lockfile` で検証する。既存 npm workflow と `package-lock.json` は当面残し、完全移行(`package-lock.json` 削除、CI / vitest 置換)は別 change とする
-5. **jiti**: Bun は TS をネイティブ実行するため拡張ロードの jiti 依存は不要。上流コードは残し、Bun 実行時のみ native import にショートカットする最小パッチとする
-6. **パッケージマネージャ**: Bun 環境で npm 不在時に拡張インストールが壊れる上流の既知問題があるため、spirits ではパッケージマネージャ既定を bun に倒す
-7. **依存ピン留め**: 上流の流儀(完全固定、`min-release-age=2` 相当)を bun に読み替えて踏襲。`bun install --save-exact` を標準とする
+1. **変更の置き場所**: 新規コードはすべて `packages/spirits/` 配下。ホストのソース差分は常に 0 で、差し込み点は拡張 API と `piConfig.name` の overlay に限る
+2. **固定値は 3 か所**: devDependencies の型の pin、`PINNED_PI` (版・artifact 名・sha256・overlay 版)、`HostDescriptor` (実行ファイル名・bundle のロード引数・環境変数名・host が第一引数で dispatch するコマンド語)
+3. **型検査**: devDependencies の公式パッケージの宣言に対する `tsc --noEmit` に一本化する。手写しの型宣言は置かず、必要なら `src/types/host.ts` のように公式 export から derived alias を切る
+4. **検証の順序**: 型の pin → `tsc` → `PINNED_PI` → bundle / manifest 再生成 → 互換性ランナー公式モード → tmux 検証 → `bun test` / `bun run check`。途中で失敗したら中止し、固定値をコミットしない
+5. **lockfile**: root の `bun.lock` 1 本。`bun install --frozen-lockfile --ignore-scripts` で再解決しないことを CI と pre-commit で確認する
+6. **依存ピン留め**: 外部依存は完全固定 (`bun install --save-exact`)。新規リリースの取り込みは `bunfig.toml` の `[install] minimumReleaseAge` が抑える (既定 172800 秒)。npm の `min-release-age` を Bun は読まないことを実測で確認済みなので、`.npmrc` には持たせない
+7. **パッケージマネージャ**: spirits 側は Bun のみ。配布物の解決も Bun で行う
 
 ## 6. セキュリティ
 
@@ -227,7 +237,7 @@ OpenSpec ワークフローのうち変更レビューと深い検証の 2 ス�
 ## 7. ライセンス(確定)
 
 - **MIT ライセンス**で公開
-- Pi 上流(MIT, 著作権: badlogic / Mario Zechner ほか)の著作権表示を LICENSE に保持し、spirits 部分の著作権行を追記する二段表記とする
+- 公式 Pi(MIT, 著作権: badlogic / Mario Zechner ほか)の著作権表示を LICENSE に保持し、spirits 部分の著作権行を追記する二段表記とする。spirits は Pi のソースの衍生ではなく、公式配布物の上で動く独立の成果物であることも記す
 - Prime Agent はアーキテクチャ参照のみでコードコピーを行わないため厳密な帰属義務は発生しないが、謝意と参照先は README の Acknowledgments に記載する
 
 ## 8. 非機能要件
@@ -243,7 +253,15 @@ OpenSpec ワークフローのうち変更レビューと深い検証の 2 ス�
 ## 9. ディレクトリ構成案
 
 ```
-(fork root)
+(repo root、workspace は packages/spirits のみ)
+├─ package.json               root scripts (check / fix / test)、devDependencies は biome・typescript・husky
+├─ bun.lock                   唯一の lockfile
+├─ bunfig.toml                [install] minimumReleaseAge
+├─ tsconfig.base.json         共有設定
+├─ tsconfig.json              リポジトリ view (編集用の参照。検査は下の 2 つ)
+├─ tsconfig.scripts.json      scripts/ の型検査
+├─ biome.json                 scripts/ のみ (packages/spirits は未編入)
+├─ .husky/pre-commit          lockfile gate + bun run check
 ├─ packages/
 │  └─ spirits/
 │     ├─ package.json          @spirits/core(内部パッケージ,非公開)
@@ -273,14 +291,25 @@ OpenSpec ワークフローのうち変更レビューと深い検証の 2 ス�
 │     │  │  ├─ paths.ts        エージェントディレクトリ配下のパス
 │     │  │  └─ tools.ts        codemode ツール定義
 │     │  └─ tools.ts           REPL ツール登録
-│     ├─ bin/                  コンパイル用エントリ
-│     └─ test/
+│     ├─ bin/                  起動役 (spirits.ts / bootstrap.ts / startup.ts / version.ts)
+│     ├─ src/managed-pi/       一式の取得・検証・overlay・起動・HostDescriptor
+│     ├─ src/update/           自己更新と案内
+│     ├─ test/                 bun test (host の fake は test/host/fake-pi.ts に集約)
+│     └─ tsconfig.json         拡張と test の型検査 (noEmit)
 ├─ scripts/
-│  ├─ build-binaries.ts        コンパイル・チェックサム生成
-│  └─ install.sh               配布用インストーラ(Linux x86_64 専用, SHA256 検証付き)
+│  ├─ build-binaries.ts        起動役のコンパイル・チェックサム・互換用テーマ資産のコピー
+│  ├─ build-managed-pi-inputs.ts  拡張 bundle と manifest の生成
+│  ├─ check-managed-pi-bundle-version.ts  manifest と版の突き合わせ
+│  ├─ check-lockfile-commit.mjs  lockfile の gate (pre-commit から呼ばれる)
+│  ├─ managed-pi-compat/       互換性ランナー (公式モード既定、substituted / fixture は明示)
+│  ├─ compat-theme/            旧版の自己更新向けのテーマ資産
+│  ├─ install.sh / install.test.sh
+│  ├─ self-update-smoke.sh     旧版→新版の自己更新スモーク
+│  └─ tmux-verify.sh           対話起動の検証ランナー
 ├─ docs/
 │  ├─ spirits-design.md(本書)
-│  └─ fork-policy.md           §5 の運用詳細
+│  ├─ spirits-host-upgrade.md  §5 の手順の正本
+│  └─ architecture/convention-registry.md  アーキテクチャ規約の正本
 ```
 
 ## 10. 開発フェーズ
@@ -293,15 +322,18 @@ OpenSpec ワークフローのうち変更レビューと深い検証の 2 ス�
 | M4 | Continual Harness(memory / skill CRUD) | セッション横断メモリが機能 |
 | M5 | Phase 2 群(パーサによる最終式返却、非同期 fan-out)を採否判断の上実装 | 使用実感に基づく |
 
-M1 では開発ループを壊さないため、先に「上流 pi を bun で拡張ロードして動かす」形で検証し、M2 で配布形態に移す。
+開発時の起動は `bun packages/spirits/bin/spirits.ts` で、ホストは同じ managed の一式を使う(未コンパイルの実行は一式を取得しないので、先に `managed-pi install` するかビルド済み manifest を指す)。Pi のソースをロードする開発経路は無い。
+
+フォーク削除は独立した change として完了済みのため、フェーズ表の M1〜M5 に「ホストの差し替え」は入らない。版更新は §5 と [`docs/spirits-host-upgrade.md`](spirits-host-upgrade.md) の手順で行う。
 
 ## 11. リスクと未検証事項
 
 - **`node:vm` の ESM 系実装状況**(Bun 公式文書間で記述が矛盾)→ 対応: M1 早期に実機検証し、不可なら Phase 1 方式のまま運用
-- **Pi 上流の SDK / Extension API の変動** → 対応: 差分分離規律(§5)と月次マージ
+- **ホストの Extension API の変動** → 対応: 版更新のたびに devDependencies の型で `tsc` を通し、互換性ランナー公式モードで実測する。失敗したら固定値をコミットしない(§5)
 - **Bun の JSC と V8 の差異**により、V8 固有 API 依存の npm パッケージが REPL 経由で import されると壊れる可能性 → 対応: `use()` のエラー整形で原因候補を提示
-- **コンパイルバイナリでの拡張ロード**: 上流バイナリでの仮想モジュール経路は存在するが、spirits 拡張のバンドル + 外部拡張混在は要検証 → 対応: M2 で最小構成を実機確認
-- **bun.lock 移行後の上流マージ**: package-lock 削除後、上流が package-lock を更新してくると毎回衝突する → 対応: `.gitattributes` で lockfile のマージ戦略を調整し、マージ後の lock 再生成を手順化
+- **コンパイルバイナリでの拡張ロード**: 起動役はバンドルした拡張を `-e` で渡し、利用者の外部拡張は agent dir からホストが読む。両方が載った一式は 1.5.0 で実機確認済み (`[Extensions]` に `spirits-extension.js` が出る)
+- **ホストの配布物が読めなくなる / 検証が通らない** → 対応: 起動時に検証し、`spirits managed-pi repair` と Rollback を表示して止まる。黙って別のホストへ切り替えない
+- **host のコマンド語の変化** → 対応: `HostDescriptor.commandWords` が正。起動役はこの語を拒否して host 実行ファイルを案内するため、host がコマンドを増やしたら記述子の更新が必要 (Pi 1.5.0 の `--help` の表を実測根拠にする)
 - **REPL 状態の永続化範囲**: vm コンテキスト内の変数はプロセス内のみで、セッション復元時に消える。必要ならセルログのリプレイによる再構成を将来検討(現状は非目標)
 
 ## 付録: 参照
@@ -311,8 +343,10 @@ M1 では開発ループを壊さないため、先に「上流 pi を bun で�
 - Bun 1.4 リリース: `https://bun.com/blog/bun-v1.4`、Node 互換性: `https://bun.com/docs/runtime/nodejs-compat`、Transpiler: `https://bun.com/docs/runtime/transpiler`
 - pi-agenticoding パッケージ: `https://pi.dev/packages/pi-agenticoding`
 
-## managed-pi 実験経路
+## managed 経路 (単一経路)
 
-既定配布とは別に、公式 Pi の固定 artifact と事前 bundle した spirits 拡張を 1 組として明示的に起動する実験経路を `spirits managed-pi` として追加する。詳細は `docs/spirits-managed-pi.md`。公式 Pi 1.5.0 の拡張 API で spirits の機能をどう実現するかという調査・設計の一次根拠は `docs/spirits-managed-pi-design.md`。既定の compiled binary、`spirits update`、install.sh、保存先は変更しない。
+既定の起動は managed で、公式 Pi の固定 artifact と事前 bundle した spirits 拡張を 1 組として起動する。組の書式・検証・互換マトリクス・ランナーは `docs/spirits-managed-pi.md`、初回起動のバックアップと戻し方は `docs/spirits-default-launch.md`、版更新と Rollback は `docs/spirits-host-upgrade.md`。公式 Pi 1.5.0 の拡張 API で spirits の機能をどう実現するかという調査・設計の一次根拠は `docs/spirits-managed-pi-design.md`(フォーク Era の比較を含む歴史的資料)。
 
-この経路は role、`/clear`、`/model` の既存目的を削除しない。公式 Pi 1.5.0 で不足する API は限定互換モードとして記録し、role 登録、role バッジ、`/model ... role`、同一セッション ID を保つ `/clear` の代替実装は後続 change の判断とする。
+`spirits managed-pi` は残るが、意味は「一式の管理と隔離起動」である。`install` / `update` / `repair` は `~/.spirits/managed-pi` を扱い、`spirits managed-pi -- [args]` は専用の agent dir (`~/.spirits/managed-pi/agent`) で起動するため、互換性ランナーとテストはこれで実データを触らずにホストを動かせる。既定経路の agent dir は `~/.spirits/agent` である。
+
+role・clear・model は削除していない。role のバッジは拡張の status 行に出し、role のコマンドは `/spirits-role`、会話境界は `/spirits-clear`(ホストの `/clear` と `/model` をそのまま残す)。Pi 1.5.0 で不足する拡張 API は限定互換として記録し、実装できないものは Follow-up に残す。

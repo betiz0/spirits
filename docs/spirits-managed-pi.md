@@ -1,6 +1,6 @@
 # managed-pi 隔離経路
 
-公式 Pi の固定成果物と事前 bundle した spirits 拡張を 1 組として導入し、起動する仕組みが managed である。**既定の起動経路は managed** で、`spirits` を打つと agent dir を従来と同じ規則で選んでから専用 Pi が起動する。既定経路・バックアップ・fork への戻し方・修復は [spirits-default-launch.md](spirits-default-launch.md) を参照。
+公式 Pi の固定成果物と事前 bundle した spirits 拡張を 1 組として導入し、起動する仕組みが managed である。**既定の起動経路は managed** で、`spirits` を打つと agent dir を従来と同じ規則で選んでから専用 Pi が起動する。既定経路・バックアップ・前のリリースへの戻し方・修復は [spirits-default-launch.md](spirits-default-launch.md) を参照。ホストの版更新と Rollback は [spirits-host-upgrade.md](spirits-host-upgrade.md)。
 
 `spirits managed-pi` はその中でも**隔離経路**である。保存先を `<managed root>/agent`(既定は `~/.spirits/managed-pi/agent`)に固定し、既存の `~/.spirits/agent` を読み書きしない。既存 agent dir との一致・包含、symlink、managed root 外への解決、`--session` / `--fork` / `--session-dir` / `--export` を起動前に拒否するガードもここだけに効く。既定経路はこれらの拒否を受けけない(既定経路の目的は `~/.spirits/agent` を使うことだから)。隔離経路を残す理由は、互換性ランナーとテストが実データに触れずに専用 Pi を駆動できる足場が必要だからである。`~/.spirits/bin` の契約は変更しない。
 
@@ -36,7 +36,7 @@ manifest は release 資産 `spirits-managed-pi-manifest.json` として配布�
 - `overlay.version` / `overlay.sha256`: 生成する overlay `package.json` の版と SHA256。
 - `assets`: 追加アセットの `name`、`url`、`sha256`。
 
-最初の対応 set は Pi `1.5.0`、Linux x64、公式 `pi-linux-x64.tar.gz`、SHA256 `df870ba0e344cb7b3358d8d8f19397b8b8d225a8669784736ad68a5c2169d53b`。manifest を更新するときは `scripts/build-managed-pi-inputs.ts` で bundle と manifest を同時に生成し、Checksum を release 資産へ添付する。`spirits-v*` の既定配布物 (`spirits-linux-x64` と `theme/`) とは別の資産であり、install.sh や自己更新の対象ではない。
+最初の対応 set は Pi `1.5.0`、Linux x64、公式 `pi-linux-x64.tar.gz`、SHA256 `df870ba0e344cb7b3358d8d8f19397b8b8d225a8669784736ad68a5c2169d53b`。manifest を更新するときは `scripts/build-managed-pi-inputs.ts` で bundle と manifest を同時に生成し、Checksum を release 資産へ添付する。`spirits-v*` の既定配布物 (`spirits-linux-x64`) とは別の資産である。リリースには旧版の自己更新との互換用に `dark.json` / `light.json` と `.sha256` も添付するが、現行の install.sh・自己更新・起動役はそれらを取得しない (実測: インストーラはテーマを要求しない)。
 
 ## 配置とロールバック
 
@@ -93,7 +93,7 @@ wrapper は起動前に次を設定する。値は解決済みの隔離 agent di
 - `SPIRITS_CODING_AGENT_DIR`: `<managed root>/agent` に固定する。
 - `SPIRITS_CODING_AGENT_SESSION_DIR`: `<managed root>/agent/sessions` に固定する。
 - `PI_CODING_AGENT_DIR` と `PI_CODING_AGENT_SESSION_DIR`: 子プロセス環境から除去する。
-- `PI_APP_NAME` と `PI_CONFIG_DIR`: 立てない。公式 Pi は identity を実行ファイル隣の `package.json` の `piConfig` から決める (`APP_NAME = piConfigName || "pi"`) で、これらの環境変数自体を読まない。よって identity は overlay `package.json` のみに一本化し、fork 版のインストールが残す変数は除去する (立てても効かず、存在すれば存在するほど「効くノブがある」と誤解させる)。
+- `PI_APP_NAME` と `PI_CONFIG_DIR`: 立てない。公式 Pi は identity を実行ファイル隣の `package.json` の `piConfig` から決める (`APP_NAME = piConfigName || "pi"`) で、これらの環境変数自体を読まない。よって identity は overlay `package.json` のみに一本化し、旧版のインストールが残す変数は除去する (立てても効かず、存在すれば存在するほど「効くノブがある」と誤解させる)。
 - `PI_PACKAGE_DIR`: 管理された Pi の package dir に固定する。
 - `PI_SKIP_VERSION_CHECK=1`: 常に固定する(呼び出し側の値は上書きし、通常起動と同じ扱い)。
 - `PI_TELEMETRY=0`: 未設定時だけ既定する。明示された値は保持する。
@@ -109,14 +109,14 @@ Pi の拡張 API は settings を読むが返さないため、`/spirits-role` �
 - `proper-lockfile` の `lockSync(path, { realpath: false })` を取り、`ELOCKED` を再試行する。
 - 取得後にファイルを読み、**変更するフィールドだけ**をマージして書き、解く。未知のキーは現内容からのマージで残る (`models.strong` と `models.role` が Pi のキーと同じ object に並べる)。`models.normal`、`models.thinking.<role>`、`models.steps.<name>.<item>` も同じ object の中の spirits のキーで、`unset` はそのキーだけを削除する。
 - 階層のキーは path で書く (`models` → `thinking` → `normal` など)。中間の object が無いときは作り、既にあるものは置き換えない。`models.steps` は兄弟のステップ名を消さない。
-- `withFileMutationQueue` は使わない。これは 1 プロセス内の直列化であり、競合する書き手は別のプロセス (fork 版 `spirits` や同じ agent dir を使う別の managed Pi) なので、効くのは file lock だけである。
+- `withFileMutationQueue` は使わない。これは 1 プロセス内の直列化であり、競合する書き手は別のプロセス (別の spirits 実行ファイルや同じ agent dir を使う別の managed Pi) なので、効くのは file lock だけである。
 - 書いてから `ctx.reload()` を呼ぶ。reload はその拡張 runtime を置き換えるので、コマンドの `pi` ハンドルと context は reload 後に触らない。
 
-Pi 本体が読むのは `~/.spirits/agent/settings.json` (managed では隔離 agent dir) で、`enabledModels` など spirits が知らないキーは Pi の editor 側が保持する。spirits 側は `models.normal` / `models.strong` / `models.role` / `models.thinking.normal` / `models.thinking.strong` / `models.steps.<name>.role` / `models.steps.<name>.thinking` / `defaultProvider` / `defaultModel` を、fork 経路と同じキー名で使う。`defaultThinkingLevel` はこの中に無い。spirits はこのキーを読まず、pi の `/thinking` が書き、pi がそこからセッションの thinking level を決める。spirits の thinking の解決順は `models.steps.<name>.thinking` → `models.thinking.<role>` → そのセッションの選択であり、既定のキーそのものは引かない。
+Pi 本体が読むのは `~/.spirits/agent/settings.json` (managed では隔離 agent dir) で、`enabledModels` など spirits が知らないキーは Pi の editor 側が保持する。spirits 側は `models.normal` / `models.strong` / `models.role` / `models.thinking.normal` / `models.thinking.strong` / `models.steps.<name>.role` / `models.steps.<name>.thinking` / `defaultProvider` / `defaultModel` を、旧版と同じキー名で使う。`defaultThinkingLevel` はこの中に無い。spirits はこのキーを読まず、pi の `/thinking` が書き、pi がそこからセッションの thinking level を決める。spirits の thinking の解決順は `models.steps.<name>.thinking` → `models.thinking.<role>` → そのセッションの選択であり、既定のキーそのものは引かない。
 
 ## 已知の制約
 
-- **role badge の位置**: managed 経路の role 表示は `ui.setStatus()` の拡張 status line に出る。fork 経路の footer 右側・モデル名の隣の badge とは別の場所であり、あれと同じ配置・同じ永続化ではない。描くのは role を選んだときと、拡張の再読み込み後に session が始まったときの 2 箇所であり、reload で置き換わった runtime でも前の role が表示され続ける。
+- **role badge の位置**: role 表示は `ui.setStatus()` の拡張 status line に出る。旧版の footer 右側・モデル名の隣の badge とは別の場所であり、あれと同じ配置・同じ永続化ではない。描くのは role を選んだときと、拡張の再読み込み後に session が始まったときの 2 箇所であり、reload で置き換わった runtime でも前の role が表示され続ける。
 - **`rlm` の子と第三者 provider**: 子セッションは拡張を読まない。managed 経路で provider をプログラム登録している拡張 (テストの fake provider など) がある場合、その provider は子から見える形にならない。実 provider は `auth.json` / `models.json` を通すため通常は影響がないが、拡張登録に依存する provider を `rlm` の子に使うことはできない。この制限は change `add-managed-spirits-commands` で受け入れ済みとして記録する。
 - **公式 Pi の帰属ヘッダー**: managed 経路の起動ヘッダーは公式 Pi のものになる。spirits 独自の branding ヘッダーに置き換える patch は入れない。
 - **`/spirits-role` の補完と一覧**: 公式 `/model` の補完メニュー・曖昧検索 (name/description を跨ぐ検索) は無い。コマンド行の参照は `provider/id` と its substring に限られ、モデル名や description からは引けない。対話一覧は `provider/id` を選べるだけで、やはり name/description の検索はしない。一覧は対話 TUI 専用で、print / RPC モードでは開かない（`status` 相当の報告になる）。
@@ -178,13 +178,13 @@ host の実体を bundle に含めないのは、rlm の子セッションが親
 
 - **使用量の推定と自動 compaction の発火タイミング**。`getContextUsage()` の token 推定と閾値判定は `context` イベントを通らない。境界より前のメッセージは pi がビルドする元の context のまま計上されるので、`/spirits-clear` の直後は使用量が減って見えやすく、自動 compaction も消す前の会話量で測ったタイミングで発火する。リクエスト自体は境界より後だけを送り続けている。引き取った compaction は `firstKeptEntryId` を境界に置くため、その 1 回のあとから推算も境界より後だけで測られる(前提確認 [precondition-results.json](../openspec/changes/archive/2026-11-10-add-managed-spirits-commands/evidence/precondition-results.json) の `B(b).automatic-compaction-fired` と `B(b).projection-shrinks-after-the-intercepted-compaction`)。
 - **`/tree` で境界より前のノードに移ったとき**。フィルタは現在枝上の最新境界を見るので、境界より前を指すとそこまでの会話が再び context に載る。境界より後ろへ移れば効いたままだ。
-- **fork をまたいだとき**。管理経路が内部で使う fork は全 entry をコピーするので境界も引き継がれる。同じ session を fork 経路(拡張に `registerModelRoles` がある経路)で開くと、その session で managed の `context` handler は登録されず、消した会話が載り返す。fork 経路自身に `/clear` 相当の機構がないため、境界をまたいで fork 経路に持ち込んだ session をそのまま続けることは移行条件として要求しない。
+- **session fork をまたいだとき**。host の fork は全 entry をコピーするので境界も引き継がれる。互換性ランナーの `clear boundary fork` はこれで、新しい session ファイルになっても前マーカーが戻らないことを確認している。
 
 また、境界より前を約対象にする自動 compaction は `session_before_compact` で引き取り、`firstKeptEntryId` を境界に置いて、消した会話を載せない summary を書く。引き取るのは「その要約範囲に、境界より前で消された会話が残っている場合」だけ。それ以外は pi の通常の要約に渡す。境界の位置だけで判定しないのは、何も消えていない会話(Clear 直後のセッション、直前の compaction 以降だけが残るセッション)まで引き取ると、本来の要約を 1 個失わせ、しかも要約が捨てるはずだったメッセージを全部 keep して閾値超過を引きずるからである。
 
 おのおのの機能は個別に始める。仮想モデルの登録、専用コマンドの登録、startup header、role badge のいずれかが host の API 変更で失敗しても拡張全体は失われず、その機能だけが止まる。失敗した機能名は session start で 1 回通知し、中核（`tsrepl`、`rlm`、memory / goal / skills / prompts、同梱 skill、session TODO）はそのまま動く。routing だけが落ちた場合は保存済みの既定 role を読む位相に切り替えるので、`rlm` の子は物理モデルを選ぶ親では従来どおり親のモデルを、`spirits/auto` を選ぶ親では既定 role に応じた対象を受け取る。
 
-role の所在は経路で違う。fork 経路では role は Pi の `pi.virtual-model-state` エントリに載る（fork の role patch が書く）。公式 Pi でそのエントリは core の所有物なので、managed 経路は spirits 自身の `spirits_role` エントリに書き、Pi のエントリは読むだけにする（fork が始めた session を続けるための one-way handoff）。
+role の所在は旧版と違う。旧版では role は Pi の `pi.virtual-model-state` エントリに載っていた（ホスト本体の patch が書いていた）。公式 Pi でそのエントリは core の所有物なので、spirits は自身の `spirits_role` エントリに書き、Pi のエントリは読むだけにする（旧版が始めた session を続けるための one-way handoff）。
 
 | 目的 | 現行機構 | 専用経路 | 代替 / 差異 |
 |---|---|---|---|
@@ -244,8 +244,8 @@ bun scripts/managed-pi-compat/run.ts --host /tmp/pi-bolt-host.json --out <tmp>/r
 結果 JSON は各項目を `confirmed` / `limited` / `unavailable` / `not-run` / `failed` で記録し、`runnerCompleted` と `compatibilityMet` を区別する。
 
 - `runnerCompleted`: 全項目を処理したか。`not-run` が残る場合は false。互換性の成否は示さない。JSON の `runnerCompletedDefinition` に同じ定義を文字列で持つ。
-- `compatibilityMet`: official で必須観測がすべて `confirmed` の場合だけ true。`failed=0` でも必須観測が `not-run` / `limited` / `unavailable` / `failed` なら false。fixture モードと代用ホストでは常に false。JSON では `compatibilityMetDefinition` に定義を持つ。true でも移行・既定経路の切り替え・フォーク削除を認めない。本仕様が未確認のまま置いている既存 agent dir への書き戻しと settings の永続化は必須観測の外にあり、この判定では埋まらない。
-- 必須観測には固定 artifact の検証そのもの(`official artifact and bundle verified`)、起動 art の色が起動ホストの theme で解決すること(`startup art colours resolve distinctly`)、provider に届いた system prompt が pi 既定と spirits 追加の両方を持つこと(`system prompt keeps pi defaults and spirits additions`)、rlm の子が応答モデルを要求すること(`rlm child model comes from the answering response`)を含む。これらは公式モードで測る観測で、フォークのソースを直接読む test では無くなった。
+- `compatibilityMet`: official で必須観測がすべて `confirmed` の場合だけ true。`failed=0` でも必須観測が `not-run` / `limited` / `unavailable` / `failed` なら false。fixture モードと代用ホストでは常に false。JSON では `compatibilityMetDefinition` に定義を持つ。true でもホストの版更新・新しい互換上の主張・アーカイブの根拠にはならない。本仕様が未確認のまま置いている既存 agent dir への書き戻しと settings の永続化は必須観測の外にあり、この判定では埋まらない。
+- 必須観測には固定 artifact の検証そのもの(`official artifact and bundle verified`)、起動 art の色が起動ホストの theme で解決すること(`startup art colours resolve distinctly`)、provider に届いた system prompt が pi 既定と spirits 追加の両方を持つこと(`system prompt keeps pi defaults and spirits additions`)、rlm の子が応答モデルを要求すること(`rlm child model comes from the answering response`)を含む。これらは公式モードで実ホストに対して測る観測であり、ホストのソースを読む test では無い（そのようなソースはリポジトリに無い）。
 - 必須観測は専用 Pi で実測できる項目だけを含む。製品側が応えていないことを理由に項目を落とさない。`rlm child abort` は 5 段階を実測できるため必須観測に残し、製品が記録を出さない場合は項目がそれを示して判定は false のままになる。既存 agent dir への書き戻し互換(`existing agent dir write-back compatibility`)は本仕様が未確認のまま据える唯一の例外で、必須観測に入れない。
 - `runnerProvenance`: ランナー自身の来歴。`git rev-parse HEAD`、`git diff HEAD` の SHA256、未追跡ファイル一覧、`clean` を収める。測定対象の bundle が持つ `targetCommit` とは別の値で、判定ロジックがどのコードだったかを示す。official の `workingTreeClean` はここから引く。
 - `observationEvidence`: 観測項目と期待する証拠の対応表。

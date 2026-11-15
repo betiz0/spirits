@@ -1,6 +1,6 @@
 # managed 経路で spirits の機能をどう実現するか（調査・設計提案）
 
-> **この文書の fork との比較は歴史的資料**。書かれた当時は fork 経路と managed 経路の 2 経路を比較していたが、`remove-pi-fork` で fork 経路と Pi のソースツリーを削除し、managed 単一経路になった。現在の挙動は `docs/spirits-managed-pi.md`、ホストの版更新は `docs/spirits-host-upgrade.md` を読む。コア差分 16 件の一覧は `docs/spirits-core-diffs.md` に同じ理由で廃止し、git 履歴に残す。
+> **この文書の fork との比較は歴史的資料**。書かれた当時は fork 経路と managed 経路の 2 経路を比較していたが、`remove-pi-fork` で fork 経路と Pi のソースツリーを削除し、managed 単一経路になった。現在の挙動は `docs/spirits-managed-pi.md`、ホストの版更新は `docs/spirits-host-upgrade.md` を読む。コア差分 16 件の一覧は `docs/spirits-core-diffs.md` にあった（削除済み。`git show spirits-fork-final:docs/spirits-core-diffs.md`）。
 
 対象: `feat/add-managed-pi-route` / 公式 Pi 1.5.0 (`v1.5.0` = `f9a2636`)
 この文書は調査と設計提案のみ。実装・ハーネス拡張・OpenSpec change・commit は行っていない。
@@ -44,7 +44,7 @@
 
 ### 0.1 登録簿の件数について
 
-`docs/spirits-core-diffs.md` の行と `[spirits]` コミットは**いずれも 16**（`git log -E --grep='^\[spirits\]' --oneline | wc -l` = 16）。依頼文の「14 コア差分」とは一致しない。14 は `add-model-role-setting`（`a59d23dd0`）とその後の badge 修正（`7cb50de89`）導入前の数とみえる。以下は 16 で数える。
+`docs/spirits-core-diffs.md`（削除済み）の行と `[spirits]` コミットは**いずれも 16**（`git log -E --grep='^\[spirits\]' --oneline | wc -l` = 16）。依頼文の「14 コア差分」とは一致しない。14 は `add-model-role-setting`（`a59d23dd0`）とその後の badge 修正（`7cb50de89`）導入前の数とみえる。以下は 16 で数える。
 
 実コア差分（`packages/spirits`・docs・test を除く）の正味量は:
 
@@ -240,7 +240,7 @@ resolveChildModel(ctx, phase):
 | `package-manager-cli.ts` | 5 | 28 |
 | `core/settings-manager.ts` / `core/sdk.ts` / `cli/args.ts` | 各 3 | 19 / 17 / 17 |
 
-- 追加のコストは競合解決だけでなく、`docs/spirits-core-diffs.md` 登録簿 16 行の**存在確認**（上流 merge で「消えるべき差分が消えた」検知）と、`test/pi-runtime/` の API ピンニングを毎回含む。
+- 追加のコストは競合解決だけでなく、旧登録簿 `docs/spirits-core-diffs.md`（削除済み）16 行の**存在確認**（上流 merge で「消えるべき差分が消えた」検知）と、`test/pi-runtime/` の API ピンニングを毎回含む。
 
 ### managed へ移した場合
 
