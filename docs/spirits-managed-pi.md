@@ -208,23 +208,28 @@ role の所在は経路で違う。fork 経路では role は Pi の `pi.virtual
 ## 互換性ランナー
 
 ```sh
-# fixture モード(既定): 隔離した managed root の fixture set を測る
+# official モード(既定): 公式 artifact を検証し、対象 commit の bundle で測る
+bun scripts/managed-pi-compat/run.ts \
+  --artifact-root <staged-official-artifact-root> \
+  --bundle <target-commit-bundle.js> \
+  --commit <sha> \
+  --bundle-version <version> \
+  --out <tmp>/result.json
+
+# fixture モード: 隔離した managed root の fixture set を測る
 bun scripts/managed-pi-compat/run.ts --mode fixture --artifact-root /tmp/managed-pi-fixture
 
 # fixture でも、作業ツリーからビルドした拡張を測れる(インストール済みの release を測らない)
 bun scripts/build-managed-pi-inputs.ts --version 0.0.0-0 --out /tmp/spirits-compat-bundle
 bun scripts/managed-pi-compat/run.ts --mode fixture --bundle /tmp/spirits-compat-bundle/spirits-managed-pi-extension.js
 
-# official モード: 公式 artifact を検証し、対象 commit の bundle で測る
-bun scripts/managed-pi-compat/run.ts --mode official \
-  --artifact-root <staged-official-artifact-root> \
-  --bundle <target-commit-bundle.js> \
-  --commit <sha> \
-  --bundle-version <version> \
-  --out <tmp>/result.json
+# 代用ホスト: 公式 artifact 以外のビルド(Pi-Bolt など)で同じマトリクスを測る
+bun scripts/managed-pi-compat/run.ts --host /tmp/pi-bolt-host.json --out <tmp>/result.json
 ```
 
-- `--mode` は `fixture`(既定)か `official`。全結果に `mode` が付き、fixture の結果は `fixture-only` として記録される。fixture の成功を公式 Pi の互換性成立の根拠にしない。
+`--host` の記述子は JSON オブジェクトで、`label` / `executable` / `packageDir` / `bundle` / `piVersion` と任意の `note` を持つ。パスは絶対パスか `~` 始まりで、`--artifact-root` などの set を選ぶフラグとは併用できない。
+
+- `--mode` は `official`(既定)か `fixture`。`--host` を渡すと mode は `substituted` になる。全結果に `mode` が付き、ラベルは official が `official`、fixture が `fixture-only`、代用ホストが `substituted-host`。fixture の成功も代用ホストの成功も、公式 Pi の互換性成立の根拠にはしない。代用ホストで測ったものは evidence に `substitutedHost`(label・実行ファイル・package dir・bundle・pi バージョン)として残り、要約にもその旨を 2 行出す。
 - `fixture` でも `--bundle` を受け付ける。指定すると、インストール済み set の Pi をそのままで、拡張だけを入れ替えた set を作業ルートの中に作って測る(既定はインストール済み set そのままなので、作業ツリーの変更は測らない)。set は製品の `verifyManagedSet` を通すため、起動できない set は項目の実行前に落ちる。Pi 側はコピーであって link ではない。`verifyManagedSet` は Pi ディレクトリの overlay package.json を見て、無ければ作るため、link にするとユーザーのインストール済み set まで書き換えうる。公式 tarball はコピーしない(fixture 経路は展開済みツリーを起動するだけ)。
 - `official` では `--artifact-root`(`manifest.json` と公式 tarball を置いたステージング領域)、`--bundle`(対象 commit からビルドした拡張 bundle)、`--commit`(対象 commit)が必須。manifest の `pi.artifact.sha256` が製品の信頼基準 `MANAGED_PI_FIRST_ARTIFACT_SHA256` と一致しない場合、結果を書かず非ゼロで終了する。
 - ランナーは一時 HOME、一時 agent dir、一時作業ディレクトリを用意し、製品の `resolveManagedAgentPaths` / `ensureManagedAgentDir` で隔離 agent dir を解決する。実 `~/.spirits/agent` などのユーザーデータは読み書きせず、PATH 上の `pi` も使わない。
@@ -237,7 +242,8 @@ bun scripts/managed-pi-compat/run.ts --mode official \
 結果 JSON は各項目を `confirmed` / `limited` / `unavailable` / `not-run` / `failed` で記録し、`runnerCompleted` と `compatibilityMet` を区別する。
 
 - `runnerCompleted`: 全項目を処理したか。`not-run` が残る場合は false。互換性の成否は示さない。JSON の `runnerCompletedDefinition` に同じ定義を文字列で持つ。
-- `compatibilityMet`: official で必須観測がすべて `confirmed` の場合だけ true。`failed=0` でも必須観測が `not-run` / `limited` / `unavailable` / `failed` なら false。fixture モードでは常に false。JSON では `compatibilityMetDefinition` に定義を持つ。true でも移行・既定経路の切り替え・フォーク削除を認めない。本仕様が未確認のまま置いている既存 agent dir への書き戻しと settings の永続化は必須観測の外にあり、この判定では埋まらない。
+- `compatibilityMet`: official で必須観測がすべて `confirmed` の場合だけ true。`failed=0` でも必須観測が `not-run` / `limited` / `unavailable` / `failed` なら false。fixture モードと代用ホストでは常に false。JSON では `compatibilityMetDefinition` に定義を持つ。true でも移行・既定経路の切り替え・フォーク削除を認めない。本仕様が未確認のまま置いている既存 agent dir への書き戻しと settings の永続化は必須観測の外にあり、この判定では埋まらない。
+- 必須観測には固定 artifact の検証そのもの(`official artifact and bundle verified`)、起動 art の色が起動ホストの theme で解決すること(`startup art colours resolve distinctly`)、provider に届いた system prompt が pi 既定と spirits 追加の両方を持つこと(`system prompt keeps pi defaults and spirits additions`)、rlm の子が応答モデルを要求すること(`rlm child model comes from the answering response`)を含む。これらは公式モードで測る観測で、フォークのソースを直接読む test では無くなった。
 - 必須観測は専用 Pi で実測できる項目だけを含む。製品側が応えていないことを理由に項目を落とさない。`rlm child abort` は 5 段階を実測できるため必須観測に残し、製品が記録を出さない場合は項目がそれを示して判定は false のままになる。既存 agent dir への書き戻し互換(`existing agent dir write-back compatibility`)は本仕様が未確認のまま据える唯一の例外で、必須観測に入れない。
 - `runnerProvenance`: ランナー自身の来歴。`git rev-parse HEAD`、`git diff HEAD` の SHA256、未追跡ファイル一覧、`clean` を収める。測定対象の bundle が持つ `targetCommit` とは別の値で、判定ロジックがどのコードだったかを示す。official の `workingTreeClean` はここから引く。
 - `observationEvidence`: 観測項目と期待する証拠の対応表。

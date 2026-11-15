@@ -305,6 +305,19 @@ test("the child inherits the model the host recorded as the answering response",
 	expect(classifyChildModelSource(childModelSource()).state).toBe("confirmed");
 });
 
+test("a request that names the model without the provider still matches", () => {
+	// What a real host sends: the entry keeps provider and model apart, the request carries the id.
+	const judgement = classifyChildModelSource(childModelSource({ childRequestedModel: "fake-model" }));
+	expect(judgement.state).toBe("confirmed");
+	expect(judgement.detail).toContain("compat-fake/fake-model");
+});
+
+test("a request aimed at another provider does not match the answering model", () => {
+	const judgement = classifyChildModelSource(childModelSource({ childRequestedModel: "other-provider/fake-model" }));
+	expect(judgement.state).toBe("failed");
+	expect(judgement.detail).toContain("while the answering response recorded compat-fake/fake-model");
+});
+
 test("a child asking another model than the answer fails", () => {
 	const judgement = classifyChildModelSource(childModelSource({ childRequestedModel: "compat-fake/fake-strong" }));
 	expect(judgement.state).toBe("failed");

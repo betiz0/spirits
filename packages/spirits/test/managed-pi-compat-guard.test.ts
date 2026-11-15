@@ -1,16 +1,16 @@
 /**
- * The same guard verdicts on both routes.
+ * The action guard's verdicts on the managed route.
  *
  * The guard hangs on one pi hook (`tool_call`) and on one piece of pi bookkeeping: a tool call another
- * tool issued carries a nested call id. Both are host behaviour, so the verdict the fork reaches has
- * to be the verdict the managed route — official Pi plus the built spirits bundle — reaches too. This
- * file issues the same four commands through the model on each route and compares what the RPC stream
- * says about them.
+ * tool issued carries a nested call id. Both are host behaviour, so the verdicts are measured on a real
+ * host: official Pi plus a bundle built from this checkout. The released bundle predates the guard,
+ * which is why the bundle is built here rather than taken from the install.
  *
- * The fork route is this checkout's pi with this checkout's extension. The managed route is the
- * official Pi artifact (verified by the caller's own install, resolved below) with a bundle built from
- * this checkout, because the released bundle predates the guard. With no artifact on the machine the
- * managed side reports `not-run`, which is a recorded gap and never a pass.
+ * This file used to run the four commands twice — once on this checkout's pi with this checkout's
+ * extension, once on the official artifact — and compare. The fork route is gone (remove-pi-fork
+ * §10.1), so the verdicts the fork produced are written down below as the expectation, and the
+ * managed route has to reach them. With no artifact on the machine the route reports `not-run`, which
+ * is a recorded gap and never a pass.
  *
  * Nothing here talks to a real inference API: the fake provider replies with the tool calls, so a pass
  * is fake-provider compatibility, not real-provider compatibility.
@@ -46,9 +46,9 @@ interface Verdict {
 	nested: boolean;
 }
 
-/** Where the guard reaches the same verdict on a route. */
+/** What the managed route measured, or why it could not. */
 interface RouteOutcome {
-	route: "fork" | "managed";
+	route: "managed";
 	state: "confirmed" | "not-run";
 	verdicts?: Verdict[];
 	detail?: string;
@@ -67,7 +67,14 @@ const CASES: readonly { tool: string; arguments: Record<string, unknown>; comman
 	{ tool: "tsrepl", arguments: { code: CELL_CODE }, command: "python3 -c 'print(1)'" },
 ];
 
-/** What the guard must do to those four on either route. */
+/**
+ * What the guard must do to those four.
+ *
+ * `S1` is a shell control-syntax command, `P1` an inline interpreter, the third call is free, and the
+ * fourth is the `tsrepl` cell that calls `bash` through the tool surface: pi gives that call a nested
+ * id, and the guard must use it to apply the process families. These are the verdicts the fork route
+ * measured before it was removed; the expectation is theirs, the measurement is the host's.
+ */
 const EXPECTED: Verdict[] = [
 	{ blocked: true, categories: ["S1"], nested: false },
 	{ blocked: true, categories: ["P1"], nested: false },
@@ -81,7 +88,7 @@ const EXPECTED: Verdict[] = [
  * The verdicts are read off `tool_execution_end` records only — a blocked call is the guard's reason
  * text as a text-only error result, and a nested call is pi's `<parent>/<n>` id.
  */
-async function runRoute(route: "fork" | "managed", command: readonly string[], env: Record<string, string | undefined>): Promise<Verdict[]> {
+async function runRoute(route: "managed", command: readonly string[], env: Record<string, string | undefined>): Promise<Verdict[]> {
 	const provider = startFakeProvider({ name: CASES[0]!.tool, arguments: CASES[0]!.arguments }, {
 		reply: (body): FakeReply => {
 			const messages = (body as { messages?: { role?: string }[] }).messages ?? [];
@@ -132,25 +139,6 @@ function categoriesOf(reason: string): string[] {
 function textOf(record: RpcRecord): string {
 	const content = (record.result as { content?: { type?: string; text?: string }[] } | undefined)?.content ?? [];
 	return content.map((item) => (item.type === "text" ? (item.text ?? "") : "")).join("\n");
-}
-
-/** The fork route: this checkout's pi, this checkout's extension. */
-function forkRoute(home: string): { command: readonly string[]; env: Record<string, string | undefined> } {
-	return {
-		command: [
-			process.execPath,
-			join(REPO, "packages/coding-agent/src/cli.ts"),
-			"--mode",
-			"rpc",
-			"--no-session",
-			"--no-extensions",
-			"-e",
-			join(REPO, "packages/spirits/src/index.ts"),
-			"-e",
-			PROVIDER_EXTENSION,
-		],
-		env: { PATH: process.env.PATH, HOME: home, ANTHROPIC_API_KEY: FAKE_API_KEY },
-	};
 }
 
 /**
@@ -214,17 +202,11 @@ async function managedRoute(
 	};
 }
 
-// One test holds both the verdict comparison and the route summary: a second test that read the
-// outcomes the first one pushed would fail on its own, which hides a skipped managed route.
-test("both routes reach the same guard verdicts and never a silent managed pass", async () => {
+// One test holds the verdicts and the route summary: a second test that read the outcomes the first
+// one pushed would fail on its own, which hides a route that could not run.
+test("the managed route reaches the guard verdicts and never a silent pass", async () => {
 	const workRoot = await mkdtemp(join(tmpdir(), "spirits-guard-compat-"));
 	try {
-		const forkHome = join(workRoot, "fork-home");
-		await mkdir(forkHome, { recursive: true });
-		const fork = await runRoute("fork", forkRoute(forkHome).command, forkRoute(forkHome).env);
-		outcomes.push({ route: "fork", state: "confirmed", verdicts: fork });
-		expect(fork).toEqual(EXPECTED);
-
 		const managed = await managedRoute(workRoot);
 		if ("reason" in managed) {
 			outcomes.push({ route: "managed", state: "not-run", detail: managed.reason });
@@ -232,16 +214,15 @@ test("both routes reach the same guard verdicts and never a silent managed pass"
 		} else {
 			const verdicts = await runRoute("managed", managed.command, managed.env);
 			outcomes.push({ route: "managed", state: "confirmed", verdicts });
-			// Same commands, same ids, same blocked flags — including the nested call, which only reaches
-			// the P family because pi marked it as issued by another tool.
-			expect(verdicts).toEqual(fork);
+			expect(verdicts).toEqual(EXPECTED);
+			// The nested call reaches the process families only because pi marked it as issued by another
+			// tool, so its absence would mean the guard judged a call it could not attribute.
 			expect(verdicts[3]?.nested).toBe(true);
 		}
 
-		// One outcome per route, and a managed side that did not run stays a named gap.
-		expect(outcomes.map((outcome) => outcome.route)).toEqual(["fork", "managed"]);
-		expect(outcomes.find((outcome) => outcome.route === "fork")?.state).toBe("confirmed");
-		const managedOutcome = outcomes.find((outcome) => outcome.route === "managed");
+		// Exactly one outcome, and a route that did not run stays a named gap.
+		expect(outcomes.map((outcome) => outcome.route)).toEqual(["managed"]);
+		const managedOutcome = outcomes[0];
 		expect(managedOutcome === undefined ? "missing" : managedOutcome.state).toBeOneOf(["confirmed", "not-run"]);
 		if (managedOutcome?.state === "not-run") expect(managedOutcome.detail).toBeDefined();
 	} finally {

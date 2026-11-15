@@ -2,12 +2,15 @@
  * Managed Pi compatibility runner.
  *
  * Usage:
- *   bun scripts/managed-pi-compat/run.ts [--mode fixture|official] [--artifact-root <managed-root>]
- *     [--bundle <path>] [--commit <sha>] [--bundle-version <version>] [--out <path>] [--keep]
+ *   bun scripts/managed-pi-compat/run.ts [--mode fixture|official] [--host <descriptor.json>]
+ *     [--artifact-root <managed-root>] [--bundle <path>] [--commit <sha>]
+ *     [--bundle-version <version>] [--out <path>] [--keep]
  *
- * `fixture` mode (default) measures a managed root that carries a fixture set and labels every
- * result `fixture-only`. `official` mode verifies the official artifact digest against the product
- * trust root, extracts it into an isolated area, and measures it with a target-commit bundle.
+ * `official` mode (default) verifies the official artifact digest against the product trust root,
+ * extracts it into an isolated area, and measures it with a target-commit bundle. `fixture` mode
+ * measures a managed root that carries a fixture set and labels every result `fixture-only`.
+ * `--host` measures a host someone described instead (see `host.ts`); it records its own
+ * identification and never claims the fixed artifact's compatibility.
  * Process checks that cannot run are recorded as `not-run`, never as success. The runner never
  * reads or writes the user's real agent dir.
  */
@@ -44,6 +47,7 @@ import {
 	compactionRecords,
 	forkTargetOf,
 	NO_AUTOMATIC_COMPACTION,
+	type BranchRecord,
 	type CompactionRecord,
 	judgeAutomaticCompaction,
 	judgeFork,
@@ -113,11 +117,13 @@ import {
 	buildRunnerProvenance,
 	buildRuntimeEvidence,
 	CLEAR_BOUNDARY_ITEMS,
+	HOST_VERIFICATION_ITEM,
 	countStates,
 	formatStateCounts,
 	identifyRuntime,
 } from "./evidence.ts";
 import { stageFixtureBundle } from "./fixture-bundle.ts";
+import { parseHostDescriptor, substitutedIdentity, type HostDescriptor } from "./host.ts";
 import {
 	assertOfficialBundleSha,
 	buildOfficialIdentity,
@@ -129,6 +135,8 @@ import {
 
 interface CliOptions {
 	mode: "fixture" | "official";
+	/** A host the caller described instead of the installed set or the fixed artifact. */
+	host?: string;
 	artifactRoot?: string;
 	bundle?: string;
 	bundleVersion?: string;
@@ -280,14 +288,30 @@ interface LaunchContext {
 	managedPi: string;
 	packageDir: string;
 	extensionPath: string;
-	manifest: ManagedManifest;
+	/** The version the launched host has to report. */
+	piVersion: string;
+	/** The managed set manifest, absent for a host the caller described by hand. */
+	manifest?: ManagedManifest;
 }
 
 const USAGE =
-	"Usage: bun scripts/managed-pi-compat/run.ts [--mode fixture|official] [--artifact-root <managed-root>] [--bundle <path>] [--commit <sha>] [--bundle-version <version>] [--out <path>] [--keep]";
+	"Usage: bun scripts/managed-pi-compat/run.ts [--mode fixture|official] [--host <descriptor.json>] [--artifact-root <managed-root>] [--bundle <path>] [--commit <sha>] [--bundle-version <version>] [--out <path>] [--keep]\nA --host descriptor is a JSON object with label, executable, packageDir, bundle, piVersion and an optional note; the run records it as a substituted host and never as fixed-artifact compatibility.";
+
+/**
+ * A path the caller typed at their own prompt.
+ *
+ * The runner stages the measured extension under its work root and spawns from there, so a relative
+ * `--bundle` would be read back relative to the work root and the launch would fail on a file the
+ * caller can see. `~` stays expandable because the managed paths are written that way.
+ */
+function inputPath(value: string): string {
+	return value.startsWith("~") ? expandHome(value) : resolve(value);
+}
 
 function parseArgs(args: readonly string[]): CliOptions {
-	const options: CliOptions = { mode: "fixture", keep: false };
+	// Official is the default: a run that did not say what it measured must not quietly produce a
+	// fixture-labelled result. `--mode fixture` stays available for the installed managed set.
+	const options: CliOptions = { mode: "official", keep: false };
 	for (let index = 0; index < args.length; index++) {
 		const arg = args[index];
 		if (arg === "--keep") {
@@ -296,16 +320,18 @@ function parseArgs(args: readonly string[]): CliOptions {
 			const value = args[++index];
 			if (value !== "fixture" && value !== "official") throw new Error(`Unknown mode: ${value}`);
 			options.mode = value;
+		} else if (arg === "--host") {
+			options.host = inputPath(args[++index] ?? "");
 		} else if (arg === "--artifact-root") {
-			options.artifactRoot = args[++index];
+			options.artifactRoot = inputPath(args[++index] ?? "");
 		} else if (arg === "--bundle") {
-			options.bundle = args[++index];
+			options.bundle = inputPath(args[++index] ?? "");
 		} else if (arg === "--bundle-version") {
 			options.bundleVersion = args[++index];
 		} else if (arg === "--commit") {
 			options.commit = args[++index];
 		} else if (arg === "--out") {
-			options.out = args[++index];
+			options.out = inputPath(args[++index] ?? "");
 		} else if (arg === "--help" || arg === "-h") {
 			console.log(USAGE);
 			process.exit(0);
@@ -313,7 +339,26 @@ function parseArgs(args: readonly string[]): CliOptions {
 			throw new Error(`Unknown argument: ${arg}`);
 		}
 	}
+	if (options.host) {
+		// The descriptor says which executable, package dir and bundle to measure, so mixing it with the
+		// flags that select a managed set would leave the run unsure of its own subject.
+		for (const [flag, value] of [
+			["--artifact-root", options.artifactRoot],
+			["--bundle", options.bundle],
+			["--bundle-version", options.bundleVersion],
+			["--commit", options.commit],
+		] as const) {
+			if (value !== undefined) throw new Error(`--host cannot be combined with ${flag}`);
+		}
+	}
 	return options;
+}
+
+/** Read and judge the `--host` descriptor. */
+async function readHostDescriptor(path: string): Promise<HostDescriptor> {
+	const file = Bun.file(expandHome(path));
+	if (!(await file.exists())) throw new Error(`host descriptor not found: ${path}`);
+	return parseHostDescriptor(await file.text(), path, homedir());
 }
 
 function expandHome(path: string): string {
@@ -447,7 +492,7 @@ function cellReportsAbort(text: string | undefined): boolean {
 
 async function main(): Promise<number> {
 	const options = parseArgs(process.argv.slice(2));
-	const runner = await createCompatRunner({ mode: options.mode });
+	const runner = await createCompatRunner({ mode: options.host ? "substituted" : options.mode });
 	// Recorded before anything can fail, so even a partial run names the harness that ran it.
 	runner.setEvidence({ runnerProvenance: runnerProvenance() });
 	const recorded = new Map<string, CompatResult>();
@@ -501,7 +546,23 @@ async function main(): Promise<number> {
 		let launch: LaunchContext | undefined;
 		// Re-checked before every spawn: a staged executable that changed after extraction must not start.
 		let verifyLaunch: () => Promise<void> = async () => {};
-		if (options.mode === "official") {
+		if (options.host) {
+			// A host someone described: the same matrix, recorded under its own name, never as the fixed
+			// artifact's compatibility evidence.
+			const descriptor = await readHostDescriptor(options.host);
+			const bundleBytes = new Uint8Array(await Bun.file(descriptor.bundle).arrayBuffer());
+			runner.setEvidence({
+				substitutedHost: substitutedIdentity(descriptor),
+				bundleSha256: sha256Hex(bundleBytes),
+				piVersion: descriptor.piVersion,
+			});
+			launch = {
+				managedPi: descriptor.executable,
+				packageDir: descriptor.packageDir,
+				extensionPath: descriptor.bundle,
+				piVersion: descriptor.piVersion,
+			};
+		} else if (options.mode === "official") {
 			if (!options.artifactRoot || !options.bundle || !options.commit) {
 				throw new Error("official mode requires --artifact-root, --bundle, and --commit");
 			}
@@ -530,6 +591,7 @@ async function main(): Promise<number> {
 				managedPi: artifact.executablePath,
 				packageDir: artifact.packageDir,
 				extensionPath: options.bundle,
+				piVersion: artifact.manifest.pi.version,
 				manifest: artifact.manifest,
 			};
 		} else {
@@ -546,6 +608,7 @@ async function main(): Promise<number> {
 					managedPi: verified.piExecutable,
 					packageDir: verified.packageDir,
 					extensionPath: verified.extensionPath,
+					piVersion: verified.manifest.pi.version,
 					manifest: verified.manifest,
 				};
 			}
@@ -566,6 +629,7 @@ async function main(): Promise<number> {
 			"api key and proxy survive",
 			"bundled SKILL.md is raw markdown",
 			"host version",
+			HOST_VERIFICATION_ITEM,
 			"startup art colours resolve distinctly",
 			"system prompt keeps pi defaults and spirits additions",
 			"managed tsrepl simple cell",
@@ -602,6 +666,33 @@ async function main(): Promise<number> {
 		} else {
 			try {
 				const managedPi = launch.managedPi;
+				// Extraction and digest checks are preconditions of an official run, so they are recorded as
+				// an observation too: a run that measured the installed set or a described host says which.
+				await run(HOST_VERIFICATION_ITEM, async () => {
+					if (options.host !== undefined) {
+						return {
+							state: "not-run" as const,
+							detail: `the run measured the substituted host ${options.host}; no fixed official artifact was extracted`,
+						};
+					}
+					if (options.mode !== "official") {
+						return {
+							state: "not-run" as const,
+							detail: "the run measured the installed managed set; no fixed artifact was extracted and no bundle was asserted against a manifest",
+						};
+					}
+					const identity = runner.evidence;
+					return {
+						state: "confirmed" as const,
+						detail: `artifact and bundle digests matched the manifest before any launch (${String(identity.artifactSha256).slice(0, 12)}, bundle ${String(identity.bundleSha256).slice(0, 12)}); every spawn re-checks the executable`,
+						data: {
+							artifactSha256: identity.artifactSha256,
+							executableSha256: identity.executableSha256,
+							bundleSha256: identity.bundleSha256,
+							manifestSetId: identity.manifestSetId,
+						},
+					};
+				});
 				const managedEnv = (extra: Record<string, string | undefined> = {}) =>
 					computeManagedEnv({
 						env: runner.env({
@@ -676,7 +767,7 @@ async function main(): Promise<number> {
 									apiKey: state.apiKey,
 									proxy: state.proxy,
 								},
-								{ agentDir: runner.agentDir, version: launch.manifest.pi.version },
+								{ agentDir: runner.agentDir, version: launch.piVersion },
 							)
 						: { state: "not-run", detail: "the probe did not report its environment" },
 				);
@@ -717,7 +808,7 @@ async function main(): Promise<number> {
 						timeoutMs: RPC_TIMEOUT_MS,
 					});
 					const output = version.stdout.trim();
-					return output.includes(launch.manifest.pi.version) && !output.includes("9.9.9")
+					return output.includes(launch.piVersion) && !output.includes("9.9.9")
 						? { state: "confirmed", detail: "the decoy package dir did not change the version" }
 						: { state: "failed", detail: `version output was ${output || version.stderr.trim()}` };
 				});
@@ -735,7 +826,7 @@ async function main(): Promise<number> {
 				});
 				await run("host version", async () =>
 					state
-						? classifyHostVersion(state.hostVersion, launch.manifest.pi.version)
+						? classifyHostVersion(state.hostVersion, launch.piVersion)
 						: { state: "not-run", detail: "the probe did not report the host version" },
 				);
 				// The colours of the startup art are the host's, not spirits': the header asks the running

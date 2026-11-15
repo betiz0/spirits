@@ -271,7 +271,13 @@ export interface ChildModelSourceObservation {
 	attempted: boolean;
 	/** The fields of the last assistant message entry the host wrote. */
 	recorded?: { provider?: string; model?: string; stopReason?: string };
-	/** The model the child asked the provider for, in `provider/id` form. */
+	/**
+	 * The model the child asked the provider for.
+	 *
+	 * A request names the model the way the caller's provider config holds it, so the same model can
+	 * arrive as `fake-model` or as `compat-fake/fake-model`. The judgement accepts either shape and
+	 * rejects a name qualified with another provider.
+	 */
 	childRequestedModel?: string;
 	/** Whether this host puts requests to a provider at all. A fixture host answers fixed events. */
 	hostCanRequestProvider: boolean;
@@ -306,7 +312,14 @@ export function classifyChildModelSource(observation: ChildModelSourceObservatio
 	if (observation.childRequestedModel === undefined) {
 		return { state: "not-run", detail: `the child sent no request, so the inherited model was never observed (${fields})` };
 	}
-	if (observation.childRequestedModel !== answered) {
+	// A provider request may carry the bare model id or the qualified `provider/id`. Stripping the
+	// answering provider's own prefix keeps both shapes comparable while a request aimed at another
+	// provider (`other/fake-model`) stays unequal, which is what the observation has to catch.
+	const prefix = `${recorded.provider}/`;
+	const requested = observation.childRequestedModel.startsWith(prefix)
+		? observation.childRequestedModel.slice(prefix.length)
+		: observation.childRequestedModel;
+	if (requested !== recorded.model) {
 		return {
 			state: "failed",
 			detail: `the child asked the provider for ${observation.childRequestedModel} while the answering response recorded ${answered}`,

@@ -23,6 +23,7 @@ import {
 	formatStateCounts,
 	identifyRuntime,
 	matrixPurposeCounts,
+	modeLabel,
 	nonRequiredIssues,
 	ROLE_CLEAR_MODEL_ITEM,
 	SUMMARY_READING_NOTES,
@@ -186,7 +187,7 @@ function redactValue(value: unknown): unknown {
 
 function redactResults(results: readonly CompatResult[], mode: RunMode): CompatResult[] {
 	return results.map((result) => ({
-		label: mode === "fixture" ? "fixture-only" : "official",
+		label: modeLabel(mode),
 		...result,
 		...(result.detail === undefined ? {} : { detail: redactSecrets(result.detail) }),
 		...(result.data === undefined ? {} : { data: redactValue(result.data) }),
@@ -202,7 +203,13 @@ function renderSummary(evidence: CompatEvidence, results: readonly CompatResult[
 		"# Managed Pi compatibility result",
 		"",
 		`- Mode: ${evidence.mode}`,
-		`- Label: ${evidence.mode === "fixture" ? "fixture-only" : "official"}`,
+		`- Label: ${modeLabel(evidence.mode)}`,
+		...(evidence.substitutedHost === undefined
+			? []
+			: [
+					`- Substituted host: ${evidence.substitutedHost.label} (${evidence.substitutedHost.executable}, package dir ${evidence.substitutedHost.packageDir}, pi ${evidence.substitutedHost.piVersion})`,
+					"- Not fixed-artifact compatibility: a substituted host never reports compatibility met.",
+			  ]),
 		`- Runner completed: ${evidence.runnerCompleted} (${RUNNER_COMPLETED_DEFINITION})`,
 		`- Compatibility met: ${evidence.compatibilityMet} (${COMPATIBILITY_MET_DEFINITION})`,
 		`- Results: ${formatStateCounts(counts)}`,

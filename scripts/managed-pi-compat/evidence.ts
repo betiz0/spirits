@@ -8,8 +8,21 @@
 
 import type { CompatResult, CompatState } from "./runner.ts";
 
-/** Execution mode recorded on every result. */
-export type RunMode = "fixture" | "official";
+/**
+ * Execution mode recorded on every result.
+ *
+ * `official` is the fixed artifact the run extracts and digests. `fixture` is the managed set already
+ * installed on the machine. `substituted` is a host the caller described (`--host`): the same matrix,
+ * a different build, and never compatibility evidence for the fixed artifact.
+ */
+export type RunMode = "fixture" | "official" | "substituted";
+
+/** The label each mode writes on its results, so no caller guesses it. */
+export function modeLabel(mode: RunMode): string {
+	if (mode === "official") return "official";
+	if (mode === "substituted") return "substituted-host";
+	return "fixture-only";
+}
 
 /** Runtime and required-API presence, kept separate between runner and Pi host. */
 export interface RuntimeEvidence {
@@ -88,7 +101,7 @@ export const RUNNER_COMPLETED_DEFINITION =
 
 /** What `compatibilityMet` means, recorded with the result. */
 export const COMPATIBILITY_MET_DEFINITION =
-	"official mode only, and every required observation is confirmed. A required item that is limited, unavailable, not-run, or failed keeps it false; a fixture run is always false. It does not certify migration or deleting the fork: the base spec keeps the existing agent dir write-back and persistent settings write unproven, and those stay outside the required list. It also says nothing about whether role, /clear, or /model is available: the matrix item is confirmed as soon as any purpose is observed, so read its observed purpose count instead.";
+	"official mode only, and every required observation is confirmed. A required item that is limited, unavailable, not-run, or failed keeps it false; a fixture run is always false, and so is a run on a substituted host, which is never the fixed official artifact. It does not certify migration or deleting the fork: the base spec keeps the existing agent dir write-back and persistent settings write unproven, and those stay outside the required list. It also says nothing about whether role, /clear, or /model is available: the matrix item is confirmed as soon as any purpose is observed, so read its observed purpose count instead.";
 
 /** Result-level evidence attached to the saved JSON. */
 export interface CompatEvidence {
@@ -115,6 +128,18 @@ export interface CompatEvidence {
 	workingTreeClean?: boolean;
 	/** Official Pi version from the manifest. */
 	piVersion?: string;
+	/**
+	 * The host the caller substituted for the fixed official artifact. Recorded so a substituted run
+	 * can never be read as an official one, and so its identification survives in the detail.
+	 */
+	substitutedHost?: {
+		label: string;
+		executable: string;
+		packageDir: string;
+		bundle: string;
+		piVersion: string;
+		note?: string;
+	};
 	/** Official artifact tarball SHA256. */
 	artifactSha256?: string;
 	/** SHA256 of the extracted official executable. */
@@ -139,6 +164,15 @@ export interface CompatEvidence {
 	/** Per-item command and captured output log, redacted before saving. */
 	logs?: ReadonlyArray<{ item: string; command?: readonly string[]; stdout?: string; stderr?: string }>;
 }
+
+/**
+ * The item that says the run measured a verified fixed artifact and the bundle paired with it.
+ *
+ * Extraction and pairing are preconditions of an official run, so they are also recorded as an
+ * observation: a run that measured the installed set or a described host says so here instead of
+ * leaving a reader to infer it from the mode string.
+ */
+export const HOST_VERIFICATION_ITEM = "official artifact and bundle verified";
 
 /**
  * Names of the five `/spirits-clear` boundary items.
@@ -172,6 +206,10 @@ export const REQUIRED_OBSERVATIONS: readonly string[] = [
 	"api key and proxy survive",
 	"bundled SKILL.md is raw markdown",
 	"host version",
+	HOST_VERIFICATION_ITEM,
+	"startup art colours resolve distinctly",
+	"system prompt keeps pi defaults and spirits additions",
+	"rlm child model comes from the answering response",
 	"managed tsrepl simple cell",
 	"managed tsrepl Bun.Transpiler cell",
 	"managed tsrepl node:vm cell",
@@ -201,6 +239,10 @@ export const OBSERVATION_EVIDENCE: Readonly<Record<string, string>> = {
 	"api key and proxy survive": "the fake API key and proxy reached the managed process",
 	"bundled SKILL.md is raw markdown": "the session wrote a SKILL.md that is raw Markdown",
 	"host version": "the managed host reported the official artifact version",
+	[HOST_VERIFICATION_ITEM]: "the artifact tarball, the extracted executable, and the measured bundle digest were checked before any launch",
+	"startup art colours resolve distinctly": "the theme files the launched host ships resolve every colour token the startup art paints, to distinct colours",
+	"system prompt keeps pi defaults and spirits additions": "the prompt the fake provider received carries pi's own tool list and rule and the entries and guidelines the declared spirits tools report",
+	"rlm child model comes from the answering response": "the model the rlm child asked its provider for is the model the host recorded on the answering assistant entry",
 	"managed tsrepl simple cell": "a cell returning 2 ran on the managed Pi",
 	"managed tsrepl Bun.Transpiler cell": "a TypeScript cell ran through Bun.Transpiler on the managed Pi",
 	"managed tsrepl node:vm cell": "a node:vm cell returned a value on the managed Pi",

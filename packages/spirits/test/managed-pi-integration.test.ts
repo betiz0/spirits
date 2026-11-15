@@ -109,6 +109,10 @@ test("install, update, launch, and the compatibility runner complete on a fixtur
 			[
 				process.execPath,
 				join(import.meta.dir, "..", "..", "..", "scripts", "managed-pi-compat", "run.ts"),
+				// The fixture mode is what stages a set around the installed release; the default is now
+				// official, which measures a fixed artifact and needs its digest and a commit.
+				"--mode",
+				"fixture",
 				"--artifact-root",
 				first.root,
 				"--out",
