@@ -383,7 +383,7 @@ bun packages/coding-agent/src/cli.ts -e packages/spirits/src/index.ts
 ```sh
 cd packages/spirits
 bun test          # 全テスト
-bun run check     # tsc --noEmit(pi の型は src/types/pi-coding-agent.d.ts のミラーで解決)
+bun run check     # tsc --noEmit(pi の型は devDependencies の公式パッケージで解決)
 ```
 
 リポジトリルートからのインストーラ検証:

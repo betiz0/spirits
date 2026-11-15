@@ -1,10 +1,9 @@
 /**
  * Minimal runtime-resolution check for pi's public API.
  *
- * This directory has its own `tsconfig.json` that extends the repo root, so Bun resolves
- * `@earendil-works/pi-coding-agent` to the pi sources at run time (the same scheme as
- * `src/rlm/` and `src/harness/`). The type check uses the local mirror in
- * `src/types/pi-coding-agent.d.ts` instead.
+ * This directory carries its own `tsconfig.json`, which extends the package's, so both the
+ * type check and Bun resolve `@earendil-works/pi-coding-agent` to the installed host package —
+ * the same one the extension is typed against.
  */
 
 import { expect, test } from "bun:test";

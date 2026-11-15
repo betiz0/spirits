@@ -2,9 +2,9 @@
  * YAML round-trip checks against pi's own frontmatter parser.
  *
  * `bun test` must not depend on a YAML library, so the saved `description` is verified by
- * reading the file back with `parseFrontmatter` from pi. This directory carries a
- * `tsconfig.json` (root paths) so Bun resolves the pi sources at run time; the type check
- * uses the mirror in `src/types/pi-coding-agent.d.ts`.
+ * reading the file back with `parseFrontmatter` from pi. This directory carries its own
+ * `tsconfig.json`, which extends the package's, so the import resolves to the installed host
+ * package for the type check and for Bun alike.
  */
 
 import { expect, test } from "bun:test";

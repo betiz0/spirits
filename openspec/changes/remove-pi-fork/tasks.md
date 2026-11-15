@@ -92,11 +92,14 @@
   - `FakePi` は `implements ExtensionAPI` を外した (公式 API の全メンバを持つ必要の無い記録器)。注册関数へ渡す地点で `asExtensionApi()` を通すため、test が読む記録内容と formula API 型の両方が保たれる。
   - 型合わせのために弱めた assertion は無い。`config.test.ts` の toggleKey 3 件だけ `expect<string>()` にした (公式 `KeyId` は既知のキー名の union で、 Spirits が採用する未知のキー名を型が表現しないため。挙動の test はそのまま)。
   - 完了確認の実測 (2026-11-15): `bun run check` 0 件 (tsconfig.src-only.json は削除し `packages/spirits/tsconfig.json` 1 本)、`bun test` 1269 pass / 0 fail / 4937 expect、`rg -n "@earendil-works/pi-coding-agent/(core|modes|cli)" packages/spirits/test` 0 件。
-- [ ] 7.6 型ミラーとチェッカーを削除する。`src/types/pi-coding-agent.d.ts`、`src/types/pi-tui.d.ts`、`scripts/check-pi-type-mirror.ts`、`test/pi-type-mirror.test.ts` を削除する。完了確認: 4 ファイルが無く、`bun run check` と `bun test` が成功し、`rg -n "src/types/pi-|check-pi-type-mirror" packages/spirits scripts` が 0 件。
+- [x] 7.6 型ミラーとチェッカーを削除する。`src/types/pi-coding-agent.d.ts`、`src/types/pi-tui.d.ts`、`scripts/check-pi-type-mirror.ts`、`test/pi-type-mirror.test.ts` を削除する。完了確認: 4 ファイルが無く、`bun run check` と `bun test` が成功し、`rg -n "src/types/pi-|check-pi-type-mirror" packages/spirits scripts` が 0 件。
+  - 実施 (2026-11-15): 4 ファイルを削除。残った参照 3 件 (`packages/spirits/README.md` の検証手順、`test/pi-runtime/frontmatter.test.ts` と `test/pi-runtime/harness-skills-yaml.test.ts` のヘッダコメント) は、`test/pi-runtime/tsconfig.json` が package の `tsconfig.json` を extend し both 型検査と Bun が install 済みの公式パッケージで解決する、という現在の姿に書き換えた。
+  - 完了確認の実測: 4 ファイル無し、`bun run check` 0 件、`bun test` 1260 pass / 0 fail (1269 との差分 −9 は削除した `test/pi-type-mirror.test.ts` の 9 件)、`rg -n "src/types/pi-|check-pi-type-mirror" packages/spirits scripts` 0 件。
 
 ## 8. pin テストの再編
 
 - [ ] 8.1 `branding-art-colors.test.ts` / `child-model-source-pin.test.ts` / `system-prompt-defaults.test.ts` の確認内容を、互換性ランナーの公式モードの観測項目として実装する (design D4)。完了確認: `bun test test/managed-pi-compat-runner.test.ts` が成功し、3 件に対応する観測項目が公式モードのマトリクスに載っている。
+  - 確認 (2026-11-15): art color は managed 経路で描画される。`src/index.ts` が `installBrandingHeader()` を呼び、そのヘッダが `src/branding/header.ts` の `ART_LINES` 4 行を `theme.fg(line.color, ...)` で描く (色は実行時の pi の theme が解決する)。よって 3 件とも削除ではなく 8.1 で移す側。公式 artifact では theme loader が公開 subpath に無いので、観測は (a) 展張済み artifact の theme JSON をファイル読みして 4 token (`border` / `accent` / `dim` / `muted`) が別色に解決されるか、または (b) 対話 TUI を起動してヘッダ行の色を読む、のどちらかになる。
 - [ ] 8.2 `test/pi-runtime/routing-record-pin.test.ts` の削除を確認する (7.5 で削除済み)。`model-roles-api.test.ts` は 6.1 で削除済み。完了確認: `ls test/pi-runtime` に 2 件が無い。
 - [ ] 8.3 残りの `test/pi-runtime/*` (`virtual-model-api` / `virtual-model-reload` / `settings-unknown-key` / `frontmatter` / `harness-skills-yaml` / `bundled-skills`) を、公式パッケージの公開面だけで検証する形にする。完了確認: `bun test test/pi-runtime` が 0 fail、`rg -n "declare module \"@earendil-works|@earendil-works/pi-coding-agent/(core|modes)" packages/spirits/test` が 0 件。
 - [ ] 8.4 `test/pi-runtime/pi-deep-imports.d.ts` の削除を確認する (7.5 で削除済み)。完了確認: `test -e packages/spirits/test/pi-runtime/pi-deep-imports.d.ts` が失敗し、`rg -n "declare module" packages/spirits/test` が 0 件。
