@@ -26,17 +26,9 @@ curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/main/scripts/install
 export PATH="$HOME/.spirits/bin:$PATH"
 ```
 
-インストーラはバイナリと同じリリースの組み込みテーマを `~/.spirits/bin/theme/dark.json` と `~/.spirits/bin/theme/light.json` にも配置する。pi はこの 2 ファイルを `/settings` のテーマ一覧に使うため、バイナリだけを配置すると `/settings` が `ENOENT` で失敗する。
+テーマはホストの artifact が提供する。インストーラは `~/.spirits/bin/theme/` を配置しないし、テーマ資産を要求もしない(実測: `install.test.sh` の「a fresh install creates no theme directory」と「the installer never requests the attached assets」)。旧版が置いた `~/.spirits/bin/theme/` はそのまま残り、再実行でも内容は変わらない(実測: 「VERSION re-place keeps the old theme directory content」)。使われないので削除して構わない。
 
-### テーマ資産を持たないリリースの導入
-
-0.6.0 以前のリリースはテーマ資産(`dark.json` / `light.json`)を含まない。`main` の `install.sh` はテーマ資産を必須とするため、これらの版を指定すると配置前に失敗する。該当版を導入する場合は、そのタグの `install.sh` を使う:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/spirits-v0.6.0/scripts/install.sh | VERSION=0.6.0 sh
-```
-
-テーマ資産を必須にした `install.sh` が `main` に載ってから次のリリースが出るまでの間は、最新として解決されるリリースがまだテーマ資産を持たない。この窓の間は `VERSION` を指定しない再実行も、同版修復の取得先が無いため配置前に失敗する(変更前は「already up to date」で成功していた)。窓が閉じた後は通常どおり再実行で修復できる。
+リリースは旧版の自己更新との互換のために `dark.json` / `light.json` とそれぞれの `.sha256` を添付し続けるが、現行の起動役・インストーラ・自己更新はそれらを使わない。旧版の自己更新はそれを使う (実測: `spirits-v0.7.2` の実行ファイルで更新すると `Updated spirits from 0.7.2 to …` のあと `~/.spirits/bin/theme/` に 2 ファイルが置かれた)。
 
 ## 手動ダウンロードと検証
 
@@ -47,19 +39,13 @@ VERSION=0.1.0
 BASE="https://github.com/betiz0/spirits/releases/download/spirits-v${VERSION}"
 curl -fsSL -o /tmp/spirits-linux-x64 "$BASE/spirits-linux-x64"
 curl -fsSL -o /tmp/spirits-linux-x64.sha256 "$BASE/spirits-linux-x64.sha256"
-mkdir -p /tmp/spirits-theme
-for name in dark.json light.json; do
-  curl -fsSL -o "/tmp/spirits-theme/$name" "$BASE/$name"
-  curl -fsSL -o "/tmp/spirits-theme/$name.sha256" "$BASE/$name.sha256"
-done
 (cd /tmp && sha256sum -c spirits-linux-x64.sha256)
-(cd /tmp/spirits-theme && sha256sum -c dark.json.sha256 && sha256sum -c light.json.sha256)
-mkdir -p ~/.spirits/bin/theme
+mkdir -p ~/.spirits/bin
 mv /tmp/spirits-linux-x64 ~/.spirits/bin/spirits
 chmod 755 ~/.spirits/bin/spirits
-mv /tmp/spirits-theme/dark.json /tmp/spirits-theme/light.json ~/.spirits/bin/theme/
-chmod 644 ~/.spirits/bin/theme/dark.json ~/.spirits/bin/theme/light.json
 ```
+
+初回起動ときに固定したホストの一式が必要で、そのときはネットワークを使う。手動配置でも `spirits managed-pi install` を実行すれば同じ規則で取得・検証される。
 
 すべての checksum を検証してから配置する。失敗した場合は何も配置しない。
 
@@ -76,25 +62,23 @@ spirits -v          # 同じ出力
 
 ```sh
 spirits update           # 最新 stable へ置き換える
-spirits update --all     # 置き換えの後、インストール済みの拡張も更新する
+spirits update self      # 同じ意味を明示した形
 spirits update --force   # インストール済みが最新でも再取得して置き換える
 ```
 
-置き換えは SHA256 検証の後、インストール先と同じディレクトリ内の一時領域から rename で行う。実行ファイルと同じリリースの `dark.json` / `light.json` も取得・検証し、先に `theme/` へ配置してからバイナリを置き換える。テーマの取得・検証・配置に失敗した場合はバイナリを置き換えない。
+受け付けるのはこれらの形だけ。`--all`、`--extensions`、`--models`、`-h`、未知のオプション、`self` / `pi` 以外の位置引数は案内して非ゼロで終了する。host の package と model catalog の更新は host 実行ファイルの `update`、ホストと拡張 bundle の更新は `spirits managed-pi update` が行う。
 
-同版で `theme/` の 2 ファイルが揃っていれば `spirits <version> is already up to date` を表示して何も取得しない。同版でテーマが欠けている場合は、実行ファイルを置き換えずにテーマだけを修復する。インストール済みが最新 stable より新しい場合(prerelease など)も置き換えず、テーマ資産も取得しない。`PI_OFFLINE` が `1` / `true` / `yes`(大文字小文字を区別しない)のときはネットワークにアクセスせず拒否する。
+置き換えは SHA256 検証の後、インストール先と同じディレクトリ内の一時領域から rename で行う。取得する成果物は実行ファイルと `.sha256` だけで、テーマ資産は取得しない(テーマはホストの artifact が提供する)。
+
+同版のときは `spirits <version> is already up to date` を表示して実行ファイルを置き換えず、インストール済みが最新 stable より新しい場合(prerelease など)も置き換えない。いずれの場合も実行ファイルのあとの managed の一式の導入は行う。`PI_OFFLINE` が `1` / `true` / `yes`(大文字小文字を区別しない)のときはネットワークにアクセスせず拒否する。
 
 更新の HTTP 要求は無通信が 10 秒続くと失敗する。`SPIRITS_UPDATE_IDLE_TIMEOUT_SECONDS` に正の整数(秒)を設定すると上限を変更できる。未設定または正の整数でない値は 10 秒になる。
 
-`install.sh` の再実行も引き続き更新手段。最新解決時はインストール済みの `--version` を確認し、同版でテーマ資産が揃っていればダウンロードを省略して `spirits <version> is already up to date` を表示する。同版でテーマが欠けている場合はテーマ資産だけを修復する。判定できない場合と版が異なる場合は実行ファイルとテーマ資産を配置する。修復や意図的な再配置には `VERSION=x.y.z` を指定する(同版でも常に再ダウンロードする)。
+`install.sh` の再実行も引き続き更新手段。最新解決時はインストール済みの `--version` を確認し、同版ならダウンロードを省略して `spirits <version> is already up to date` を表示する。判定できない場合と版が異なる場合は実行ファイルを配置する。意図的な再配置には `VERSION=x.y.z` を指定する(同版でも常に再ダウンロードする)。
 
 0.1.0 のバイナリは `spirits update` を持たないため、0.1.0 からは `install.sh` の再実行が 1 回必要。それ以降は `spirits update` が使える。
 
-0.6.0 以前の `spirits update` はバイナリだけを置き換えるため、その直後は `theme/` が欠けたままになり `/settings` が壊れる。新しいバイナリで `spirits update` をもう一度実行するか、`install.sh` を再実行すると、実行ファイルを変更せずにテーマだけが修復される。prerelease を導入した場合は、`VERSION` を指定した `install.sh` が同じ版のテーマ資産を配置する:
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/main/scripts/install.sh | VERSION=0.4.0-rc.1 sh
-```
+テーマの修復をうたう案内は古い文書のもので、現行の自己更新はテーマを扱わない。0.7.x 以前の自己更新はテーマ資産を取得していたため、その版で更新すると `~/.spirits/bin/theme/` に 2 ファイルが置かれる。現行のバイナリに置き換えた後は使われない。
 
 実行ファイルの更新後、`spirits update` は**同じリリース**の manifest から managed の一式を取得して `~/.spirits/managed-pi` に導入する(最新リリースの manifest ではない)。置換を行わなかった同版・新版インストール済みの場合も同じ規則で取得する。一式の取得・導入が失敗したときは理由と `spirits managed-pi repair` と旧版への戻し方を表示して非ゼロで終わるが、配置済みの実行ファイルはそのまま残る。旧版への戻し方の手順は [docs/spirits-host-upgrade.md](../docs/spirits-host-upgrade.md) に書く。
 
@@ -106,7 +90,7 @@ curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/main/scripts/install
 curl -fsSL https://raw.githubusercontent.com/betiz0/spirits/main/scripts/install.sh | sh -s -- --uninstall
 ```
 
-出力される `rm` コマンドでバイナリ、組み込みテーマ `~/.spirits/bin/theme/`、managed の一式 `~/.spirits/managed-pi/`、agent dir のバックアップ `~/.spirits/backups/`、データディレクトリ `~/.spirits/agent/` を削除する。データディレクトリには設定・セッション・外部拡張が含まれるため、必要ならバックアップしてから削除する。`~/.spirits/bin` を `PATH` に追加した行は shell rc から手動で消す。
+出力される `rm` コマンドでバイナリ、managed の一式 `~/.spirits/managed-pi/`、agent dir のバックアップ `~/.spirits/backups/`、データディレクトリ `~/.spirits/agent/` を削除する(旧版が置いた `~/.spirits/bin/theme/` は案内に含まれない。手動で削除する)。データディレクトリには設定・セッション・外部拡張が含まれるため、必要ならバックアップしてから削除する。`~/.spirits/bin` を `PATH` に追加した行は shell rc から手動で消す。
 
 ## 既定の起動経路 (managed)
 
@@ -339,7 +323,7 @@ LLM は `manage_todos` ツールで、現在のセッションの現在のブラ
 
 ## 単一バイナリの制約
 
-- バイナリは組み込みテーマだけを同梱する。テーマは実行ファイルと同じディレクトリの `theme/` に配置され、`/settings` のテーマ一覧に使われる。`theme/` が無い、または片方だけの場合は `/settings` が `ENOENT` で失敗するため、バイナリだけをコピーしない。assets / export-html / native prebuilds は同梱せず、HTML エクスポートなどの一部機能が劣化する。
+- 起動役の実行ファイルは spirits 拡張と起動処理を含み、ホストのソースは含まない。テーマを含むホストの資産は `~/.spirits/managed-pi` の公式 artifact が提供し、実行ファイルと同じディレクトリには何も置かない。実行ファイルを単体でコピーしても一式が無いときは起動しない。
 - 実行ファイルはパッケージマネージャを内包しない。外部拡張が独自の node_modules 依存を必要とする場合、依存解決には別途 Bun が必要。依存不足の外部拡張があると、起動時に拡張パス付きのエラーを stderr に出して非ゼロで終了する。
 - 対象は Linux x86_64(glibc)のみ。macOS / Windows / musl(Alpine)は対象外。
 - 更新は `spirits update` による自己置換と `install.sh` の再実行の 2 経路。起動時チェックと自動アップデートは持たない。
@@ -350,32 +334,28 @@ LLM は `manage_todos` ツールで、現在のセッションの現在のブラ
 ### 必要なもの
 
 - Bun >= 1.4.0(推奨 1.4.2。未コンパイル起動時のみバージョンゲートが働く)
-- pi をソースから起動する場合のみ、リポジトリルートで `npm ci --ignore-scripts`
-- rlm のテスト(`src/rlm/spawn.ts` を import するテスト)は pi ソースを読み込むため、リポジトリルートの依存導入も必要
+- Node.js はロックファイルの gate と数本のスクリプト用到的
+- ホストの型は `@earendil-works/pi-coding-agent` と `@earendil-works/pi-tui` の pin した devDependencies から解決する。Pi のソースツリーはリポジトリに無い
 
 ### セットアップ
 
 ```sh
-# リポジトリルート(pi をソースから動かす場合)
-npm ci --ignore-scripts
-
-# このパッケージ
-cd packages/spirits
-bun install --frozen-lockfile
+# リポジトリルート (workspace は 1 つ、lock も bun.lock 1 本)
+bun install --frozen-lockfile --ignore-scripts
 ```
 
 ### 開発時の起動
 
-リポジトリルートから、spirits 拡張を組み込みでロードした pi を起動する:
+リポジトリルートから起動役をソース実行する。未コンパイルの実行は一式を取得しないので、先に導入するか、ビルド済みの manifest を指す:
 
 ```sh
+bun packages/spirits/bin/spirits.ts managed-pi install
 bun packages/spirits/bin/spirits.ts
-```
 
-pi をソースから起動して tsrepl だけを読み込む M1 の形も使える:
-
-```sh
-bun packages/coding-agent/src/cli.ts -e packages/spirits/src/index.ts
+# またはビルドした 2 成果物を使う
+bun scripts/build-managed-pi-inputs.ts --version 0.0.0 --out /tmp/managed
+SPIRITS_MANAGED_PI_MANIFEST_URL=file:///tmp/managed/spirits-managed-pi-manifest.json \
+  bun packages/spirits/bin/spirits.ts -- --version
 ```
 
 ### 検証
@@ -399,7 +379,7 @@ bun scripts/build-binaries.ts --version 0.0.0
 `SPIRITS_DEV=1` で、各セルの description・実行時間・結果種別を stderr に出す:
 
 ```sh
-SPIRITS_DEV=1 bun packages/coding-agent/src/cli.ts -e packages/spirits/src/index.ts
+SPIRITS_DEV=1 bun packages/spirits/bin/spirits.ts
 ```
 
 ### 既知の制約
@@ -411,12 +391,12 @@ SPIRITS_DEV=1 bun packages/coding-agent/src/cli.ts -e packages/spirits/src/index
 ## The managed route (default) and the isolated route
 
 The default `spirits` launch is the managed route: it starts the verified official Pi of
-`~/.spirits/managed-pi/current` with the bundled spirits extension, storing in the agent directory
-chosen by the same rule the fork route used. `SPIRITS_ROUTE=fork` starts the fork instead, and that
-escape hatch stays until a change removes the fork.
+`~/.spirits/managed-pi/current` with the bundled spirits extension, storing in `~/.spirits/agent`.
+There is no other host and no route switch: the fork route and `SPIRITS_ROUTE` are gone.
 
-`spirits managed-pi` is the **isolated** route. It exists so the compatibility runner and the tests
-can drive a dedicated Pi without touching real data.
+`spirits managed-pi` is the **isolated** route. It manages the set and can launch it against its own
+agent directory, which is what the compatibility runner and the tests use to drive a dedicated Pi
+without touching real data.
 
 The isolated route writes only to its own agent directory, `~/.spirits/managed-pi/agent` (mode
 `0700`), and never reads or writes the existing `~/.spirits/agent`. No copy, migration, sync, or
@@ -447,8 +427,9 @@ spirits managed-pi repair
 spirits managed-pi -- --help
 ```
 
-Rollback is removing `~/.spirits/managed-pi` after exiting the experimental route; this leaves
-`~/.spirits/agent` in place. These guards choose the agent and session directories before spawn; they
+Rolling the host back to an older binary is documented in `docs/spirits-host-upgrade.md`; removing
+`~/.spirits/managed-pi` leaves `~/.spirits/agent` in place. These guards choose the agent and session
+directories before spawn; they
 are not an OS sandbox, and they do not restrict file access through `bash`, `read`, `write`, `edit`,
 extensions, or absolute paths. See `docs/spirits-managed-pi.md` for the manifest, compatibility
 matrix, and runner.
