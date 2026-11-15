@@ -1,102 +1,60 @@
-# Contributing to pi
+# Contributing to spirits
 
 This guide exists to save both sides time.
 
-## Philosophy
+## What spirits is
 
-First things first: **pi's core is minimal**.
+spirits is an extension bundle plus a thin launcher that runs on top of the **official Pi host**. The
+Pi source tree is not part of this repository, and contributions must not add one. New code lives in
+`packages/spirits` (extension and launcher) or `scripts` (build, distribution, compatibility
+measurement). Behavior that needs something from the host goes through the host's published extension
+API or the `piConfig.name` overlay; the source diff against the host stays zero.
 
-If your feature does not belong in the core, it should be an extension. PRs that bloat the core will likely be rejected.
-
-Pi's core exists to be minimal and to be extensible so that it can be influenced and manipulated by extensions.  Even hook points for extensions however should be well considered and discussed to avoid adding unmaintainable bloat and complex interactions.
+Read [AGENTS.md](AGENTS.md) before writing code. If you use an agent, run it from the repository root
+so it picks that file up.
 
 ## The One Rule
 
-**You must understand your code.** If you cannot explain what your changes do and how they interact with the rest of the system, your PR will be closed.
+**You must understand your code.** If you cannot explain what your changes do and how they interact
+with the launcher, the managed set, and the host, your PR will be closed.
 
 Using AI to write code is fine. Submitting AI-generated slop without understanding it is not.
 
-If you use an agent, run it from the `pi` root directory so it picks up `AGENTS.md` automatically. Your agent must follow the rules and guidelines in that file.
-
-## Contribution Gate
-
-All issues and PRs from new contributors are auto-closed by default.
-
-Issues submitted Friday through Sunday are not guaranteed to be reviewed.  If something is urgent, ask on Discord: https://discord.com/invite/3cU7Bz4UPx
-
-Maintainers review auto-closed issues daily and reopen worthwhile ones. Issues that do not meet the quality bar below will not be reopened or receive a reply.
-
-Approval happens through maintainer replies on issues:
-
-- `lgtmi`: your future issues will not be auto-closed
-- `lgtm`: your future issues and PRs will not be auto-closed
-
-The command must be at the start of the reply (optionally after one or more `@username` mentions) or at the end. `lgtmi` does not grant rights to submit PRs. Only `lgtm` grants rights to submit PRs.
-
-## Quality Bar For Issues
-
-If you open an issue, you must use one of the two GitHub issue templates.
-
-If you open an issue, keep it short, concrete, and worth reading.
-
-- Keep it concise. If it does not fit on one screen, it is too long.
-- Write in your own voice (do not use an LLM to generate text, if you must, follow up with a clearly AI labeled comment).
-- State the bug or request clearly.
-- Explain why it matters.
-- If you want to implement the change yourself, say so.
-
-If the issue is real and written well, a maintainer may reopen it or reply with `lgtmi` or `lgtm` in the command position described above.
-
-## Blocking
-
-If you ignore this document twice, or if you spam the tracker with agent-generated issues, your GitHub account will be permanently blocked.
-
-If you send a large volume of issues through automation, your GitHub account will be permanently blocked. No taksies backsies.
-
-## Before Submitting a PR
-
-Do not open a PR unless you have already been approved by a maintainer using `lgtm` in the command position described above.
+## Checks
 
 Before submitting a PR:
 
 ```bash
-npm run check
-./test.sh
+bun install --frozen-lockfile --ignore-scripts
+bun run check
+cd packages/spirits && bun test
 ```
 
-Both must pass.
+All three must pass. `bun run check` does not rewrite files; formatting fixes come from `bun run fix`.
 
-Do not edit `CHANGELOG.md`. Changelog entries are added by maintainers.
+If your change affects launch, update, or the managed set, also run the checks named in `AGENTS.md`
+(compatibility runner, installer and self-update smokes, tmux launch verification). State in the PR
+which measurements you ran and what their results were.
 
-If you are adding a new provider to `packages/ai`, see `AGENTS.md` for required tests.
+## Specs
 
-## Questions?
+Behavior changes are planned in OpenSpec changes under `openspec/changes/`. A PR that changes
+observable behavior should reference the change it implements, and the change's artifacts should match
+the code (`openspec validate <change> --strict` passes).
 
-Ask on [Discord](https://discord.com/invite/nKXTsAcmbT).
+## Dependencies
 
-## FAQ
+Direct external dependencies are pinned to exact versions and added with `bun install --save-exact`.
+`bunfig.toml` holds back freshly published versions. A staged `bun.lock` change is reviewed as code;
+the pre-commit gate requires an explicit opt-in to commit it.
 
-### Why are new issues and PRs auto-closed?
+## Release notes
 
-pi receives more issues than the maintainers can responsibly review in real time. Many reports do not meet the quality bar in this guide or do not follow CONTRIBUTING.md. Some are slung at the repository mindlessly via an agent instead of being reviewed and shaped by the person submitting them. Auto-closing creates a buffer so maintainers can review the tracker on their own schedule and reopen the issues that meet the quality bar.
+There is no `CHANGELOG.md`. Release notes are written into the GitHub Release body for the `spirits-v*`
+tag. Do not add changelog files.
 
-### Why are weekend issues lower priority?
+## License
 
-We triage the tracker during working hours. That means more issues can accumulate over the weekend. Anything submitted Friday through Sunday may be missed or given lower priority in the Monday review queue. If a problem is urgent, ask on Discord and include the short version, a repro, and the relevant logs.
-
-### Why do some issues get no reply?
-
-A reply is maintenance work too. Low-signal issues, unclear reports, duplicates, and issues that do not follow this guide may be closed without discussion. This keeps time available for reproducible bugs, thoughtful requests, and contributors who have done the work to make their report actionable.
-
-### Why not let AI triage everything?
-
-AI can help group duplicates, summarize reports, and spot missing information. It is not trusted to make final maintainer decisions. Polished AI-generated issues can still be wrong, misleading, or expensive to investigate. Human review remains the final gate.
-
-### Is this hostile to contributors?
-
-No. It is a guardrail against burnout and tracker spam. Short, concrete, reproducible issues are welcome. Thoughtful contributions are welcome. Automated slop, entitlement, and large volumes of low-effort reports are not.
-
-## Where can I learn about plans?
-
-Earendil uses RFCs to discuss larger changes.  Not all of them are public, but
-quite a few are.  They can be found at [rfc.earendil.com](https://rfc.earendil.com/keyword/pi/).
+spirits is MIT licensed. By submitting a contribution you license it under the same terms. See
+[LICENSE](LICENSE); the host itself is a separate work that you install at runtime and is not
+relicensed here.

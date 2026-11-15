@@ -1,6 +1,9 @@
 MIT License
 
-Copyright (c) 2025 Mario Zechner
+Copyright (c) 2026 Betiz (spirits)
+
+This work contains portions derived from Pi (https://github.com/earendil-works/pi),
+Copyright (c) 2025 Mario Zechner, and is distributed under the same MIT terms.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +22,8 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+The Pi source tree is not distributed with this repository. The host that spirits
+runs on is the official Pi release, downloaded at runtime into
+~/.spirits/managed-pi and verified against the checksums recorded in this
+repository. That host stays under its own license and is not relicensed here.
