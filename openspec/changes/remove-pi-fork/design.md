@@ -147,6 +147,7 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 
 ## Risks / Trade-offs
 
+- [Risk] lockfile を root に統合した再解決で、固定していない依存の版が動く。 → 実測 (2026-11-15): `graceful-fs` が 4.2.11 → 4.2.12 へ動いた (公開日 2026-11-12)。`proper-lockfile@4.1.2` が `^4.2.4` を要求することによる再解決で、公開から 2 日を経ているため age gate も通る。 → Mitigation: ピン留めも override もせず受け入れる。host 固定版 (`@earendil-works/pi-coding-agent` / `pi-tui` / `pi-ai` の 1.5.0 と `typebox` の 1.3.27) が動いていないことを lock 比較で確認する。
 - [Risk] 起動役からホストを import しないことで、開発時のソース実行がホスト一式の導入を前提になる。 → Mitigation: `spirits managed-pi install` と `SPIRITS_MANAGED_PI_MANIFEST_URL` を起動時メッセージと `docs/spirits-default-launch.md` に明記し、tmux 検証で未導入→導入→起動を通す。
 - [Risk] 固定した devDependency の版と src の型がずれ、古い型のままコンパイルが通る。 → Mitigation: `host-upgrade` で devDependency の版更新と `tsc --noEmit` / `bun test` を必須にし、失敗時は更新を止める。
 - [Risk] fork 側 `packages/*` と `packages/spirits` の devDependency で `@earendil-works/*` の版が二重管理になり、§12.1 の削除まで解消が混ざる。 → Mitigation: §12.1 まで `packages/spirits` の解決が root workspace の symlink ではなく固定 devDependency の実体であることを `import.meta.resolve` と lockfile で確認する。`packages/spirits/tsconfig.json` は root を継承せず、sub-tsconfig も `packages/spirits/tsconfig.json` を継承する。二重管理の間に root 側の `paths` と fork パッケージを消さない (fork パッケージの削除は §12.1、root の `paths` の削除は §12.4)。
@@ -212,6 +213,9 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 | `managed-pi/environment.ts` | `SPIRITS_CODING_AGENT_DIR` / `SPIRITS_CODING_AGENT_SESSION_DIR` / `PI_PACKAGE_DIR` / `PI_SKIP_VERSION_CHECK` / `PI_TELEMETRY` |
 | `managed-pi/manifest.ts` | `schemaVersion: 1`、`pi.version`、`pi.artifact`、`platform` |
 | `scripts/build-managed-pi-inputs.ts` | host externals `@earendil-works/pi-coding-agent` / `@earendil-works/pi-tui` / `typebox` |
+| `bin/version.ts` の host 起動引き継ぎ | `-e <bundle>` を前置する argv 転送 (`SPIRITS_LAUNCH_ARGS`) |
+| `update/release-info.ts` | 自己更新が取得するリリース資産名 (`spirits-<target>`、`install.sh`) |
+| `src/index.ts` と host 型 | 公式 `ExtensionAPI` / `ExtensionMode` などの型を pinned devDependency の実型で読む (§7) |
 | `src/index.ts` と各層 | host の `registerTool` / `registerCommand` / `registerVirtualModel` / `setStatus` / `setHeader` / `appendEntry` / `createAgentSession` |
 
 ### 1 か所のモジュール境界
@@ -276,17 +280,18 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 |---|---|---|
 | `.gitattributes` | 書き換え | `packages/agent/docs/**/*.diff` の行を削除 |
 | `.gitignore` | 書き換え | Pi パッケージ固有の ignore を削除 |
-| `.husky/pre-commit` | 書き換え | `npm run check` / lockfile / browser smoke を spirits の `bun run check` に置き換え |
-| `.npmrc` | 残す | `save-exact` / `min-release-age` は依存ピン留めの方針として維持 |
+| `.husky/pre-commit` | 書き換え | lockfile ゲートと spirits の `bun run check` (書き換えない側) の 2 本。整形は `bun run fix` を手で使う |
+| `.npmrc` | 書き換え | `save-exact=true` を残し、bun が読まない `min-release-age` を削除 (実測で確認) |
+| `bunfig.toml` | 追加 | `[install] minimumReleaseAge` (秒)。公開からの経過日数の門を bun 側で効かせる |
 | `AGENTS.md` | 書き換え | 単一パッケージのコマンドとルールに更新 |
 | `CONTRIBUTING.md` | 書き換え | Pi の contribution gate を外し、spirits の CONTRIBUTING にする |
 | `LICENSE` | 書き換え | spirits の著作権を追加し、Pi の表示を派生物向けに残す (D10) |
 | `README.md` / `.ja` / `.zh` / `.de-CH` | 書き換え | 「fork of Pi」を「公式 Pi の固定 artifact をホストにする」に更新 |
 | `SECURITY.md` | 書き換え | Pi のセキュリティ文書の前提を spirits の配布形態に更新 |
-| `biome.json` | 書き換え | `packages/spirits` を include に追加し、Pi の plugin / include を削除 |
+| `biome.json` | 書き換え | Pi の plugin / include を削除し、`scripts/**` のみに pin した。`packages/spirits` を含めるか (実測 465 ファイル中 335 diagnostic) はフォーク削除とは別の判断として Follow-up に残す |
 | `bun.lock` | 書き換え | root workspace の lockfile を再生成 |
-| `package.json` | 書き換え | `pi-monorepo` をやめ、workspaces を `packages/spirits` だけにする |
-| `tsconfig.json` | 書き換え | Pi の `paths` を削除し、`packages/spirits` を含める |
+| `package.json` | 書き換え | `pi-monorepo` をやめ、workspaces を `packages/spirits` だけにする。`check` は書き換えない検査にし、書き換えは `fix` に切り出す。呼出は `bun` に揃える。`engines` は bun を主、node は実際に使う toolchain の下限にしたがえる |
+| `tsconfig.json` | 書き換え | Pi の `paths` を削除し、repo 全体の view にする。host に読み込まれる拡張 fixture は除外するが、型検査は pinned host 型の `tsconfig.scripts.json` で受け続ける |
 | `tsconfig.base.json` | 書き換え | Node 向けの `types` を Bun 向けに調整 |
 | `vitest.base.ts` | 削除 | vitest を使わない |
 | `flake.nix` / `flake.lock` | 削除 | Pi の nix 配布用で、spirits は対象外 |
@@ -303,7 +308,7 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 |---|---|---|
 | `build-binaries.ts` | 書き換え | 起動役と互換用テーマ資産だけをビルド。config / worker / Pi の tsconfig 参照を外し、テーマの出力元を `scripts/compat-theme/` に変える (D8) |
 | `compat-theme/dark.json` / `compat-theme/light.json` | 追加 | fork 最終コミットの Pi 組み込みテーマのコピー。旧版の自己更新用の互換資産 (D8) |
-| `build-managed-pi-inputs.ts` | 書き換え | 拡張 bundle と manifest をビルド。host externals を記述子から読む |
+| `build-managed-pi-inputs.ts` | 書き換え | 拡張 bundle と manifest をビルド。host externals を記述子から読む。typeCheck の tsconfig は `packages/spirits/tsconfig.json` (root には host を fork のソースへ写す paths があった) |
 | `check-managed-pi-bundle-version.ts` | 残す | リリースの bundle 版と manifest の一致を確認 |
 | `install.sh` | 書き換え | fork の案内と theme を外し、managed 一式の導入と旧版の戻し方を出す |
 | `install.test.sh` | 書き換え | 新しい install.sh に合わせる |
@@ -312,7 +317,7 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 | `test-dotenv-smoke.sh` | 残す | `.env` 非読込の回帰 |
 | `managed-pi-compat/` (20 ファイル) | 書き換え | fork ホストを外し、ホスト差し替え可能な受け入れ試験にする |
 
-削除 (66 ファイル): `replace-pi-version.ts`、`agent-data-compat/`、`model-catalog-protocol.*`、`release*.mjs`、`publish*.mjs`、`package-*.mjs`、`check-*.mjs` ( spirits が使わないもの)、`coding-agent-smoke.*`、`profile-coding-agent-node.mjs`、`stats.ts`、`cost.ts`、`tool-stats.ts`、`session-*.ts`、`edit-tool-stats.mjs`、`build-coding-agent-bundle.mjs`、`browser-smoke-entry.ts`、`durable-browser-smoke-entry.ts`、`agent-treeshake-smoke-entry.ts`、`smoke-test-codemode-binary.mjs`、`generate-*.mjs`、`sync-versions.*`、`local-*.mjs`、`use-local-packages.mjs`、`npm-*.mjs`、`auto-pi.sh`、`build-binaries.sh`、`create-source-archive.sh`、`update-source-imports-to-ts.sh`、`repro-5893-wsl-bash.mjs`、`scripts/biome/`。
+削除 (66 ファイル): `replace-pi-version.ts`、`agent-data-compat/`、`model-catalog-protocol.*`、`release*.mjs`、`publish*.mjs`、`package-*.mjs`、spirits が使わない `check-*.mjs` (`check-browser-smoke.mjs`、`check-synthetic-readme-perf.mjs`。`.husky/pre-commit` が呼ぶ `check-lockfile-commit.mjs` は残す)、`coding-agent-smoke.*`、`profile-coding-agent-node.mjs`、`stats.ts`、`cost.ts`、`tool-stats.ts`、`session-*.ts`、`edit-tool-stats.mjs`、`build-coding-agent-bundle.mjs`、`browser-smoke-entry.ts`、`durable-browser-smoke-entry.ts`、`agent-treeshake-smoke-entry.ts`、`smoke-test-codemode-binary.mjs`、`generate-*.mjs`、`sync-versions.*`、`local-*.mjs`、`use-local-packages.mjs`、`npm-*.mjs`、`auto-pi.sh`、`build-binaries.sh`、`create-source-archive.sh`、`update-source-imports-to-ts.sh`、`repro-5893-wsl-bash.mjs`、`scripts/biome/`。
 
 ### `.github/` — 残す / 書き換え / 削除
 
