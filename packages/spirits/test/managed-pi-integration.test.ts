@@ -130,6 +130,15 @@ test("install, update, launch, and the compatibility runner complete on a fixtur
 		expect(names.has("managed extension load")).toBe(true);
 		expect(names.has("data read compatibility")).toBe(true);
 		expect(names.has("role/clear/model matrix")).toBe(true);
+		// The three observations that replaced the pin tests reaching into pi's sources (§8.1) are items of
+		// every run, whatever the host answers. Their state is the measurement; being absent is not.
+		for (const item of [
+			"startup art colours resolve distinctly",
+			"system prompt keeps pi defaults and spirits additions",
+			"rlm child model comes from the answering response",
+		]) {
+			expect(names.has(item), item).toBe(true);
+		}
 	} finally {
 		await rm(outDir, { recursive: true, force: true });
 	}

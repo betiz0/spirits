@@ -257,6 +257,67 @@ export function classifyPhysicalChild(observation: RlmChildObservation): {
  * model the child could run, and a host that answers with fixed events and never requests the
  * provider (design Decision 8).
  */
+/**
+ * The model an rlm child inherits, against what the host recorded as the answering response.
+ *
+ * The pin this replaces called pi's own `findLatestResponse`, which lives in a non-public subpath. On
+ * the running host the same rule shows up as two readable facts: the assistant entry pi appends for
+ * the parent's turn names the model that answered and how the turn ended, and the child of that same
+ * session asks the provider for that model. A host that stops writing either field, or that changes
+ * which response it calls the latest, splits the two and fails here.
+ */
+export interface ChildModelSourceObservation {
+	/** Whether the auto-parent run got far enough to have a child at all. */
+	attempted: boolean;
+	/** The fields of the last assistant message entry the host wrote. */
+	recorded?: { provider?: string; model?: string; stopReason?: string };
+	/** The model the child asked the provider for, in `provider/id` form. */
+	childRequestedModel?: string;
+	/** Whether this host puts requests to a provider at all. A fixture host answers fixed events. */
+	hostCanRequestProvider: boolean;
+	/** Why the run reached no child, when it did not. */
+	reason?: string;
+}
+
+/** The stop reasons that say a response is not one a child may inherit. */
+const UNSUCCESSFUL_STOP_REASONS = ["aborted", "error"];
+
+/** Decide the child-model inheritance from the entry the host wrote and the model the child asked for. */
+export function classifyChildModelSource(observation: ChildModelSourceObservation): { state: CompatState; detail: string } {
+	if (!observation.hostCanRequestProvider) {
+		return { state: "not-run", detail: "the host answers fixed events, so no child request carries an inherited model" };
+	}
+	if (!observation.attempted) return { state: "not-run", detail: observation.reason ?? "the auto-parent run reached no child" };
+	const recorded = observation.recorded;
+	const fields = `provider=${recorded?.provider ?? "none"}, model=${recorded?.model ?? "none"}, stopReason=${recorded?.stopReason ?? "none"}`;
+	if (recorded?.provider === undefined || recorded.model === undefined) {
+		return {
+			state: "failed",
+			detail: `the host wrote no answering model on the assistant entry the child resolution reads (${fields})`,
+		};
+	}
+	if (recorded.stopReason === undefined || UNSUCCESSFUL_STOP_REASONS.includes(recorded.stopReason)) {
+		return {
+			state: "failed",
+			detail: `the last assistant entry is not a successful response, so there is nothing to inherit (${fields})`,
+		};
+	}
+	const answered = `${recorded.provider}/${recorded.model}`;
+	if (observation.childRequestedModel === undefined) {
+		return { state: "not-run", detail: `the child sent no request, so the inherited model was never observed (${fields})` };
+	}
+	if (observation.childRequestedModel !== answered) {
+		return {
+			state: "failed",
+			detail: `the child asked the provider for ${observation.childRequestedModel} while the answering response recorded ${answered}`,
+		};
+	}
+	return {
+		state: "confirmed",
+		detail: `the host recorded ${answered} (${recorded.stopReason}) on the entry, and the child of that session asked the provider for it`,
+	};
+}
+
 export function classifyAutoChild(observation: AutoChildObservation): {
 	state: CompatState;
 	detail: string;

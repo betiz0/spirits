@@ -1,5 +1,10 @@
-// pi values re-exported for tests outside `pi-runtime/`. A test at `test/` level resolves
-// `@earendil-works/pi-coding-agent` through the type mirror in `src/types/`, so a value import there
-// fails wherever pi is not built (CI). This file sits under `test/pi-runtime/tsconfig.json`, which
-// maps the specifier onto pi's sources, so it can hand the value over.
+/**
+ * pi values re-exported for the tests that need them.
+ *
+ * One file names them, so the specifier appears once instead of in every test that builds a session or
+ * loads a skill. `@earendil-works/pi-coding-agent` resolves to the pinned host package installed under
+ * `packages/spirits/node_modules`, for `tsc` and for `bun test` alike, from here and from a test at
+ * `test/` level.
+ */
+
 export { sessionEntryToContextMessages, SessionManager } from "@earendil-works/pi-coding-agent";

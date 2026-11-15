@@ -3,7 +3,7 @@ import { customEntry, nextEntryId } from "./host/fake-pi.ts";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { classifyAutoChild, classifyChildAbort, classifyChildAnswer, classifyChildCreation, classifyChildUsage, classifyFixtureInsufficiency, classifyPhysicalChild, fixtureProvidesChildTarget, isFixtureInsufficiency, isVirtualRequestedModel, rlmUsageOutcome, type AutoChildObservation, type ChildAbortObservation, writeRlmFixture } from "../../../scripts/managed-pi-compat/rlm.ts";
+import { classifyAutoChild, classifyChildAbort, classifyChildAnswer, classifyChildCreation, classifyChildModelSource, classifyChildUsage, classifyFixtureInsufficiency, classifyPhysicalChild, fixtureProvidesChildTarget, isFixtureInsufficiency, isVirtualRequestedModel, rlmUsageOutcome, type AutoChildObservation, type ChildAbortObservation, type ChildModelSourceObservation, writeRlmFixture } from "../../../scripts/managed-pi-compat/rlm.ts";
 
 /**
  * The `rlm auto parent` observation of a dedicated-Pi run whose fixture offered a child target, with
@@ -18,6 +18,22 @@ function autoObservation(overrides: Partial<AutoChildObservation> = {}): AutoChi
 		childRequestedModel: "fake-model",
 		childTargetInFixture: true,
 		hostCanRequestProvider: true,
+		...overrides,
+	};
+}
+
+/**
+ * The child-model inheritance observation of a run whose parent answered once, with the parts named.
+ *
+ * `hostCanRequestProvider` decides `failed` against `not-run` the way it does for the other child
+ * items: a host that answers fixed events has no child request to read an inherited model from.
+ */
+function childModelSource(overrides: Partial<ChildModelSourceObservation> = {}): ChildModelSourceObservation {
+	return {
+		attempted: true,
+		hostCanRequestProvider: true,
+		recorded: { provider: "compat-fake", model: "fake-model", stopReason: "stop" },
+		childRequestedModel: "compat-fake/fake-model",
 		...overrides,
 	};
 }
@@ -283,4 +299,40 @@ test("a child-model resolution error is not a fixture marker", () => {
 	// The runner writes the child target before the auto run, so these belong to the product judgement.
 	expect(isFixtureInsufficiency("spirits/auto has no child model: tried normal, model is missing")).toBe(false);
 	expect(isFixtureInsufficiency("the latest response model openai/gpt-5.6-luna has no credentials")).toBe(false);
+});
+
+test("the child inherits the model the host recorded as the answering response", () => {
+	expect(classifyChildModelSource(childModelSource()).state).toBe("confirmed");
+});
+
+test("a child asking another model than the answer fails", () => {
+	const judgement = classifyChildModelSource(childModelSource({ childRequestedModel: "compat-fake/fake-strong" }));
+	expect(judgement.state).toBe("failed");
+	expect(judgement.detail).toContain("while the answering response recorded compat-fake/fake-model");
+});
+
+test("an entry that names no answering model fails", () => {
+	const judgement = classifyChildModelSource(childModelSource({ recorded: { provider: "compat-fake", stopReason: "stop" } }));
+	expect(judgement.state).toBe("failed");
+	expect(judgement.detail).toContain("no answering model");
+});
+
+test("an entry that is not a successful response leaves nothing to inherit", () => {
+	for (const stopReason of ["aborted", "error", undefined]) {
+		const judgement = classifyChildModelSource(childModelSource({ recorded: { provider: "p", model: "m", stopReason } }));
+		expect(judgement.state, String(stopReason)).toBe("failed");
+		expect(judgement.detail).toContain("not a successful response");
+	}
+});
+
+test("no child request and a fixed-event host are gaps, not verdicts", () => {
+	const noRequest = classifyChildModelSource(childModelSource({ childRequestedModel: undefined }));
+	expect(noRequest.state).toBe("not-run");
+	expect(noRequest.detail).toContain("sent no request");
+	const fixedHost = classifyChildModelSource(childModelSource({ hostCanRequestProvider: false }));
+	expect(fixedHost.state).toBe("not-run");
+	expect(fixedHost.detail).toContain("fixed events");
+	const noChild = classifyChildModelSource(childModelSource({ attempted: false, reason: "the auto-parent cell failed" }));
+	expect(noChild.state).toBe("not-run");
+	expect(noChild.detail).toContain("the auto-parent cell failed");
 });

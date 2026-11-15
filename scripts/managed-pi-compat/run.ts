@@ -91,6 +91,7 @@ import {
 import {
 	classifyAutoChild,
 	classifyChildAbort,
+	classifyChildModelSource,
 	classifyChildAnswer,
 	classifyChildCreation,
 	classifyChildUsage,
@@ -101,6 +102,13 @@ import {
 	type ChildAbortObservation,
 	type RlmChildObservation,
 } from "./rlm.ts";
+import {
+	classifySystemPrompt,
+	classifyThemeArtColours,
+	extractSystemPrompt,
+	observeThemeArtColours,
+	readArtColorTokens,
+} from "./host-surfaces.ts";
 import {
 	buildRunnerProvenance,
 	buildRuntimeEvidence,
@@ -187,6 +195,16 @@ const RLM_CHILD_REPLY_DELAY_MS = 8000;
  */
 const RLM_PARENT_PROMPT = "run one rlm cell";
 const REPO_ROOT = resolve(import.meta.dir, "../..");
+/** The product source that names the colours the startup art paints, read as text (see `readArtColorTokens`). */
+const HEADER_SOURCE = join(REPO_ROOT, "packages", "spirits", "src", "branding", "header.ts");
+/** The tools whose prompt declarations spirits owns, so each one has to reach the prompt. */
+const SPIRITS_PROMPT_TOOLS = ["tsrepl", "manage_todos"];
+/** Tools pi lists by itself, which must still be listed once spirits adds its own. */
+const PI_OWN_TOOLS = ["bash", "read"];
+/** One rule pi writes by itself. A rules section that only carries spirits' text has lost it. */
+const PI_OWN_RULE = "Use bash for file operations like ls, rg, find";
+/** The heading of the section spirits adds through its own declaration. */
+const SPIRITS_SECTION_MARKER = "## spirits code-mode";
 
 interface ProbeState {
 	sessionStarted: boolean;
@@ -204,6 +222,8 @@ interface ProbeState {
 	sessionEntries: number;
 	model?: { provider: string; id: string };
 	thinkingLevel?: string;
+	/** Each tool's own prompt declaration, as the host reported it inside the managed process. */
+	toolPrompts?: Array<{ name: string; guidelines: string[] }>;
 	apis: Record<string, boolean>;
 }
 
@@ -381,6 +401,31 @@ function usageReadsOf(records: readonly RpcRecord[]): Array<{ id: string; entrie
 		});
 }
 
+/**
+ * The last assistant message entry the host wrote, with the fields the child-model resolution reads.
+ *
+ * These are the fields the deleted pin test asserted on pi's own session manager: the model that
+ * answered a turn and how the turn ended. Nothing else in the entry matters to that resolution, so
+ * nothing else is read here.
+ */
+function assistantRecordOf(records: readonly RpcRecord[]): { provider?: string; model?: string; stopReason?: string } | undefined {
+	const entries = records
+		.filter((record) => record.type === "response" && record.command === "get_entries" && record.success === true)
+		.flatMap((record) => (record.data as { entries?: Array<Record<string, unknown>> } | undefined)?.entries ?? []);
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index];
+		if (entry?.type !== "message") continue;
+		const message = entry.message as { role?: unknown; provider?: unknown; model?: unknown; stopReason?: unknown };
+		if (message?.role !== "assistant") continue;
+		return {
+			provider: typeof message.provider === "string" ? message.provider : undefined,
+			model: typeof message.model === "string" ? message.model : undefined,
+			stopReason: typeof message.stopReason === "string" ? message.stopReason : undefined,
+		};
+	}
+	return undefined;
+}
+
 /** How many entries carry an abort outcome, which the product stores under `entry.data`. */
 function abortedUsageCount(entries: readonly Record<string, unknown>[]): number {
 	return entries.filter((entry) => rlmUsageOutcome(entry) === "aborted").length;
@@ -521,6 +566,8 @@ async function main(): Promise<number> {
 			"api key and proxy survive",
 			"bundled SKILL.md is raw markdown",
 			"host version",
+			"startup art colours resolve distinctly",
+			"system prompt keeps pi defaults and spirits additions",
 			"managed tsrepl simple cell",
 			"managed tsrepl Bun.Transpiler cell",
 			"managed tsrepl node:vm cell",
@@ -532,6 +579,7 @@ async function main(): Promise<number> {
 			"rlm child answer",
 			"rlm child usage",
 			"rlm child abort",
+			"rlm child model comes from the answering response",
 			"rlm physical model child",
 			"rlm auto parent",
 			"data read compatibility",
@@ -690,6 +738,18 @@ async function main(): Promise<number> {
 						? classifyHostVersion(state.hostVersion, launch.manifest.pi.version)
 						: { state: "not-run", detail: "the probe did not report the host version" },
 				);
+				// The colours of the startup art are the host's, not spirits': the header asks the running
+				// theme for four named colours, and the artifact ships the theme. Reading the theme file the
+				// artifact carries is the only way to see a rename or a collision without the theme loader,
+				// which the published package does not export.
+				await run("startup art colours resolve distinctly", async () => {
+					const tokens = readArtColorTokens(await Bun.file(HEADER_SOURCE).text());
+					const themes = observeThemeArtColours(launch.packageDir, tokens);
+					return {
+						...classifyThemeArtColours(themes, tokens),
+						data: { tokens, packageDir: launch.packageDir, themes },
+					};
+				});
 				// Cell execution goes through the normal model-to-tool path: the fake provider issues
 				// the tool call and the runner reads the observed tool result.
 				const cell = async (name: string, code: string, expected: unknown) => {
@@ -913,6 +973,23 @@ async function main(): Promise<number> {
 						return authorization.every((value) => value === "Bearer fake" || value === "")
 							? { state: "confirmed", detail: "only the fake bearer token was sent" }
 							: { state: "failed", detail: "a non-fake authorization header reached the fake provider" };
+					});
+					// The prompt the provider received is where pi's own builder and spirits' declarations
+					// meet, which is what the deleted pin test judged against pi's builder in-process. Both
+					// directions stay measured here: pi's defaults survive what spirits adds, and what spirits
+					// declares arrives. The digest is recorded rather than asserted, because the prompt names
+					// the working directory and so differs between runs.
+					await run("system prompt keeps pi defaults and spirits additions", async () => {
+						const request = provider.requests[0];
+						return classifySystemPrompt({
+							prompt: extractSystemPrompt(request?.body),
+							spiritsTools: SPIRITS_PROMPT_TOOLS,
+							declared: state?.toolPrompts ?? [],
+							piTools: PI_OWN_TOOLS,
+							piRule: PI_OWN_RULE,
+							sectionMarker: SPIRITS_SECTION_MARKER,
+							reason: request === undefined ? "the fake provider recorded no request around the tool call" : undefined,
+						});
 					});
 
 					// rlm: the child inherits the parent model, so the fixture must make both the
@@ -1207,6 +1284,23 @@ async function main(): Promise<number> {
 						autoRequests = [...autoProvider.requests];
 						autoProvider.stop();
 					}
+					await run("rlm child model comes from the answering response", async () => {
+						const recorded = assistantRecordOf(autoRun?.records ?? []);
+						const requested = childRequestedModel(autoRequests);
+						return {
+							...classifyChildModelSource({
+								attempted: autoRun !== undefined && autoRun.isError !== true,
+								hostCanRequestProvider: runner.mode === "official",
+								recorded,
+								childRequestedModel: requested,
+								reason:
+									autoRun === undefined
+										? "the auto-parent run did not complete"
+										: `the auto-parent cell reported an error: ${autoRun.text.trim().slice(0, 160)}`,
+							}),
+							data: { recorded, childRequestedModel: requested, providerRequests: providerLog(autoRequests) },
+						};
+					});
 					await run("rlm auto parent", async () => ({
 						...classifyAutoChild({
 							childCreated: autoRun !== undefined && !autoRun.isError,

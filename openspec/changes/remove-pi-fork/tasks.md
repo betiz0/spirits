@@ -100,12 +100,22 @@
 
 ## 8. pin テストの再編
 
-- [ ] 8.1 `branding-art-colors.test.ts` / `child-model-source-pin.test.ts` / `system-prompt-defaults.test.ts` の確認内容を、互換性ランナーの公式モードの観測項目として実装する (design D4)。完了確認: `bun test test/managed-pi-compat-runner.test.ts` が成功し、3 件に対応する観測項目が公式モードのマトリクスに載っている。
+- [x] 8.1 `branding-art-colors.test.ts` / `child-model-source-pin.test.ts` / `system-prompt-defaults.test.ts` の確認内容を、互換性ランナーの公式モードの観測項目として実装する (design D4)。完了確認: `bun test test/managed-pi-compat-runner.test.ts` が成功し、3 件に対応する観測項目が公式モードのマトリクスに載っている。
   - 確認 (2026-11-15): art color は managed 経路で描画される。`src/index.ts` が `installBrandingHeader()` を呼び、そのヘッダが `src/branding/header.ts` の `ART_LINES` 4 行を `theme.fg(line.color, ...)` で描く (色は実行時の pi の theme が解決する)。よって 3 件とも削除ではなく 8.1 で移す側。公式 artifact では theme loader が公開 subpath に無いので、観測は (a) にする (決定 2026-11-15)。展開済み artifact の `<packageDir>/theme/{dark,light}.json` を読み、`colors` の値を `vars` 経由で解決して、`ART_LINES` の 4 token (`border` / `accent` / `dim` / `muted`) が揃い、かつテーマごとに別色であることを確認する。token 名は `src/branding/header.ts` の `ART_LINES` をテキスト解釈して得る (scripts から header を import すると、header の host runtime import が root workspace の fork ソースへ解決する経路を作るため)。
   - 決定 (2026-11-15): child model pin と system prompt defaults も runner の実観測へ移す。child model は公式ホストの実測 (親の応答モデルと rlm 子の要求モデルの一致、host が書いた entry の provider/model/stopReason)。system prompt は §7.1 と同じ計測法 (fake provider が受けた request body の system prompt) で、pi 既定の tool 一覧と rules、spirits 由来の tool 宣言 (snippet / guidelines)、code-mode 節が残っていることを確認し、長さと sha256 を証拠に残す。
-- [ ] 8.2 `test/pi-runtime/routing-record-pin.test.ts` の削除を確認する (7.5 で削除済み)。`model-roles-api.test.ts` は 6.1 で削除済み。完了確認: `ls test/pi-runtime` に 2 件が無い。
-- [ ] 8.3 残りの `test/pi-runtime/*` (`virtual-model-api` / `virtual-model-reload` / `settings-unknown-key` / `frontmatter` / `harness-skills-yaml` / `bundled-skills`) を、公式パッケージの公開面だけで検証する形にする。完了確認: `bun test test/pi-runtime` が 0 fail、`rg -n "declare module \"@earendil-works|@earendil-works/pi-coding-agent/(core|modes)" packages/spirits/test` が 0 件。
-- [ ] 8.4 `test/pi-runtime/pi-deep-imports.d.ts` の削除を確認する (7.5 で削除済み)。完了確認: `test -e packages/spirits/test/pi-runtime/pi-deep-imports.d.ts` が失敗し、`rg -n "declare module" packages/spirits/test` が 0 件。
+  - 実装 (2026-11-15): 3 観測を `scripts/managed-pi-compat/host-surfaces.ts` (純関数の判定) と `run.ts` (実測) に置いた。判定だけの test は `packages/spirits/test/managed-pi-compat-host-surfaces.test.ts` と `test/managed-pi-compat-rlm.test.ts` の追加分が通す。
+  - 観測項目名と見ている内容:
+    - `startup art colours resolve distinctly` — 起動したホストの package dir の `theme/*.json` を読み、`ART_LINES` の 4 token (`border` / `accent` / `dim` / `muted`) が `vars` 経由で解決して揃い、テーマごとに別色であること。2 token が同じ色に落ちたら失敗とする (art の 4 行が読めなくなる実害)。
+    - `system prompt keeps pi defaults and spirits additions` — fake provider が受けた request body の system prompt (role は `developer`) から、pi 既定の tool 一覧 (`bash` / `read`) と pi 自身の rule 文、spirits 宣言由来の tool エントリと guidelines (host が `getAllTools()` で返すものを probe が書き出す)、`## spirits code-mode` 節を確認する。長さと sha256 は証拠として記録する (作業ディレクトリがプロンプトに出るため固定値の照合にはしない)。
+    - `rlm child model comes from the answering response` — host が書いた assistant message entry の `provider` / `model` / `stopReason` と、同じセッションの rlm 子が provider に要求したモデルが一致すること。
+  - 翻訳で落ちた内容 (黙って落とさない): 元の pin は fork の非公開 subpath `core/virtual-models` の `findLatestResponse` を直接呼び、応答列 (stop / error / aborted の混合) に対して子解決が pi と同じ選択をするかを 5 パターンで調べていた。公式面に `findLatestResponse` は無いので、公式ホストでは (a) pi 応答モデルと stop reason を entry に書く、(b) 子がそのモデルを要求する、の 2 つの事実として測る。walk-back 規則そのもの (error / aborted を巻き戻す) は `test/routing-request-plan.test.ts` の子解決 test が fake で引き継ぐ。
+- [x] 8.2 `test/pi-runtime/routing-record-pin.test.ts` の削除を確認する (7.5 で削除済み)。`model-roles-api.test.ts` は 6.1 で削除済み。完了確認: `ls test/pi-runtime` に 2 件が無い。
+  - 実測 (2026-11-15): `ls packages/spirits/test/pi-runtime` に 2 件は無い (残る test は bundled-skills / frontmatter / harness-skills-yaml / settings-unknown-key / virtual-model-api / virtual-model-reload と、load-skills.ts / session-manager.ts / tsconfig.json)。
+- [x] 8.3 残りの `test/pi-runtime/*` (`virtual-model-api` / `virtual-model-reload` / `settings-unknown-key` / `frontmatter` / `harness-skills-yaml` / `bundled-skills`) を、公式パッケージの公開面だけで検証する形にする。完了確認: `bun test test/pi-runtime` が 0 fail、`rg -n "declare module \"@earendil-works|@earendil-works/pi-coding-agent/(core|modes)" packages/spirits/test` が 0 件。
+  - 実測 (2026-11-15): `bun test test/pi-runtime` 0 fail。残る `@earendil-works` の import はすべて `@earendil-works/pi-coding-agent` の bare specifier で、解決先は `packages/spirits/node_modules` の固定パッケージ (tsc と Bun で同じ実体)。`declare module` は test 配下に 0 件。
+  - 副次: `test/pi-runtime/load-skills.ts` と `test/pi-runtime/session-manager.ts` のコメントが型ミラーと root paths の頃 (「pi ソースへ写す」「src/types の mirror で型検査」) の説明のままだったので、install 済みの公式パッケージで解決する現在の姿に書き換えた。
+- [x] 8.4 `test/pi-runtime/pi-deep-imports.d.ts` の削除を確認する (7.5 で削除済み)。完了確認: `test -e packages/spirits/test/pi-runtime/pi-deep-imports.d.ts` が失敗し、`rg -n "declare module" packages/spirits/test` が 0 件。
+  - 実測 (2026-11-15): `test -e packages/spirits/test/pi-runtime/pi-deep-imports.d.ts` は失敗 (absent)、`rg -n "declare module" packages/spirits/test` 0 件。
 
 ## 9. アーキテクチャ検査
 

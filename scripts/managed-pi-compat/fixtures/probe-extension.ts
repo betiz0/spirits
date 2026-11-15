@@ -58,6 +58,13 @@ interface ProbeState {
 	sessionEntries: number;
 	model?: { provider: string; id: string };
 	thinkingLevel?: string;
+	/**
+	 * Each tool's own prompt declaration, as the host reports it to another extension.
+	 *
+	 * The erased tool list carries `promptGuidelines` but no `promptSnippet`, so the guidelines are
+	 * compared with the prompt and the snippet half is read back out of the prompt itself.
+	 */
+	toolPrompts: Array<{ name: string; guidelines: string[] }>;
 	apis: Record<string, boolean>;
 }
 
@@ -168,6 +175,10 @@ export default function probeExtension(pi: ExtensionAPI): void {
 		const state: ProbeState = {
 			sessionStarted: true,
 			tools: pi.getAllTools().map((tool) => tool.name),
+			toolPrompts: pi.getAllTools().map((tool) => ({
+				name: tool.name,
+				guidelines: tool.promptGuidelines ?? [],
+			})),
 			commands: pi.getCommands().map((command) => command.name),
 			hostVersion: VERSION,
 			hostRuntime: hostRuntime(),
