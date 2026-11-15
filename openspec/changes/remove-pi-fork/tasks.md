@@ -201,7 +201,15 @@
 ## 12. Pi のソースツリー削除と root 構成
 
 - [ ] 12.1 `packages/` の spirits 以外の 14 パッケージ (1829 ファイル) を削除する。完了確認: `ls packages` が `spirits` だけ。
+  - ゲート実測 (2026-11-15、12.1 の削除の前・HEAD `5f91639d8`)。
+    - `cd packages/spirits && bun run check` は 0 件、`bun test` は 1280 pass / 0 fail (5018 expect / 114 file)。§10 完了時の 1279 との差は +3 (10.4 と 11.2 で増えた evidence と host のテスト) − 2 (11.3 で `test/replace-pi-version.test.ts` を削除)。
+    - 11.1 の完了確認: `bun scripts/build-binaries.ts --version 0.0.0-0` 成功、`rg -a -c "createAgentSession|InteractiveMode" dist/spirits-linux-x64` 0 件、`cmp scripts/compat-theme/dark.json dist/theme/dark.json` (light も) OK、`(cd dist/theme && sha256sum -c dark.json.sha256 && sha256sum -c light.json.sha256)` OK、`scripts/compat-theme/{dark,light}.json` は `git show spirits-fork-final:packages/coding-agent/src/modes/interactive/theme/<name>.json` と `cmp` で一致。
+    - 4.3: 旧版 2 とおしで exit 0 (同一ツリーの `0.0.0-0` と、`spirits-fork-final` tag からビルドした pi 1.1.0 era のバイナリ)。
+    - 互換性ランナー official: `bun scripts/build-managed-pi-inputs.ts --version 0.0.0 --out /tmp/managed-gate` (bundle sha256 `4c2db401cf65…`) → `bun scripts/managed-pi-compat/run.ts --inputs /tmp/managed-gate --artifact-root /tmp/s12-artifact --commit HEAD --out /tmp/compat/s12.json` が `confirmed=38 limited=0 unavailable=0 not-run=3 failed=0` / `mode=official compatibilityMet=true` / exit 0。§10 の結果と項目の増減 0・判定変化 0。
+    - 削除前のファイル数 (`git ls-files packages`): 削除対象の 14 パッケージで 1828 件 (design の 1829 との差 1 は 11.3 で先に消した `packages/coding-agent/test/model-catalog-protocol.test.ts`)。`packages/spirits` は 674 件で削除しない。
+    - lock の削除前スナップショット: root `bun.lock` の packages 解決 363 件、`packages/spirits/bun.lock` 141 件を `/tmp/lock-before.json` に保存した (12.3 の再生成後に版の比較をする)。root では `@earendil-works/{pi-coding-agent,pi-tui,pi-ai}` が `workspace:packages/*`、`packages/spirits` では 1.5.0。
 - [ ] 12.2 root `package.json` を `private: true` / `workspaces: ["packages/spirits"]` にし、`check` / `test` を `packages/spirits` へ委譲する。完了確認: `bun install --frozen-lockfile` が成功する。
+  - 前倒し (2026-11-15): `check` の型検査だけを `check:spirits` (`npm --prefix packages/spirits run check`) に委譲した。root `tsconfig.json` は `include` が `packages/*/src|test` で `exclude` が `packages/spirits/**` なので、12.1 でフォークを消すと root `tsc --noEmit` が入力 0 件 (TS18003) になる。12.1 を「削除のみ」コミットにしたまま pre-commit を通すために委譲だけ先に移した (`workspaces` と `test` の委譲、root tsconfig 自体の書き換えは 12.2 / 12.4 のまま残す)。`biome check` は includes が 0 件になっても exit 0 を実測済み (`Checked 1 file` / exit 0)。
 - [ ] 12.3 `package-lock.json` と `packages/spirits/bun.lock` を削除し、root `bun.lock` を再生成する。完了確認: `git ls-files '*bun.lock' '*package-lock.json'` が `bun.lock` 1 件だけ。
 - [ ] 12.4 root `tsconfig.json` / `tsconfig.base.json` / `biome.json` / `.husky/pre-commit` を spirits 単独の構成に書き換える。完了確認: `bun run check` が成功し、`rg -n "packages/(coding-agent|ai|tui|agent)" tsconfig.json tsconfig.base.json biome.json .husky/pre-commit` が 0 件。
 - [ ] 12.5 `flake.nix` / `flake.lock` / `nix/` / `pi-test.*` / `test.sh` / `vitest.base.ts` を削除する。完了確認: `ls flake.nix flake.lock nix pi-test.sh pi-test.bat pi-test.ps1 test.sh vitest.base.ts` がすべて存在しないと報告する。
