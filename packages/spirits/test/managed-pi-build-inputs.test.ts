@@ -117,7 +117,12 @@ test("build inputs preserve existing release assets", async () => {
 }, 30_000);
 
 test("release workflow attaches the managed inputs without dropping defaults", async () => {
-	const workflow = await readFile("../../.github/workflows/spirits-release.yml", "utf8");
+	// Anchored to this file: the repository layout is what the assertion is about, and a cwd-relative
+	// path only resolves when the suite is started from `packages/spirits`.
+	const workflow = await readFile(
+		join(import.meta.dir, "..", "..", "..", ".github", "workflows", "spirits-release.yml"),
+		"utf8",
+	);
 	for (const artifact of [MANAGED_PI_EXTENSION_ASSET_NAME, MANAGED_PI_MANIFEST_ASSET_NAME, RELEASE_ARTIFACT_NAME]) {
 		expect(workflow).toContain(`dist/${artifact}`);
 	}
