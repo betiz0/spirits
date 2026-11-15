@@ -4,7 +4,8 @@
  * The unit tests judge the classifier and the handler separately. This file wires the real extension
  * entry point onto a fake host and runs commands through a bash executor shaped like pi's, with the
  * `tool_call` handlers in between — the same order pi uses: ask the handlers, and if one blocks, hand
- * the model a text-only error result (`createErrorToolResult` in `packages/agent/src/agent-loop.ts`).
+ * the model a text-only error result (the host builds one with `createErrorToolResult` in
+ * `@earendil-works/pi-agent-core`'s agent loop, measured in its `dist/agent-loop.js`).
  */
 
 import { expect, test } from "bun:test";

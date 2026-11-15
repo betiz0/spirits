@@ -611,9 +611,10 @@ export async function openRolePanel(ctx: ExtensionCommandContext, panel: RolePan
 		/**
 		 * Show a refusal on the row that caused it, inside the list.
 		 *
-		 * pi-tui calls `handleInput` without a try (`packages/tui/src/tui.ts`), so an exception that escapes
-		 * an edit ends the whole process through pi's `uncaughtException` handler. A failed edit belongs on
-		 * the row the user is looking at, not in the terminal's crash output (design Decision 11).
+		 * The host's TUI calls `handleInput` on the focused component without a try (measured in
+		 * `@earendil-works/pi-tui@1.5.0`, where `dist/tui.js` calls it directly), so an exception that escapes
+		 * an edit is not caught around the component, so the terminal is left mid-frame. A failed edit belongs
+		 * on the row the user is looking at, not in the terminal's crash output (design Decision 11).
 		 */
 		const showFailure = (rowId: string, error: unknown): void => {
 			const reason = error instanceof Error ? error.message : String(error);
