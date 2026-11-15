@@ -135,9 +135,11 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 
 **選択肢**: (a) 自己更新形 (`update`、`update self`、`update pi`、`update --self` と `--force`、`-a` / `--approve`、`-na` / `--no-approve`) だけを受け付け、その他は案内して非ゼロで終了する。(b) 自己更新形以外をホストの `update` へ渡す。(c) 引数を一切受け付けない。
 
-**理由**: (a) は起動役が Pi の `update` 文法を知らずに済み、黙って無視しないという D7 の方針と一致する。(b) は起動役がホストの文法の境界を知る必要がある。(c) は `--force` などの既存の自己更新形まで壊す。案内は「ホストと拡張 bundle は `spirits managed-pi update`、host の installed package と model catalog は導入済みの host 実行ファイルの `update`」とする (14.7 の実測で、`spirits -- update <引数>` は host に届くと分かったため、元の案だった `spirits -- update <引数>` は案内しない。起動役が `-e <bundle>` を先に渡すので、host は `update` を第一引数の dispatch に使えない)。`-a` / `--approve` / `-na` / `--no-approve` は既存の呼び出しを壊さないよう受け付けるが、挙動は変えない。
+**理由**: (a) は起動役が Pi の `update` 文法を知らずに済み、黙って無視しないという D7 の方針と一致する。(b) は起動役がホストの文法の境界を知る必要がある。(c) は `--force` などの既存の自己更新形まで壊す。案内は「ホストと拡張 bundle は `spirits managed-pi update`、host の installed package と model catalog は導入済みの host 実行ファイルの `update`」とする (14.7 の実測で `spirits -- update <引数>` は host に届いても model への prompt になると分かったため、元の案だった `spirits -- update <引数>` は案内しない)。`-a` / `--approve` / `-na` / `--no-approve` は既存の呼び出しを壊さないよう受け付けるが、挙動は変えない。
 
 `src/update/classify.ts` は Pi の文法による分類をやめ、自己更新形かどうかだけを判定する。`src/update/run.ts` の `runExtensionUpdate` と `all` 対象、`src/update/theme.ts` とテーマの取得・修復を削除する。
+
+**追加 (14.7 の実測)**: host は `install`、`remove`、`uninstall`、`list`、`config`、`auth`、`mcp` も自身の第一引数のときにだけ dispatch する。実測では `<host> list` は package 一覧を出し、`-e <bundle> list` は prompt 扱いになり、`<host> list -e <bundle>` は `Unknown option -e for "list"` を返した。bundle 引数を先に置く起動役では透過も後置きもできず、透過すると model が答えて session に残る。そのため起動役はこの語を拒否し、導入済み host 実行ファイルでの実行方法を表示して非ゼロで終わる。語の一覧は host が決める事実なので `HostDescriptor.commandWords` に置き、`--` の後ろに置いた場合は従来どおり透過する。
 
 ### D12. 一式が未導入のとき、コンパイル済みは自動取得し、未コンパイルは案内して終了する
 

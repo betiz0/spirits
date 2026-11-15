@@ -56,3 +56,27 @@ export function classifyUpdateArgs(argv: readonly string[]): UpdateClassificatio
 	}
 	return { kind: "self-update", force };
 }
+
+/** Result of asking whether one invocation names a command the host dispatches itself. */
+export type HostCommandClassification =
+	| { kind: "not-host-command" }
+	| { kind: "host-command"; /** The word the caller typed first. */ word: string; /** Everything after it. */ args: string[] };
+
+/**
+ * Refuse the words a host dispatches only from its own first argument.
+ *
+ * The launcher puts the spirits bundle before the caller's arguments, and the host rejects that flag after
+ * one of its commands, so `spirits list` could only ever reach the model as a message. The word list comes
+ * from the host descriptor, so the launcher keeps one rule over host-declared data rather than a second
+ * copy of the host's command table.
+ *
+ * `update` is not in the list: {@link classifyUpdateArgs} owns it, because the launcher does update itself.
+ */
+export function classifyHostCommandArgs(
+	argv: readonly string[],
+	commandWords: readonly string[],
+): HostCommandClassification {
+	const word = argv[0] ?? "";
+	if (!commandWords.includes(word)) return { kind: "not-host-command" };
+	return { kind: "host-command", word, args: argv.slice(1) };
+}

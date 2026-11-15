@@ -1,14 +1,16 @@
 /**
- * Routing of `update` through the launcher.
+ * Routing of `update` and of the host's own commands through the launcher.
  *
  * The launcher knows two outcomes for an `update`: the self-update forms reach `runSelfUpdate`, and
- * everything else is refused with the commands that do the rest. A test therefore drives
- * `runLauncher` with the self-update replaced by a seam, so the routing is observed without ever
- * touching the binary that runs the tests.
+ * everything else is refused with the commands that do the rest. A command the host dispatches from its
+ * own first argument (`install`, `list`, ...) is refused with the host executable, because forwarding it
+ * would start a model turn. A test therefore drives `runLauncher` with the self-update replaced by a seam,
+ * so the routing is observed without ever touching the binary that runs the tests.
  */
 import { afterAll, expect, test } from "bun:test";
 import { join } from "node:path";
-import { planLauncherArgs, runLauncher, type LauncherRuntime } from "../bin/bootstrap.ts";
+import { planLauncherArgs, runLauncher } from "../bin/bootstrap.ts";
+import { OFFICIAL_PI_HOST } from "../src/managed-pi/host.ts";
 import type { ManagedSpawnRequest } from "../src/managed-pi/launch.ts";
 import { installManagedSet } from "../src/managed-pi/install.ts";
 import type { RunUpdateOptions, UpdateIo, UpdateResult } from "../src/update/run.ts";
@@ -155,6 +157,33 @@ for (const argv of [["update", "--extensions"], ["update", "--all"], ["update", 
 		expect(message.split("\n").some((line) => line.trim().startsWith("spirits -- update"))).toBe(false);
 	});
 }
+
+test("a host command word is refused with the host executable and no host launch", async () => {
+	const run = await runUpdateLaunch(["install", "some-extension"], { exitCode: 0, replaced: false });
+	expect(run.exitCode).toBe(1);
+	expect(run.options).toHaveLength(0);
+	expect(run.spawnRequests).toHaveLength(0);
+	const message = run.err.join("\n");
+	// Measured on the pinned host (Pi 1.5.0): `<host> list` lists packages, `-e <bundle> list` reads `list`
+	// as a prompt to the model, and `<host> list -e <bundle>` reports `Unknown option -e for "list"`. The
+	// launcher can therefore neither pass the word through nor load the bundle for it.
+	expect(message).toContain("spirits does not run install");
+	expect(message).toContain(`${join(run.root, "current", "pi", "pi")} install some-extension`);
+	expect(message).toContain("the host rejects that flag after one of its own commands");
+});
+
+test("every command word of the host descriptor is refused", () => {
+	for (const word of OFFICIAL_PI_HOST.commandWords) {
+		expect(planLauncherArgs([word, "x"])).toEqual({ kind: "host-command-refusal", word, args: ["x"] });
+	}
+	// `update` is the launcher's own command, so it stays out of the host's table.
+	expect(OFFICIAL_PI_HOST.commandWords).not.toContain("update");
+	expect(planLauncherArgs(["update", "--extensions"])).toEqual({ kind: "update-refusal", args: ["--extensions"] });
+});
+
+test("a command word behind the separator stays a host launch", () => {
+	expect(planLauncherArgs(["--", "list"])).toEqual({ kind: "host", args: ["list"] });
+});
 
 test("the separator hands an update invocation to the host untouched", async () => {
 	expect(planLauncherArgs(["--", "update", "--extensions"])).toEqual({

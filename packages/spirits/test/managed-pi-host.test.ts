@@ -32,6 +32,20 @@ test("the descriptor names the modules the host resolves for the bundle", () => 
 	expect(OFFICIAL_PI_HOST.extensionExternals[0]).toBe(OFFICIAL_PI_HOST.packageName);
 });
 
+test("the host descriptor names the commands the host dispatches itself", () => {
+	// Measured against the pinned host's `--help` command table (Pi 1.5.0). The launcher refuses these
+	// words, so a change here changes which invocations reach the model instead of the host.
+	expect(OFFICIAL_PI_HOST.commandWords).toEqual([
+		"install",
+		"remove",
+		"uninstall",
+		"list",
+		"config",
+		"auth",
+		"mcp",
+	]);
+});
+
 test("the official Pi identity is the package.json piConfig.name overlay", () => {
 	expect(OFFICIAL_PI_HOST.identity.field).toBe("piConfig.name");
 	expect(OFFICIAL_PI_HOST.identity.kind).toBe("piConfig.name");

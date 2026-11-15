@@ -276,6 +276,7 @@
 - [ ] 14.1 root で `bun run check` を実行し、エラー・警告・info が 0 件であることを確認する。完了確認: コマンドの終了コード 0。
 - [ ] 14.2 `packages/spirits` で `bun test` を実行し、全テストが成功することを確認する。ホストが実パッケージへ解決されることも確認する。完了確認: `bun test` の終了コード 0、`pi-runtime` の 0 件マッチが無い。`packages/spirits` で `bun -e 'console.log(import.meta.resolve("@earendil-works/pi-coding-agent"))'` が `node_modules` 配下のパスを返す。
 - [ ] 14.3 `bun scripts/build-binaries.ts` で起動役をビルドし、バイナリの挙動を確認する。完了確認: `dist/spirits-linux-x64 --version` が `spirits <version> (Bun <bun>)` を返して終了コード 0。`dist/spirits-linux-x64 --help` が spirits の help を出して終了コード 0。`dist/spirits-linux-x64 -- --help` がホストの help を出す。
+  - 実測中に見つけた欠陥 (この change で修正): host のコマンド語を透過すると model への prompt になり、実際の model turn と session が残る。隔离 HOME・鍵を外した状態での実測では `-e <bundle> install` / `-e <bundle> list` / `-e <bundle> config` がすべて model 呼び出しに進んで `spirits/auto has no normal model` で終了 1、鍵がある環境ではモデルがそれらしい返事をして session に残る。host 実行ファイル自身では `list` が `No packages installed.` で終了 0、`list -e <bundle>` は `Unknown option -e for "list"`。そこで起動役が host のコマンド語を拒否し、導入済み host 実行ファイルでの実行方法を出すようにした (D11 の追加、managed-pi spec の「既定経路の引数透過」に反映)。
 - [ ] 14.4 `sh scripts/self-update-smoke.sh <old> <new> <version>` で、旧版から新版への自己更新と managed 一式の導入を確認する。完了確認: スクリプトの終了コード 0。
 - [ ] 14.5 一つ前のリリース (spirits-v0.7.2) の実行ファイルから `spirits update` を実行し、新しい版と managed 一式が導入されることを確認する。リリース前は、新しい成果物 (互換用テーマ資産を含む) を置いた検証用配信元を `SPIRITS_API_BASE_URL` と `SPIRITS_RELEASE_BASE_URL` で指す。完了確認: 隔離 HOME で `spirits update` の終了コードが 0、`--version` が新しい版になり、`~/.spirits/managed-pi/current` が存在する。実物の `~/.spirits` は触らない。
 - [ ] 14.6 互換性ランナーの公式モードを実行し、必須観測に `failed` が無く、`not-run` が成功として扱われていないことを確認する。完了確認: 結果の `Compatibility met` が真。
@@ -287,7 +288,7 @@
 
 ## Follow-up candidates (この change では実施しない)
 
-- 位置引数が host のサブコマンドではなく model への prompt になることを、起動役が塞ぐか。14.7 の実測では `spirits -- update` が実際の session と tool call を残した。塞ぐなら host の文法を起動役が知ることになるので、D11 の判断の再引き直しになる。
+- host のコマンド語の拒否 (D11 の追加) を、host が新しいコマンドを増やしたときにどう追従させるか。現状は `HostDescriptor.commandWords` を手で更新する。実測は Pi 1.5.0 の `--help` の表に基づく。
 - `biome.json` に `packages/spirits` を含める。12.4 で実測したところ、`packages/spirits` の 465 TypeScript ファイルに 335 件の diagnostic (フォーマット中心) が出た。429 ファイルの書き換えになるため、フォーク削除とは分けて判断する。材料: `bunx biome check --max-diagnostics=200 packages/spirits`。
 
 ## Workflow follow-up

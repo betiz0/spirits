@@ -9,6 +9,7 @@ import { constants as fsConstants } from "node:fs";
 import { access } from "node:fs/promises";
 import {
 	ENV_OFFLINE,
+	HOST_COMMAND_PASSTHROUGH_NOTE,
 	HOST_UPDATE_PASSTHROUGH_WARNING,
 	INSTALL_COMMAND,
 	MANAGED_PI_UPDATE_COMMAND,
@@ -54,6 +55,21 @@ export function formatUpdateRefusalMessage(args: readonly string[], hostUpdateCo
 		`Update the host and the spirits extension bundle with:\n  ${MANAGED_PI_UPDATE_COMMAND}`,
 		`Update installed host packages and model catalogs with the host's own command:\n  ${hostUpdateCommand} ${shown}`,
 		HOST_UPDATE_PASSTHROUGH_WARNING,
+	].join("\n");
+}
+
+/**
+ * Refusal for a command the host dispatches only from its own first argument.
+ *
+ * Forwarding such a word starts a model turn that answers with the model's own guess, so the launcher names
+ * the host executable the operator has to run instead.
+ */
+export function formatHostCommandRefusalMessage(word: string, args: readonly string[], hostCommand: string): string {
+	const shown = args.length > 0 ? ` ${args.join(" ")}` : "";
+	return [
+		`spirits does not run ${word}: the host dispatches a command only from its own first argument.`,
+		`Run it on the host this install uses:\n  ${hostCommand} ${word}${shown}`,
+		HOST_COMMAND_PASSTHROUGH_NOTE,
 	].join("\n");
 }
 

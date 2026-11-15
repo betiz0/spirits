@@ -591,6 +591,16 @@ export const MANAGED_PI_UPDATE_COMMAND = "spirits managed-pi update";
 export const HOST_UPDATE_PASSTHROUGH_WARNING =
 	'The host reads "update" only as its own first argument, so "spirits -- update ..." is a prompt to the model, not a host command.';
 
+/**
+ * Why the launcher refuses a host command instead of forwarding it, shown to the operator.
+ *
+ * Measured on the pinned host: `-e <bundle> list` makes the host read `list` as a prompt to the model, and
+ * `<host> list -e <bundle>` reports `Unknown option -e for "list"`. The bundle argument can therefore be
+ * neither after nor around a host command.
+ */
+export const HOST_COMMAND_PASSTHROUGH_NOTE =
+	"The launcher loads the spirits bundle before your arguments, and the host rejects that flag after one of its own commands.";
+
 /** Tag of the last commit that still contained the Pi fork, and the source of a rollback build. */
 export const FORK_FINAL_TAG_NAME = "spirits-fork-final";
 

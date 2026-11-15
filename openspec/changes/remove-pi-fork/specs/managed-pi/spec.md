@@ -80,6 +80,7 @@
 既定経路は、ホストの CLI 引数を `--` なしでそのまま受け付け、専用 Pi へ渡さなければならない。(SHALL)
 `--continue`、`--resume`、`--session`、`--fork`、`--session-dir`、`--export` を含むホストの引数を既定経路で拒否してはならない。(MUST)
 spirits のサブコマンド (`update`、`managed-pi`)、`--version` / `-v`、`--help` / `-h` の扱いは起動役が定める。(SHALL)
+host が自身の第一引数としてだけ dispatch するコマンド語 (公式 Pi では `install`、`remove`、`uninstall`、`list`、`config`、`auth`、`mcp`) は、透過してはならず (MUST NOT)、起動役が拒否して導入済みの host 実行ファイルでの実行方法を表示し、非ゼロで終了しなければならない。(MUST) 起動役は拡張 bundle の読み込み引数を利用者の引数より先に渡すため、これらの語を透過すると model への prompt になり、host のコマンドは実行されないことを固定 host での実測 (Pi 1.5.0 で `-e <bundle> list` は prompt 扱い、`<host> list -e <bundle>` は `Unknown option -e for "list"`) に基づいて記録する。(MUST) コマンド語を `--` の後ろに置いた場合は host への透過扱いとする。(SHALL) 拒否する語の一覧は host descriptor が持つ。
 
 #### Scenario: 既存 session の指定
 - **WHEN** 既定経路で `spirits --session <file>` を実行する
@@ -92,6 +93,14 @@ spirits のサブコマンド (`update`、`managed-pi`)、`--version` / `-v`、`
 #### Scenario: サブコマンドは従来のまま
 - **WHEN** 既定経路化後に `spirits update` と `spirits managed-pi help` を実行する
 - **THEN** それぞれ自己更新と managed wrapper help が従来どおり実行される
+
+#### Scenario: host のコマンド語は拒否する
+- **WHEN** 既定経路で `spirits install <source>` を実行する
+- **THEN** 専用 Pi は spawn されず、導入済みの host 実行ファイルの `install <source>` と `spirits --` の後ろが model への prompt になる旨が表示され、終了コードは非ゼロになる
+
+#### Scenario: 第一引数でない host コマンドは透過する
+- **WHEN** 既定経路で `spirits -- list` を実行する
+- **THEN** 引数を書き換えずに専用 Pi へ渡す (host は prompt として扱う)
 
 ### Requirement: 既定経路の一式の欠落と失敗時の挙動
 システムは、コンパイル済み `spirits` の既定経路の起動時に managed の一式が未導入の場合、起動役と同じリリースから同じ規則で取得して導入し、続いて専用 Pi を起動しなければならない。(SHALL)

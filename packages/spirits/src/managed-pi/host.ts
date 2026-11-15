@@ -90,6 +90,17 @@ export interface HostDescriptor {
 	/** Arguments that load the spirits extension bundle into the host. */
 	extensionArgs(bundlePath: string): readonly string[];
 	/**
+	 * Commands the host dispatches only when one of them is its own first argument.
+	 *
+	 * Measured on the pinned host: `<host> list` lists the installed packages, `-e <bundle> list` makes the
+	 * host read `list` as a message to the model, and `<host> list -e <bundle>` reports `Unknown option -e
+	 * for "list"`. So the launcher can neither pass one of these through (its bundle argument always comes
+	 * first) nor move the bundle argument after it, and it refuses these words while naming the host
+	 * executable. `update` is not in the list because the launcher classifies it itself (self-update or
+	 * refusal) in `src/update/classify.ts`.
+	 */
+	readonly commandWords: readonly string[];
+	/**
 	 * Packages the host resolves for the extension at runtime, so a bundled extension leaves them
 	 * external instead of carrying its own copy.
 	 *
@@ -116,6 +127,14 @@ const PI_IDENTITY_CONFIG_DIR_KEY = "configDir";
 
 /** Config directory the official Pi uses when its package.json names none. */
 const PI_DEFAULT_CONFIG_DIR = ".pi";
+
+/**
+ * Commands the official Pi dispatches from its own first argument, as its `--help` lists them.
+ *
+ * A host that names these differently (Pi-Bolt) declares its own list here, so the launcher keeps one
+ * rule instead of carrying a second copy of the host's command table.
+ */
+const PI_COMMAND_WORDS: readonly string[] = ["install", "remove", "uninstall", "list", "config", "auth", "mcp"];
 
 /** Terminal UI package the official Pi hands to an extension that draws its own screens. */
 const PI_TUI_PACKAGE_NAME = "@earendil-works/pi-tui";
@@ -157,6 +176,7 @@ export const OFFICIAL_PI_HOST: HostDescriptor = {
 	extensionArgs(bundlePath: string): readonly string[] {
 		return [PI_EXTENSION_FLAG, bundlePath];
 	},
+	commandWords: PI_COMMAND_WORDS,
 	extensionExternals: [PI_PACKAGE_NAME, PI_TUI_PACKAGE_NAME, TYPEBOX_PACKAGE_NAME],
 };
 

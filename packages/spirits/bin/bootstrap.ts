@@ -12,11 +12,15 @@
 import { homedir } from "node:os";
 import { classifyManagedPiArgs, type ManagedPiAction } from "../src/managed-pi/classify.ts";
 import type { ManagedIo } from "../src/managed-pi/install.ts";
-import { hostExecutablePath } from "../src/managed-pi/host.ts";
+import { hostExecutablePath, OFFICIAL_PI_HOST, type HostDescriptor } from "../src/managed-pi/host.ts";
 import { managedCurrentPath, managedRoot } from "../src/managed-pi/layout.ts";
 import type { ManagedSpawn } from "../src/managed-pi/launch.ts";
-import { classifyUpdateArgs } from "../src/update/classify.ts";
-import { formatUncompiledMessage, formatUpdateRefusalMessage } from "../src/update/guards.ts";
+import { classifyHostCommandArgs, classifyUpdateArgs } from "../src/update/classify.ts";
+import {
+	formatHostCommandRefusalMessage,
+	formatUncompiledMessage,
+	formatUpdateRefusalMessage,
+} from "../src/update/guards.ts";
 import { runSelfUpdate, type RunUpdateOptions, type UpdateResult } from "../src/update/run.ts";
 import type { FetchLike } from "../src/update/types.ts";
 import { checkBunVersion } from "./bun-gate.ts";
@@ -47,9 +51,10 @@ const SPIRITS_HELP = [
 	"                                               install | update | repair | help",
 	"",
 	"`spirits --version` prints the spirits version. The host reads its own flags behind the",
-	"separator, for example `spirits -- --help`. The host's subcommands (install, update, list)",
-	"are not reachable through the separator: the launcher loads the spirits bundle first, and the",
-	"host dispatches a subcommand only from its own first argument.",
+	"separator, for example `spirits -- --help`. The host's commands (install, remove, list, config,",
+	"auth, mcp, and its own update) are not reachable here: the launcher loads the spirits bundle",
+	"first, and the host dispatches a command only from its own first argument. Run them on the host",
+	"executable under `~/.spirits/managed-pi/current/`.",
 ].join("\n");
 
 /** Runs the self-update; the launcher calls {@link runSelfUpdate} unless a test replaced it. */
@@ -68,6 +73,11 @@ export type LauncherPlan =
 	 * would make an unhandled flag look like a succeeded update.
 	 */
 	| { kind: "update-refusal"; args: string[] }
+	/**
+	 * A command the host dispatches only from its own first argument. Refusing it is the only option that
+	 * neither runs the host command nor starts a model turn the caller did not ask for.
+	 */
+	| { kind: "host-command-refusal"; word: string; args: string[] }
 	/** Hand these arguments to the verified managed host. */
 	| { kind: "host"; args: string[] };
 
@@ -84,12 +94,12 @@ function hostArgs(argv: readonly string[]): string[] {
  * subcommands are decided here, they never reach the host and never consult the removed fork route.
  *
  * Everything behind the pass-through separator stays a host launch, so host flags and messages reach
- * the host untouched. A host *subcommand* does not: the bundle argument comes first, and the host
- * dispatches `update`, `install`, or `list` only from its own first argument (measured on the pinned
- * host, where `spirits -- update --extensions` reports an unknown option and `spirits -- update`
- * starts a model turn). `formatUpdateRefusalMessage` therefore names the host executable instead.
+ * the host untouched. A host *command* does not: the bundle argument comes first, and the host dispatches
+ * `install`, `list`, or `update` only from its own first argument (measured on the pinned host, where
+ * `spirits -- update --extensions` reports an unknown option, `spirits -- update` starts a model turn, and
+ * `<host> list -e <bundle>` rejects the bundle flag). Both refusals therefore name the host executable.
  */
-export function planLauncherArgs(argv: readonly string[]): LauncherPlan {
+export function planLauncherArgs(argv: readonly string[], host: HostDescriptor = OFFICIAL_PI_HOST): LauncherPlan {
 	const first = argv[0] ?? "";
 	if (VERSION_FLAGS.has(first)) return { kind: "version" };
 	if (HELP_FLAGS.has(first)) return { kind: "help" };
@@ -98,6 +108,8 @@ export function planLauncherArgs(argv: readonly string[]): LauncherPlan {
 	const update = classifyUpdateArgs(argv);
 	if (update.kind === "self-update") return { kind: "update", force: update.force };
 	if (update.kind === "refusal") return { kind: "update-refusal", args: update.args };
+	const command = classifyHostCommandArgs(argv, host.commandWords);
+	if (command.kind === "host-command") return { kind: "host-command-refusal", word: command.word, args: command.args };
 	return { kind: "host", args: hostArgs(argv) };
 }
 
@@ -182,6 +194,15 @@ export async function runLauncher(runtime: Partial<LauncherRuntime> = {}): Promi
 			});
 		case "update-refusal":
 			io.err(formatUpdateRefusalMessage(plan.args, `${hostExecutablePath(managedCurrentPath(root))} update`));
+			return 1;
+		case "host-command-refusal":
+			io.err(
+				formatHostCommandRefusalMessage(
+					plan.word,
+					plan.args,
+					hostExecutablePath(managedCurrentPath(root)),
+				),
+			);
 			return 1;
 		case "update": {
 			if (!compiled) {
