@@ -581,8 +581,15 @@ export const MANAGED_PI_INSTALL_COMMAND = "spirits managed-pi install";
 /** Command that updates the pinned host and the spirits extension bundle. */
 export const MANAGED_PI_UPDATE_COMMAND = "spirits managed-pi update";
 
-/** Prefix that hands `update` arguments to the host instead of the launcher's self-update. */
-export const HOST_UPDATE_COMMAND_PREFIX = "spirits -- update";
+/**
+ * Why a host `update` cannot be spelled through the launcher, shown to the operator.
+ *
+ * Measured on the pinned host: `spirits -- update --extensions` reaches the host as
+ * `-e <bundle> update --extensions`, where `update` is a prompt message and `--extensions` an
+ * unknown option. The host dispatches `update` only when it is its first argument.
+ */
+export const HOST_UPDATE_PASSTHROUGH_WARNING =
+	'The host reads "update" only as its own first argument, so "spirits -- update ..." is a prompt to the model, not a host command.';
 
 /** Tag of the last commit that still contained the Pi fork, and the source of a rollback build. */
 export const FORK_FINAL_TAG_NAME = "spirits-fork-final";

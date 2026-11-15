@@ -135,7 +135,7 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 
 **選択肢**: (a) 自己更新形 (`update`、`update self`、`update pi`、`update --self` と `--force`、`-a` / `--approve`、`-na` / `--no-approve`) だけを受け付け、その他は案内して非ゼロで終了する。(b) 自己更新形以外をホストの `update` へ渡す。(c) 引数を一切受け付けない。
 
-**理由**: (a) は起動役が Pi の `update` 文法を知らずに済み、黙って無視しないという D7 の方針と一致する。(b) は起動役がホストの文法の境界を知る必要がある。(c) は `--force` などの既存の自己更新形まで壊す。案内は「ホストと拡張 bundle は `spirits managed-pi update`、拡張とモデルは `spirits -- update <引数>`」とする。`-a` / `--approve` / `-na` / `--no-approve` は既存の呼び出しを壊さないよう受け付けるが、挙動は変えない。
+**理由**: (a) は起動役が Pi の `update` 文法を知らずに済み、黙って無視しないという D7 の方針と一致する。(b) は起動役がホストの文法の境界を知る必要がある。(c) は `--force` などの既存の自己更新形まで壊す。案内は「ホストと拡張 bundle は `spirits managed-pi update`、host の installed package と model catalog は導入済みの host 実行ファイルの `update`」とする (14.7 の実測で、`spirits -- update <引数>` は host に届くと分かったため、元の案だった `spirits -- update <引数>` は案内しない。起動役が `-e <bundle>` を先に渡すので、host は `update` を第一引数の dispatch に使えない)。`-a` / `--approve` / `-na` / `--no-approve` は既存の呼び出しを壊さないよう受け付けるが、挙動は変えない。
 
 `src/update/classify.ts` は Pi の文法による分類をやめ、自己更新形かどうかだけを判定する。`src/update/run.ts` の `runExtensionUpdate` と `all` 対象、`src/update/theme.ts` とテーマの取得・修復を削除する。
 
@@ -155,7 +155,7 @@ root の `package.json` は `private: true`、`workspaces: ["packages/spirits"]`
 - [Risk] 既存の `~/.spirits/agent` の `pi.virtual-model-state` を読み取り専用で残すと、将来のホストが同じ entry を書き換える可能性がある。 → Mitigation: 読み取りは role の文字列だけを見て、書き戻しを禁止する。ホストの entry を変更しないことを互換性ランナーの観測項目にする。
 - [Risk] 自己更新経路が旧版バイナリ (v0.7.2) から新形式へ上がらない。旧版の自己更新は置換前にテーマ資産を取得し、無ければ失敗する。 → Mitigation: リリースに互換用テーマ資産を添付し続け (D8)、`host-upgrade` の「自己更新経路の検証」で、一つ前のリリースのバイナリから `spirits update` を実行し、終了コード 0 と managed 一式の導入を確認する。
 - [Risk] 旧版で `spirits update --all` を実行すると、旧版は置換後に新しいバイナリで `update --extensions` を実行し、新しい起動役はそれを案内して非ゼロで返す (D11)。置換は成功しているのに終了コードが非ゼロになる。 → Mitigation: `docs/spirits-host-upgrade.md` と README の移行の注意に、旧版では `spirits update` (対象 self) を使うよう記載する。置換自体は終わっているので、データは失われない。
-- [Risk] `spirits -- update <引数>` がホストの `update` サブコマンドとして解釈されるか未確認である (起動役は `-e <bundle>` を前置して spawn する)。 → Mitigation: tmux 検証で `spirits -- update --extensions` の挙動を確認し、ホストが解釈しない場合は案内文を実測に合わせて直す。
+- [Risk] `spirits -- update <引数>` がホストの `update` サブコマンドとして解釈されるか未確認である (起動役は `-e <bundle>` を前置して spawn する)。 → 実測 (2026-11-15、14.7): 解釈されない。固定ホスト Pi 1.5.0 で `spirits -- update --extensions` は `Error: Unknown option: --extensions` (終了 1)、`spirits -- update` は positional message として model に渡り、実際の session と tool call が残った (host は `update` を argv[0] のときだけ dispatch し、`update --help` は `spirits update [source|self|pi] [--self|--extensions|--models|--all] …` を出す)。 → Mitigation: 案内文を host 実行ファイルの `update` (実測で `Updated packages` になる `<managed root>/current/pi/pi update --extensions`) に直し、`spirits -- update ...` が prompt になる旨を warning として常に表示した。位置引数で model が走ることを起動役が塞ぐかは別判断 (起動役が host の文法を知ることに戻る) として Follow-up に残す。
 - [Risk] 人間の作業 1 (タグ付け) の前に実装を始めると、戻し先のタグが打てない。 → Mitigation: tasks の §1 を実装の前提条件として固定し、エージェントはタグ付けを実行しない。fork network 離脱などの残りの人間の作業は実装後に行う。
 - [Risk] Pi の帰属ヘッダを抑制できない。 → Mitigation: ホストの既定を受け入れることを仕様に書き、README に移す。
 - [Risk] `--help` を起動役が奪うことで、ホストの help が見えにくくなる。 → Mitigation: `spirits -- --help` を文書化し、起動役の help にその導線を出す。

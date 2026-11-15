@@ -279,12 +279,15 @@
 - [ ] 14.4 `sh scripts/self-update-smoke.sh <old> <new> <version>` で、旧版から新版への自己更新と managed 一式の導入を確認する。完了確認: スクリプトの終了コード 0。
 - [ ] 14.5 一つ前のリリース (spirits-v0.7.2) の実行ファイルから `spirits update` を実行し、新しい版と managed 一式が導入されることを確認する。リリース前は、新しい成果物 (互換用テーマ資産を含む) を置いた検証用配信元を `SPIRITS_API_BASE_URL` と `SPIRITS_RELEASE_BASE_URL` で指す。完了確認: 隔離 HOME で `spirits update` の終了コードが 0、`--version` が新しい版になり、`~/.spirits/managed-pi/current` が存在する。実物の `~/.spirits` は触らない。
 - [ ] 14.6 互換性ランナーの公式モードを実行し、必須観測に `failed` が無く、`not-run` が成功として扱われていないことを確認する。完了確認: 結果の `Compatibility met` が真。
-- [ ] 14.7 tmux 検証ランナーでビルドした起動役を起動し、ヘッダ・`/spirits-clear`・`tsrepl` を確認する。`spirits -- update --extensions` がホストの `update` として処理されるかも確認し、処理されない場合は 5.1 の案内文を実測に合わせる。完了確認: `scripts/tmux-verify.sh check` の終了コード 0 と、`spirits -- update --extensions` の結果の記録。
+- [ ] 14.7 tmux 検証ランナーでビルドした起動役を起動し、ヘッダ・`/spirits-clear`・`tsrepl` を確認する。
+  - 実測 (2026-11-15、隔離 HOME `/tmp/s13-home`、ビルドした `dist/spirits-linux-x64` 0.0.0-14): `spirits -- update --extensions` はホストの `update` として処理されない → `Error: Unknown option: --extensions` (終了 1)。`spirits -- update` は positional message になり、実際の model turn と session が残った (`~/.spirits/agent/sessions/--home-…--/*.jsonl` に bash tool call 込み)。理由: 起動役が `-e <bundle>` を先に渡すため host は `update` を argv[0] として dispatch しない (host 側は `update --help` で `spirits update [source|self|pi] [--self|--extensions|--models|--all]` を出す。host 実行ファイルを直接起動すると `update --help` はその usage を返し、`update --extensions` は `Updated packages` で終了 0)。`spirits -- list` / `install` / `remove` も同じ理由で prompt になる。
+  - 案内文の実測合わせ (この commit): `spirits update <非自己更新形>` の案内を `spirits managed-pi update` と導入済み host 実行ファイルの `update` に変え、`spirits -- update ...` が prompt になる旨の warning を常に表示した。host 実行ファイルの路径は `update` 層が managed layout を知らないままにしないため、`bin/bootstrap.ts` が `hostExecutablePath(managedCurrentPath(root))` で組み立てて `formatUpdateRefusalMessage(args, hostUpdateCommand)` に渡す。help 文にも「separator の向こうに host のサブコマンドは渡らない」を追加。self-update の delta spec と design D11 / Risk も実測に合わせた。位置引数を起動役で塞ぐかは Follow-up に残した。`spirits -- update --extensions` がホストの `update` として処理されるかも確認し、処理されない場合は 5.1 の案内文を実測に合わせる。完了確認: `scripts/tmux-verify.sh check` の終了コード 0 と、`spirits -- update --extensions` の結果の記録。
 - [ ] 14.8 既存の `~/.spirits/agent` と `~/.spirits/managed-pi` を隔離 HOME にコピーして起動し、設定・セッション・managed 一式がそのまま使えることを確認する (コピーに対し、元の実体は変更しない)。完了確認: コピーした agent dir で `spirits` が起動し、managed の `current` が検証を通過する。
 - [ ] 14.9 `openspec validate remove-pi-fork --strict` が成功し、`openspec status --change remove-pi-fork` が全アーティファクト done であることを確認する。完了確認: コマンドの終了コード 0。
 
 ## Follow-up candidates (この change では実施しない)
 
+- 位置引数が host のサブコマンドではなく model への prompt になることを、起動役が塞ぐか。14.7 の実測では `spirits -- update` が実際の session と tool call を残した。塞ぐなら host の文法を起動役が知ることになるので、D11 の判断の再引き直しになる。
 - `biome.json` に `packages/spirits` を含める。12.4 で実測したところ、`packages/spirits` の 465 TypeScript ファイルに 335 件の diagnostic (フォーマット中心) が出た。429 ファイルの書き換えになるため、フォーク削除とは分けて判断する。材料: `bunx biome check --max-diagnostics=200 packages/spirits`。
 
 ## Workflow follow-up

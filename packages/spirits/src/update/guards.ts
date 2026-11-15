@@ -9,7 +9,7 @@ import { constants as fsConstants } from "node:fs";
 import { access } from "node:fs/promises";
 import {
 	ENV_OFFLINE,
-	HOST_UPDATE_COMMAND_PREFIX,
+	HOST_UPDATE_PASSTHROUGH_WARNING,
 	INSTALL_COMMAND,
 	MANAGED_PI_UPDATE_COMMAND,
 	SUPPORTED_ARCH,
@@ -40,15 +40,20 @@ export function formatUncompiledMessage(): string {
 /**
  * Refusal for `update` arguments that are not a self-update form.
  *
- * The launcher updates the executable and nothing else, so the message names the two commands that
- * cover what it does not do, and echoes the caller's own arguments in the host pass-through form.
+ * The launcher updates the executable and nothing else, so the message names what does cover the
+ * rest. The second command is the host executable's own `update`: measured on the pinned host, the
+ * host only dispatches `update` when it is its own first argument, and the launcher always loads the
+ * spirits bundle before the caller's arguments, so the pass-through spelling would hand `update` to
+ * the model as a prompt. The caller hands in the resolved host command; this layer does not know the
+ * managed layout.
  */
-export function formatUpdateRefusalMessage(args: readonly string[]): string {
+export function formatUpdateRefusalMessage(args: readonly string[], hostUpdateCommand: string): string {
 	const shown = args.length > 0 ? args.join(" ") : "<arguments>";
 	return [
 		`spirits update only replaces the spirits executable; it does not take ${shown}.`,
 		`Update the host and the spirits extension bundle with:\n  ${MANAGED_PI_UPDATE_COMMAND}`,
-		`Update extensions and models on the host with:\n  ${HOST_UPDATE_COMMAND_PREFIX} ${shown}`,
+		`Update installed host packages and model catalogs with the host's own command:\n  ${hostUpdateCommand} ${shown}`,
+		HOST_UPDATE_PASSTHROUGH_WARNING,
 	].join("\n");
 }
 

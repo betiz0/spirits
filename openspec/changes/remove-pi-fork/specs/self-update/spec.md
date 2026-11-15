@@ -6,7 +6,8 @@
 コンパイル済み `spirits` は、`update` の引数が次の自己更新形のいずれかである場合、実行ファイル自身を最新の stable リリースへ置き換えなければならない。(SHALL)
 自己更新形は `update`、`update self`、`update pi`、`update --self`、およびこれらに `--force`、`-a` / `--approve`、`-na` / `--no-approve` を加えた形である。`-a` / `--approve` / `-na` / `--no-approve` は受け付けるが、自己更新の挙動を変えない。
 起動役は Pi の `update` の文法を解釈してはならない。(MUST)
-自己更新形以外の `update` の引数(`--extensions`、`--models`、`--extension <source>`、`--all`、`self` / `pi` 以外の位置引数、`-h` / `--help`、未知のオプション、これらと自己更新形の組み合わせ)では、自己更新もホストの起動も行わず、ホストと拡張 bundle の更新は `spirits managed-pi update`、拡張やモデルの更新は `spirits -- update <引数>` で行う旨を表示して、非ゼロで終了しなければならない。(MUST)
+自己更新形以外の `update` の引数(`--extensions`、`--models`、`--extension <source>`、`--all`、`self` / `pi` 以外の位置引数、`-h` / `--help`、未知のオプション、これらと自己更新形の組み合わせ)では、自己更新もホストの起動も行わず、ホストと拡張 bundle の更新は `spirits managed-pi update`、host の installed package と model catalog の更新は導入済みの host 実行ファイルの `update` で行う旨を表示して、非ゼロで終了しなければならない。(MUST)
+案内は、`spirits -- update <引数>` が host の `update` として処理されないことを同時に示さなければならない。(MUST) 起動役は拡張 bundle を利用者の引数より先に渡すため、host は `update` を自身の第一引数として dispatch しないことを、固定 host での実測 (Pi 1.5.0 で `spirits -- update --extensions` が unknown option、`spirits -- update` が model への prompt) に基づいて書く。(MUST)
 
 #### Scenario: 最新版への更新
 - **WHEN** 0.2.0 がインストール済みの環境で最新 stable が 0.3.0 のとき `spirits update` を実行する
@@ -18,7 +19,7 @@
 
 #### Scenario: 拡張更新の指定は案内して終了する
 - **WHEN** コンパイル済み `spirits update --extensions` を実行する
-- **THEN** 実行ファイルは変更されず、ホストは起動せず、`spirits managed-pi update` と `spirits -- update <引数>` の案内が表示され、終了コードは非ゼロになる
+- **THEN** 実行ファイルは変更されず、ホストは起動せず、`spirits managed-pi update` と導入済みの host 実行ファイルの `update --extensions` の案内が表示され、`spirits -- update ...` は host のコマンドにならない旨も表示され、終了コードは非ゼロになる
 
 #### Scenario: all 指定は案内して終了する
 - **WHEN** コンパイル済み `spirits update --all` を実行する
@@ -74,11 +75,11 @@ managed の一式の取得または導入が失敗した場合、自己更新は
 
 ### Requirement: pi へ渡す update 引数
 **Reason**: 起動役は Pi を内包せず、Pi の `update` 文法を解釈しないため。
-**Migration**: 「spirits update による自己更新」に従い、自己更新形以外は案内して非ゼロで終了する。ホストと拡張 bundle の更新は `spirits managed-pi update`、拡張やモデルの更新は `spirits -- update <引数>` を使う。
+**Migration**: 「spirits update による自己更新」に従い、自己更新形以外は案内して非ゼロで終了する。ホストと拡張 bundle の更新は `spirits managed-pi update`、host の package と model catalog の更新は導入済みの host 実行ファイルの `update` を使う。`spirits -- update <引数>` は host に届かない (実測)。
 
 ### Requirement: 自己更新と拡張更新の組み合わせ
 **Reason**: 起動役が Pi の拡張更新を実行しないため、自己更新と拡張更新を組み合わせる経路がなくなるため。
-**Migration**: 自己更新は `spirits update`、拡張の更新は `spirits -- update --extensions` を別々に実行する。
+**Migration**: 自己更新は `spirits update`、host の package 更新は導入済みの host 実行ファイルの `update --extensions` を別々に実行する。
 
 ## ADDED Requirements
 

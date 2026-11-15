@@ -12,7 +12,8 @@
 import { homedir } from "node:os";
 import { classifyManagedPiArgs, type ManagedPiAction } from "../src/managed-pi/classify.ts";
 import type { ManagedIo } from "../src/managed-pi/install.ts";
-import { managedRoot } from "../src/managed-pi/layout.ts";
+import { hostExecutablePath } from "../src/managed-pi/host.ts";
+import { managedCurrentPath, managedRoot } from "../src/managed-pi/layout.ts";
 import type { ManagedSpawn } from "../src/managed-pi/launch.ts";
 import { classifyUpdateArgs } from "../src/update/classify.ts";
 import { formatUncompiledMessage, formatUpdateRefusalMessage } from "../src/update/guards.ts";
@@ -46,7 +47,9 @@ const SPIRITS_HELP = [
 	"                                               install | update | repair | help",
 	"",
 	"`spirits --version` prints the spirits version. The host reads its own flags behind the",
-	"separator, for example `spirits -- --help`.",
+	"separator, for example `spirits -- --help`. The host's subcommands (install, update, list)",
+	"are not reachable through the separator: the launcher loads the spirits bundle first, and the",
+	"host dispatches a subcommand only from its own first argument.",
 ].join("\n");
 
 /** Runs the self-update; the launcher calls {@link runSelfUpdate} unless a test replaced it. */
@@ -80,8 +83,11 @@ function hostArgs(argv: readonly string[]): string[] {
  * `update` family (self-update form or refusal), and everything else is a host launch. Because the
  * subcommands are decided here, they never reach the host and never consult the removed fork route.
  *
- * Everything behind the pass-through separator stays a host launch, which is how a host `update` of
- * the caller's own choosing is spelled: `spirits -- update --extensions`.
+ * Everything behind the pass-through separator stays a host launch, so host flags and messages reach
+ * the host untouched. A host *subcommand* does not: the bundle argument comes first, and the host
+ * dispatches `update`, `install`, or `list` only from its own first argument (measured on the pinned
+ * host, where `spirits -- update --extensions` reports an unknown option and `spirits -- update`
+ * starts a model turn). `formatUpdateRefusalMessage` therefore names the host executable instead.
  */
 export function planLauncherArgs(argv: readonly string[]): LauncherPlan {
 	const first = argv[0] ?? "";
@@ -175,7 +181,7 @@ export async function runLauncher(runtime: Partial<LauncherRuntime> = {}): Promi
 				io,
 			});
 		case "update-refusal":
-			io.err(formatUpdateRefusalMessage(plan.args));
+			io.err(formatUpdateRefusalMessage(plan.args, `${hostExecutablePath(managedCurrentPath(root))} update`));
 			return 1;
 		case "update": {
 			if (!compiled) {

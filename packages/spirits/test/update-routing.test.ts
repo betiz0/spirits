@@ -7,6 +7,7 @@
  * touching the binary that runs the tests.
  */
 import { afterAll, expect, test } from "bun:test";
+import { join } from "node:path";
 import { planLauncherArgs, runLauncher, type LauncherRuntime } from "../bin/bootstrap.ts";
 import type { ManagedSpawnRequest } from "../src/managed-pi/launch.ts";
 import { installManagedSet } from "../src/managed-pi/install.ts";
@@ -54,6 +55,8 @@ async function launchedFixture(): Promise<{ root: string; home: string }> {
 
 interface UpdateRun {
 	exitCode: number;
+	/** Managed root the launcher was pointed at, for messages that name a path inside it. */
+	root: string;
 	options: RunUpdateOptions[];
 	out: string[];
 	err: string[];
@@ -89,6 +92,7 @@ async function runUpdateLaunch(argv: string[], updateResult: UpdateResult): Prom
 	});
 	return {
 		exitCode,
+		root,
 		options,
 		out: captured.out,
 		err: captured.err,
@@ -142,7 +146,13 @@ for (const argv of [["update", "--extensions"], ["update", "--all"], ["update", 
 		expect(run.spawnRequests).toHaveLength(0);
 		const message = run.err.join("\n");
 		expect(message).toContain("spirits managed-pi update");
-		expect(message).toContain(`spirits -- update ${argv.slice(1).join(" ")}`);
+		// Measured on the pinned host (Pi 1.5.0): `spirits -- update --extensions` is parsed as a
+		// prompt plus an unknown option, because the launcher loads the bundle first and the host only
+		// dispatches `update` as its own first argument. The refusal therefore names the host
+		// executable and warns about the prompt instead of suggesting the pass-through spelling.
+		expect(message).toContain(`${join(run.root, "current", "pi", "pi")} update ${argv.slice(1).join(" ")}`);
+		expect(message).toContain('"spirits -- update ..." is a prompt to the model');
+		expect(message.split("\n").some((line) => line.trim().startsWith("spirits -- update"))).toBe(false);
 	});
 }
 
