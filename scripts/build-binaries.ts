@@ -1,6 +1,14 @@
 /**
  * Build the spirits linux-x64 single-file binary and its SHA256 checksum.
  *
+ * The binary is a launcher. It carries no host sources and no host packages: it starts the managed
+ * host installed under `~/.spirits/managed-pi` and passes that host the extension bundle. Nothing
+ * here reads the fork's sources, so the build stays valid after they leave the repository.
+ *
+ * The build also writes the theme assets a *previous* release's `spirits update` downloads before it
+ * replaces its binary (design D8). This release's launcher, installer and self-update read neither
+ * asset, and the release keeps attaching them only so existing users can update.
+ *
  * Usage:
  *   bun scripts/build-binaries.ts --version 0.1.0
  *
@@ -8,11 +16,9 @@
  * `git describe --tags --match 'spirits-v*'`.
  */
 
-import { readFileSync } from "node:fs";
 import { copyFile, mkdir, rm } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 import { THEME_ASSET_NAMES, THEME_ASSETS_DIR_NAME } from "../packages/spirits/src/constants.ts";
-import { replacePiVersion } from "./replace-pi-version.ts";
 
 /** Repository root. */
 const ROOT = resolve(import.meta.dir, "..");
@@ -24,23 +30,20 @@ const COMPILE_TARGET = "bun-linux-x64";
 const DIST_DIR = resolve(ROOT, "dist");
 const OUTFILE = resolve(DIST_DIR, "spirits-linux-x64");
 
-/** Extra entrypoints bundled into the executable (workers resolved at runtime). */
-const ENTRYPOINTS = [
-	resolve(ROOT, "packages/spirits/bin/spirits.ts"),
-	resolve(ROOT, "packages/coding-agent/src/utils/image-resize-worker.ts"),
-	resolve(ROOT, "packages/coding-agent/src/extensions/codemode/worker.ts"),
-];
+/**
+ * The only entrypoint. The launcher imports neither the host package nor a worker: pi runs the
+ * extension in its own process, so there is nothing else to bundle.
+ */
+const ENTRYPOINTS = [resolve(ROOT, "packages/spirits/bin/spirits.ts")];
 
-/** Source of pi's built-in themes and their output directory next to the binary. */
-const THEME_SOURCE_DIR = resolve(ROOT, "packages/coding-agent/src/modes/interactive/theme");
+/**
+ * The pinned copy of pi's built-in themes, and the directory they are published in next to the
+ * binary. `scripts/compat-theme/` holds the copy so the release keeps working after the fork's
+ * source tree is gone; the values are compared against the `spirits-fork-final` tag by the change's
+ * gates.
+ */
+const THEME_SOURCE_DIR = resolve(ROOT, "scripts/compat-theme");
 const THEME_DIST_DIR = resolve(DIST_DIR, THEME_ASSETS_DIR_NAME);
-
-/** Root tsconfig whose `paths` resolve pi workspace source (design Decision 1, candidate a). */
-const TSCONFIG = resolve(ROOT, "tsconfig.json");
-
-/** pi's config module and package manifest used for VERSION replacement. */
-const PI_CONFIG_PATH = resolve(ROOT, "packages/coding-agent/src/config.ts");
-const PI_PACKAGE_JSON_PATH = resolve(ROOT, "packages/coding-agent/package.json");
 
 /** Git tag prefix for spirits releases. */
 const GIT_TAG_PREFIX = "spirits-v";
@@ -89,30 +92,10 @@ function resolveVersion(): string {
 	return describeFromGit();
 }
 
-function readPiVersion(): string {
-	const manifest = JSON.parse(readFileSync(PI_PACKAGE_JSON_PATH, "utf8")) as { version?: string };
-	if (!manifest.version) {
-		throw new Error(`${PI_PACKAGE_JSON_PATH} has no version`);
-	}
-	return manifest.version;
-}
-
-async function buildBinary(version: string, piVersion: string): Promise<void> {
+async function buildBinary(version: string): Promise<void> {
 	const result = await Bun.build({
 		entrypoints: ENTRYPOINTS,
-		tsconfig: TSCONFIG,
 		define: { SPIRITS_VERSION: JSON.stringify(version) },
-		plugins: [
-			{
-				name: "replace-pi-version",
-				setup(build) {
-					build.onLoad({ filter: /[\\/]coding-agent[\\/]src[\\/]config\.ts$/ }, (args) => ({
-						contents: replacePiVersion(readFileSync(args.path, "utf8"), piVersion),
-						loader: "ts",
-					}));
-				},
-			},
-		],
 		compile: {
 			target: COMPILE_TARGET,
 			outfile: OUTFILE,
@@ -136,7 +119,7 @@ async function writeChecksum(path: string): Promise<void> {
 	await Bun.write(`${path}.sha256`, line);
 }
 
-/** Copy pi's built-in themes and write each checksum, replacing stale files from earlier builds. */
+/** Copy the compatibility theme assets and write each checksum, replacing stale files from earlier builds. */
 async function writeThemeAssets(): Promise<void> {
 	await rm(THEME_DIST_DIR, { recursive: true, force: true });
 	await mkdir(THEME_DIST_DIR, { recursive: true });
@@ -149,13 +132,12 @@ async function writeThemeAssets(): Promise<void> {
 
 async function main(): Promise<void> {
 	const version = resolveVersion();
-	const piVersion = readPiVersion();
-	console.log(`Building ${basename(OUTFILE)} (spirits ${version}, pi ${piVersion})`);
-	await buildBinary(version, piVersion);
+	console.log(`Building ${basename(OUTFILE)} (spirits ${version})`);
+	await buildBinary(version);
 	await writeChecksum(OUTFILE);
 	await writeThemeAssets();
 	console.log(`Built ${OUTFILE} and ${OUTFILE}.sha256`);
-	console.log(`Copied theme assets to ${THEME_DIST_DIR}`);
+	console.log(`Copied compatibility theme assets to ${THEME_DIST_DIR}`);
 }
 
 await main();
