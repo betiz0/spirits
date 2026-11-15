@@ -27,6 +27,7 @@ import type {
 	SessionStats,
 	SlashCommandInfo,
 	SourceInfo,
+	Theme,
 } from "@earendil-works/pi-coding-agent";
 import type {
 	AgentMessage,
@@ -338,6 +339,17 @@ export function callableTool(name: string, extra: Record<string, unknown> = {}):
  * hands the component to `onCustom` — the only way to drive a pi-tui component without a terminal.
  * The host's own member type is kept here, so the loose factory signature stays a test detail.
  */
+/**
+ * A host theme that paints nothing: the panel builders are judged on the entries they build, and a
+ * colour is one of the entries' fields rather than something the test asserts about.
+ *
+ * The published `Theme` is a wide object a test has no business filling in, so the widening lives
+ * here with the other doubles instead of at a call site.
+ */
+export function fakeTheme(): Theme {
+	return asHost<Theme>({ fg: (_color: string, text: string) => text });
+}
+
 export function fakeCustomScreen(options: {
 	/** Where to record each component the factory built, in call order. */
 	components: unknown[];

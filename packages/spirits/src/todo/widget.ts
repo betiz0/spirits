@@ -12,7 +12,7 @@
  */
 
 import { truncateToWidth } from "@earendil-works/pi-tui";
-import type { Component, ExtensionMode, ReadonlySessionManager, TUI } from "../types/host.ts";
+import { hostKeyId, type Component, type ExtensionMode, type ReadonlySessionManager, type TUI } from "../types/host.ts";
 import type { ExtensionAPI, ExtensionUIContext, Theme } from "@earendil-works/pi-coding-agent";
 import type { TodoConfig } from "../config.ts";
 import { resolveTodoSnapshot, type TodoSnapshot } from "./state.ts";
@@ -222,7 +222,7 @@ export function registerTodoPanel(
 		refreshTodoPanel(ctx, config.maxLines, state);
 	});
 	pi.on("session_tree", (_event, ctx) => refreshTodoPanel(ctx, config.maxLines, state));
-	pi.registerShortcut(config.toggleKey, {
+	pi.registerShortcut(hostKeyId(config.toggleKey), {
 		description: SHORTCUT_DESCRIPTION_TODO_TOGGLE,
 		handler: (ctx) => {
 			if (ctx.mode !== "tui") {

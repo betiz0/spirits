@@ -83,3 +83,18 @@ export type AnyToolDefinition = ToolDefinition;
 export type BuiltTool<TParams extends TSchema, TDetails> = ToolDefinition<TParams, TDetails> & AnyToolDefinition;
 
 export type { AutocompleteItem, Component, KeyId, TUI } from "@earendil-works/pi-tui";
+import type { KeyId } from "@earendil-works/pi-tui";
+
+/**
+ * The single place a configured key string becomes pi's `KeyId`.
+ *
+ * `KeyId` is pi-tui's closed union of the key names it knows, with modifier permutations. A settings
+ * file may name a key outside that list, and pi accepts it at runtime: the host lowercases the key it
+ * is given and never checks it against the union, which is what lets a user bind a key pi-tui's type
+ * cannot name. Spirits therefore keeps the configured value as a string and widens it only here, at
+ * the hand-off to `registerShortcut`, so the widening has one named location instead of a cast at
+ * every call site.
+ */
+export function hostKeyId(key: string): KeyId {
+	return key as KeyId;
+}

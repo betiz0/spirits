@@ -8,8 +8,6 @@
  * file rather than the environment, so they are resolved on every read and never cached
  * (design Decision 1).
  */
-
-import type { KeyId } from "./types/host.ts";
 import {
 	DEFAULT_MEMORY_FILE_LINE_LIMIT,
 	DEFAULT_MEMORY_INJECTION_CHAR_LIMIT,
@@ -61,7 +59,7 @@ export interface TodoConfig {
 	/** TODO item lines shown before the counts line. Unit: lines. */
 	maxLines: number;
 	/** Key that collapses and expands the panel, in pi's `ctrl+shift+l` spelling. */
-	toggleKey: KeyId;
+	toggleKey: string;
 	/** True only when the settings file sets `todo.startCollapsed` to the boolean `true`. */
 	startCollapsed: boolean;
 }
@@ -364,20 +362,18 @@ const TOGGLE_KEY_PATTERN = /^(?:(?:ctrl|shift|alt|super)\+)*(?:[a-z0-9]+|[!-*,-/
 /**
  * Normalize a toggle key candidate to lowercase without surrounding space, or unset it.
  *
- * `KeyId` is pi's key grammar written as a type, and the pattern above is that grammar: modifiers in
- * pi's order, then one base key pi splits out on `+`. Whether the base key names a key pi-tui knows is
- * not checked here and pi does not check it either, so a candidate the pattern accepts is a key id in
- * the only sense the host uses.
+ * The pattern above is pi's key grammar: modifiers in pi's order, then one base key pi splits out on
+ * `+`. Whether the base key names a key pi-tui knows is not checked here and pi does not check it
+ * either, so a candidate the pattern accepts is a usable key in the only sense the host uses.
+ *
+ * The resolved value stays a `string`. pi's `KeyId` is the union of the key names pi-tui knows, which
+ * is narrower than what a settings file may hold, so the setting is not typed as one; `hostKeyId()`
+ * widens it where the key reaches `registerShortcut`.
  */
-function readToggleKey(value: unknown): KeyId | undefined {
+function readToggleKey(value: unknown): string | undefined {
 	if (typeof value !== "string") return undefined;
 	const normalized = value.trim().toLowerCase();
-	return isKeyId(normalized) ? normalized : undefined;
-}
-
-/** The grammar check above, told to the type system: pi's `KeyId` is this spelling and nothing more. */
-function isKeyId(key: string): key is KeyId {
-	return TOGGLE_KEY_PATTERN.test(key);
+	return TOGGLE_KEY_PATTERN.test(normalized) ? normalized : undefined;
 }
 
 /**

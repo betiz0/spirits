@@ -13,9 +13,9 @@
  */
 
 import { expect, test } from "bun:test";
-import { asExtensionApi, fakeModel, fakeModelRegistry, slashCommandInfo } from "./host/fake-pi.ts";
-import type { Theme } from "@earendil-works/pi-coding-agent";
-import type { ExtensionMode, ExtensionModelRegistry, PiModel } from "../src/types/host.ts";import { COMMAND_SPIRITS_ROLE, MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, ROLE_ENTRY_TYPE, STEP_DEFINITIONS } from "../src/constants.ts";
+import { asExtensionApi, fakeModel, fakeModelRegistry, fakeTheme, slashCommandInfo } from "./host/fake-pi.ts";
+import type { ExtensionMode, ExtensionModelRegistry, PiModel } from "../src/types/host.ts";
+import { COMMAND_SPIRITS_ROLE, MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, ROLE_ENTRY_TYPE, STEP_DEFINITIONS } from "../src/constants.ts";
 import type { RoutingSettings } from "../src/config.ts";
 import { readRoutingSettings } from "../src/config.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
@@ -1063,7 +1063,7 @@ test("opens the list on a terminal", async () => {
 // --- the submenu parts and the themes ----------------------------------------------------------
 
 /** A theme that adds no escape sequences, so a test reads the row text back as written. */
-const PLAIN_THEME = { fg: (_color: string, text: string) => text } as unknown as Theme;
+const PLAIN_THEME = fakeTheme();
 
 /** A `RoleWrite` for a submenu test that only cares what the row asked for. */
 const SAVED = { message: "set", saved: true } as const;
