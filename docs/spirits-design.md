@@ -3,7 +3,7 @@
 - プロジェクト名: **spirits**
 - コマンド名: `spirits`
 - 版: v0.5
-- 更新日: 2026-11-15
+- 更新日: 2026-11-17
 - ライセンス: MIT
 - ステータス: 設計確定 (ホストは公式 Pi の固定 artifact、単一の managed 経路)
 
@@ -336,6 +336,15 @@ spirits は Pi をフォークしない。ホストは公式配布物であり�
 - **ホストの配布物が読めなくなる / 検証が通らない** → 対応: 起動時に検証し、`spirits managed-pi repair` と Rollback を表示して止まる。黙って別のホストへ切り替えない
 - **host のコマンド語の変化** → 対応: `HostDescriptor.commandWords` が正。起動役はこの語を拒否して host 実行ファイルを案内するため、host がコマンドを増やしたら記述子の更新が必要 (Pi 1.5.0 の `--help` の表を実測根拠にする)
 - **REPL 状態の永続化範囲**: vm コンテキスト内の変数はプロセス内のみで、セッション復元時に消える。必要ならセルログのリプレイによる再構成を将来検討(現状は非目標)
+
+## 12. Follow-up 候補
+
+フォーク削除 (`remove-pi-fork`。アーカイブ: `openspec/changes/archive/2026-11-17-remove-pi-fork/`) が範囲外として残した判断。実装するときは新しい change を起こす。
+
+- **`biome.json` に `packages/spirits` を入れる**: 現行の対象は `scripts/**` のみ (§9)。実測で `packages/spirits` の 465 個の TypeScript ファイルに 335 件の diagnostic (フォーマット中心で 429 ファイルが書き換わる) が出たため、他の変更と分けて判断する。材料: `bunx biome check --max-diagnostics=200 packages/spirits`。
+- **`commandWords` の自動観測**: §11 と [`docs/spirits-host-upgrade.md`](spirits-host-upgrade.md) §7b は現在、人間が host artifact の `--help` と突き合わせる手順書。host の `--help` を読んで `OFFICIAL_PI_HOST.commandWords` との差分を CI か版更新の手順で報告する観測にできる。見落としは拒否すべき語が model prompt へ渡る側に出るため、記述子の手更新を続ける間は手順書を正とする。
+- **互換用のテーマ資産の添付をやめる時期**: 起動役・インストーラ・自己更新はテーマ資産を使わないが、リリースは旧版の自己更新のために `dark.json` / `light.json` と `.sha256` を添付し続ける (出力元は `scripts/compat-theme/`、判断根拠はアーカイブ済み design の D8)。やめる判断は、添付を要求するバイナリが配布元に残っていないと確認できた change で行う。
+- **Pi-Bolt 対応の未解決事項**: ホストの差し替え点は `HostDescriptor` (`packages/spirits/src/managed-pi/host.ts`) に集約済みで、互換性ランナーは `--host <descriptor.json>` で代用ホストと同じマトリクスを測れる (`docs/spirits-managed-pi.md`)。未実測: agent dir の向け直し (環境変数名と既定パス)、overlay (`package.json` の `piConfig.name` 相当) の適用可否、JIT 無しでの tsrepl の速度、RPC モードのプロトコル互換、拡張 API の提供有無、`commandWords` と拡張ロード引数の位置。manifest の `host: { kind }` と `schemaVersion: 2` も未確定で、実測してから決める。
 
 ## 付録: 参照
 

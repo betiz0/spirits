@@ -2,7 +2,7 @@
 
 ## Purpose
 
-公式 Pi 1.5.0 に無い role 操作、会話のクリア、モデルと thinking レベルの選択を、`spirits` 拡張が registered コマンドで提供する。role 登録 API の有無で経路を分け、fork 経路では既存の `/model` と `/clear` に任せて専用コマンドを登録しない。設定と session 記録は Pi と同じキー・同じロック手順を使い、消した会話が要約や次セッションから復活しないことを保証する。
+ホストが持たない role 操作と会話のクリアを、`spirits` 拡張が `/spirits-role` と `/spirits-clear` としてホストを問わず registered コマンドで提供する。モデルと thinking レベルの既定保存はホストの `/model` と `/thinking` に任せ、spirits は振り分け用のロールの対象だけを設定する。ロールの対象は spirits 専用の設定と session 記録に保存し、旧ビルドが書いた記録からは片方向でだけ引き継ぐ。設定の書き込みは Pi と同じキー・同じロック手順を使い、クリアした会話が要約や次セッションから復活しないことを保証する。
 
 ## Requirements
 ### Requirement: `/spirits-role` はモデルを変えずに role をロックする

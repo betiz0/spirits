@@ -2,7 +2,7 @@
 
 ## Purpose
 
-spirits が CLI、TUI、project 設定、テレメトリの各面で一貫して spirits として振る舞い、pi 名義の表示や送信が残らないようにする。
+spirits が CLI、TUI、project 設定、テレメトリの各面で一貫して spirits として振る舞うようにする。アプリ名の表示は展開後の `package.json` の overlay だけで決め、起動役が host の help を spirits の説明として出さない。テレメトリは既定で送信せず、ホストが付与する帰属表示と provider 帰属ヘッダはそのまま受け入れる。
 
 ## Requirements
 ### Requirement: CLI 表示の spirits 化

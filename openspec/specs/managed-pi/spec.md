@@ -2,7 +2,7 @@
 
 ## Purpose
 
-公式 Pi の固定成果物と spirits 拡張 bundle を対応付けて導入し、通常の spirits 起動とは別の明示的な実験経路で起動できるようにする。既定経路、既存データ、Pi コアを変更せず、専用経路の失敗を旧経路への暗黙の切り替えで隠さない。
+公式 Pi の固定成果物と spirits 拡張 bundle を対応付けて導入し、spirits のただ 1 つの起動経路である managed を起動できるようにする。隔離された明示経路 `spirits managed-pi` は同じ一式を隔離 agent dir で使う。既存データとホストのソースを変更せず、一式の欠落と破損を別のホストへの暗黙の切り替えで隠さない。
 
 ## Requirements
 ### Requirement: 実験経路の明示選択
