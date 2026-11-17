@@ -83,9 +83,25 @@ scripts/tmux-verify.sh run --session upgrade -- <ビルドした dist/spirits-li
 scripts/tmux-verify.sh check
 ```
 
-確認するものは、spirits のヘッダ (アートと `spirits v<版>`)、`/spirits-clear` が会話境界を切ることを、`tsrepl` が実際に呼ばれてセルの値が返ること、`/spirits-role status` が表示されること。`tmux-verify.sh check` が `clean` (終了コード 0) で終わることまでが手順で、セッションを放置したままにしない。
+確認するものは、spirits のヘッダ (アートと `spirits v<版>`)、`/spirits-clear` が会話境界を切ることを、`tsrepl` が実際に呼ばれてセルの値が返ること、`/spirits-role` のパネルが開いて role lock を変えられることと status line の badge が追従すること、`manage_todos` で追加した TODO がパネルに出ること、TODO パネルの折りたたみキー (`todo.toggleKey` の既定 `ctrl+alt+p`、settings で変えたキー) が効くこと。`tmux-verify.sh check` が `clean` (終了コード 0) で終わることまでが手順で、セッションを放置したままにしない。
 
  pane が 80x24 のままだとヘッダがスクロールして消える。`session=` が出力された直後に `tmux resize-window -t "=<セッション名>" -x 200 -y 60` してから capture すると、ヘッダと起動時の一覧が同時に映る。
+
+修飾キー (既定の `ctrl+alt+p` を含む) を送るには tmux の `extended-keys-format` が `csi-u` である必要がある。既定の `xterm` では修飾キーがホストに届かず、折りたたみキーが効いていないように見える。隔離 HOME の `~/.tmux.conf` に `set -g extended-keys on` と `set -g extended-keys-format csi-u` を書いてからセッションを立て直すこと (実 HOME の tmux 設定は触らない)。`/exit` が効かない場合は `C-d` で終了する。
+
+### 7b. `commandWords` を新しい版の実際の CLI と照合する
+
+`HostDescriptor.commandWords` は「ホストが自己的第一引数でだけ dispatch する語」の一覧で、起動役はこの語を拒否して host 実行ファイルを案内する。これは**バージョンとともに変わる値**で、型 pin や `PINNED_PI` からは決まらない。版を上げるときは、1. で展開した host artifact 自身の `--help` と照合する。
+
+```sh
+<set を展開した pi/pi> --help
+```
+
+- 表に出るコマンド語と `OFFICIAL_PI_HOST.commandWords` を突き合わせ、増えた語を追加し、消えた語を削除する。
+- 各語について `spirits <word>` が拒否されることと、`<host> <word>` がコマンドとして動くことを両方確認する。1 語でも不一致があれば 7. に戻る。
+- 判定が難しい語は host の `--help` の usage 行と `spirits <word>` の実測 (拒否か model prompt か) を根拠に書く。
+
+理由: 語を**足し忘れる**と正当な model への入力を拒否し、**忘れる**と `spirits <word>` が `-e <bundle> <word>` として host に渡り、model turn と session が残る (Pi 1.5.0 で実測)。`update` はこの一覧に含めない。起動役自身が自己更新か拒否かを分類するため (`src/update/classify.ts`)、host の `update` は host 実行ファイルで打つ。
 
 ### 8. 全体の検査とテストを通す
 
