@@ -5,10 +5,9 @@
 公式 Pi の固定成果物と spirits 拡張 bundle を対応付けて導入し、通常の spirits 起動とは別の明示的な実験経路で起動できるようにする。既定経路、既存データ、Pi コアを変更せず、専用経路の失敗を旧経路への暗黙の切り替えで隠さない。
 
 ## Requirements
-
 ### Requirement: 実験経路の明示選択
 システムは、専用 Pi を使う隔離経路 `spirits managed-pi` を、利用者が明示的に指定した場合だけ起動しなければならない。(SHALL)
-隔離経路は、システムの `pi`、PATH 上の `pi`、既定の compiled spirits を暗黙に使用してはならない。(MUST)
+隔離経路は、システムの `pi`、PATH 上の `pi`、既定の managed 起動を暗黙に使用してはならない。(MUST)
 専用 Pi が未導入、破損、非対応の場合、隔離経路は理由と復旧手順を表示して非ゼロで終了し、既定経路へ黙って切り替えてはならない。(MUST)
 隔離経路は、起動前に実行プラットフォームが対応表の platform と一致することを確認し、一致しない場合は Pi を spawn せず理由を表示して非ゼロで終了しなければならない。(MUST)
 この要件が対象にするのは隔離経路であり、既定経路の agent dir と引数の扱いは別の要件が定める。(MUST)
@@ -220,23 +219,10 @@ bundle は Pi が提供する host module を external に保ち、Pi SDK、TUI�
 - **WHEN** 専用 Pi で bundle 済み拡張をロードし、拡張が参照する Pi の版を確認する
 - **THEN** 参照される版は専用 Pi artifact の版と一致し、bundle 内の別の Pi SDK の版にはならない
 
-### Requirement: 不足 API の限定互換モード
-システムは、専用 Pi のホストに spirits が必要とする任意 API が無い場合、拡張全体のロードを失敗させず、文書化された限定互換モードでロードしなければならない。(SHALL)
-限定互換モードでは、利用できない機能を起動時に明示し、利用可能であるかのように表示してはならない。(MUST)
-既存の通常起動で同じ API が利用できる場合、限定互換モードを使ってはならない。(MUST)
-
-#### Scenario: role API が無い場合のロード
-- **WHEN** 専用 Pi のホストに role 登録 API が無い状態で `spirits managed-pi` を起動する
-- **THEN** spirits 拡張はロードされ、`tsrepl` と TODO と harness のツールが登録され、role 関連機能が制限される旨が表示される
-
-#### Scenario: role API がある場合の通常動作
-- **WHEN** role 登録 API を持つホストで spirits 拡張を起動する
-- **THEN** 限定互換モードは使われず、既存の role 登録と `/model` 連携の動作が使われる
-
 ### Requirement: 既存データの非破壊な利用
 隔離経路は、実験期間中、既存の `~/.spirits/agent` を直接利用してはならない。(MUST)
 隔離経路は、既存 agent dir の自動コピー、移行、同期、削除、バックアップ作成を行ってはならない。(MUST)
-既定経路は fork と同じ agent dir を利用し、初回起動前のバックアップだけが「初回起動前の agent dir バックアップ」の要件に従って行われる。(SHALL)
+既定経路は既存の agent dir を利用し、初回起動前のバックアップだけが「初回起動前の agent dir バックアップ」の要件に従って行われる。(SHALL)
 通常の `spirits` 起動は既定経路の managed であり、その保存先は agent dir の要件が定める。(SHALL)
 
 #### Scenario: 既存設定の読み取り
@@ -311,21 +297,8 @@ route の途中で role badge の更新が失敗しても、そのリクエス�
 - **WHEN** route が role を決めた後、role badge の status 行の書き込みが例外を出す
 - **THEN** そのリクエストは route の選んだモデルで返り、例外は利用者に届かない
 
-### Requirement: 既定の managed 起動
-システムは、コンパイル済み `spirits` の既定の起動経路として managed を起動しなければならない。(SHALL)
-managed の起動は、検証済みの専用 Pi を絶対パスで spawn し、spirits 拡張 bundle を `-e` で読み込む。(SHALL)
-既定経路は PATH 上の `pi`、システムの `pi`、fork の実行ファイルを使用してはならない。(MUST)
-
-#### Scenario: 既定の起動
-- **WHEN** `SPIRITS_ROUTE` を設定せずにコンパイル済み `spirits` を起動する
-- **THEN** 検証済みの専用 Pi が spirits 拡張 bundle とともに起動し、fork の実行ファイルは起動しない
-
-#### Scenario: 未コンパイル実行は fork
-- **WHEN** ソースから `bun packages/spirits/bin/spirits.ts` を起動する
-- **THEN** managed の取得・検証・spawn は行わず、従来の fork が起動する
-
 ### Requirement: 既定経路の agent dir
-既定経路の managed は、fork と同じ規則で agent dir を決めなければならない。(SHALL)
+既定経路の managed は、既存の agent dir の規則で agent dir を決めなければならない。(SHALL)
 すなわち `SPIRITS_CODING_AGENT_DIR` が設定済みならその値を、未設定なら `~/.spirits/agent` を使い、旧名 `PI_CODING_AGENT_DIR` は保存先の指定として読まない。(MUST)
 既定経路は agent dir のコピー、移行、同期を行ってはならない。(MUST)
 
@@ -342,9 +315,10 @@ managed の起動は、検証済みの専用 Pi を絶対パスで spawn し、s
 - **THEN** agent dir は `/tmp/old-agent` ではなく `~/.spirits/agent` になる
 
 ### Requirement: 既定経路の引数透過
-既定経路は、今の fork と同じ CLI 引数を `--` なしでそのまま受け付け、専用 Pi へ渡さなければならない。(SHALL)
-`--continue`、`--resume`、`--session`、`--fork`、`--session-dir`、`--export` を含む Pi の引数を既定経路で拒否してはならない。(MUST)
-spirits のサブコマンド (`update`、`managed-pi`) と `--version` / `-v` の扱いは従来のままなければならない。(SHALL)
+既定経路は、ホストの CLI 引数を `--` なしでそのまま受け付け、専用 Pi へ渡さなければならない。(SHALL)
+`--continue`、`--resume`、`--session`、`--fork`、`--session-dir`、`--export` を含むホストの引数を既定経路で拒否してはならない。(MUST)
+spirits のサブコマンド (`update`、`managed-pi`)、`--version` / `-v`、`--help` / `-h` の扱いは起動役が定める。(SHALL)
+host が自身の第一引数としてだけ dispatch するコマンド語 (公式 Pi では `install`、`remove`、`uninstall`、`list`、`config`、`auth`、`mcp`) は、透過してはならず (MUST NOT)、起動役が拒否して導入済みの host 実行ファイルでの実行方法を表示し、非ゼロで終了しなければならない。(MUST) 起動役は拡張 bundle の読み込み引数を利用者の引数より先に渡すため、これらの語を透過すると model への prompt になり、host のコマンドは実行されないことを固定 host での実測 (Pi 1.5.0 で `-e <bundle> list` は prompt 扱い、`<host> list -e <bundle>` は `Unknown option -e for "list"`) に基づいて記録する。(MUST) コマンド語を `--` の後ろに置いた場合は host への透過扱いとする。(SHALL) 拒否する語の一覧は host descriptor が持つ。
 
 #### Scenario: 既存 session の指定
 - **WHEN** 既定経路で `spirits --session <file>` を実行する
@@ -357,6 +331,14 @@ spirits のサブコマンド (`update`、`managed-pi`) と `--version` / `-v` �
 #### Scenario: サブコマンドは従来のまま
 - **WHEN** 既定経路化後に `spirits update` と `spirits managed-pi help` を実行する
 - **THEN** それぞれ自己更新と managed wrapper help が従来どおり実行される
+
+#### Scenario: host のコマンド語は拒否する
+- **WHEN** 既定経路で `spirits install <source>` を実行する
+- **THEN** 専用 Pi は spawn されず、導入済みの host 実行ファイルの `install <source>` と `spirits --` の後ろが model への prompt になる旨が表示され、終了コードは非ゼロになる
+
+#### Scenario: 第一引数でない host コマンドは透過する
+- **WHEN** 既定経路で `spirits -- list` を実行する
+- **THEN** 引数を書き換えずに専用 Pi へ渡す (host は prompt として扱う)
 
 ### Requirement: 初回起動前の agent dir バックアップ
 システムは、既定経路で managed を初めて起動する前に、その agent dir のバックアップを 1 回だけ取得しなければならない。(SHALL)
@@ -393,18 +375,50 @@ agent dir が存在しない場合は何もコピーせず、実行済みだけ�
 - **THEN** 0.7.0 のバイナリが取得する manifest は `spirits-v0.7.0` のものである
 
 ### Requirement: 既定経路の一式の欠落と失敗時の挙動
-システムは、既定経路の起動時に managed の一式が未導入の場合、同じ規則で取得して導入しなければならない。(SHALL)
-取得に失敗した場合、および導入済みの一式が破損して検証を通らない場合は、専用 Pi を spawn せず、理由、修復コマンド `spirits managed-pi repair`、および `SPIRITS_ROUTE=fork` で起動する方法を表示して非ゼロで終了しなければならない。(MUST)
-失敗を理由に黙って fork へ切り替えてはならない。(MUST)
+システムは、コンパイル済み `spirits` の既定経路の起動時に managed の一式が未導入の場合、起動役と同じリリースから同じ規則で取得して導入し、続いて専用 Pi を起動しなければならない。(SHALL)
+未コンパイルの実行で managed の一式が未導入の場合は、取得を行わず、`spirits managed-pi install` または `SPIRITS_MANAGED_PI_MANIFEST_URL` を使った導入方法を表示して非ゼロで終了しなければならない。(MUST)
+取得に失敗した場合、および導入済みの一式が破損して検証を通らない場合は、専用 Pi を spawn せず、理由、修復コマンド `spirits managed-pi repair`、および旧版への戻し方を表示して非ゼロで終了しなければならない。(MUST)
+失敗を理由に黙ってフォークや別ホストへ切り替えてはならない。(MUST)
 
 #### Scenario: 未導入時の自動取得
-- **WHEN** managed の一式が未導入の環境で既定経路の managed を起動する
+- **WHEN** managed の一式が未導入の環境でコンパイル済み `spirits` を起動する
 - **THEN** 起動役と同じリリースの一式を取得・検証して導入し、続いて専用 Pi を起動する
+
+#### Scenario: 未コンパイルでの未導入
+- **WHEN** managed の一式が未導入の環境で `bun packages/spirits/bin/spirits.ts` を起動する
+- **THEN** 一式は取得されず、`spirits managed-pi install` またはマニフェスト URL の指定方法が表示され、終了コードは非ゼロになる
 
 #### Scenario: 破損時の非 fallback
 - **WHEN** 導入済みの拡張 bundle が記録されたチェックサムと一致しない状態で既定経路の managed を起動する
-- **THEN** 専用 Pi は spawn されず、理由と `spirits managed-pi repair` と `SPIRITS_ROUTE=fork` が表示され、終了コードは非ゼロになる
+- **THEN** 専用 Pi は spawn されず、理由と `spirits managed-pi repair` と旧版への戻し方が表示され、終了コードは非ゼロになる
 
 #### Scenario: 取得失敗時の非 fallback
 - **WHEN** 一式の取得中にネットワークエラーが起こる
-- **THEN** 理由と修復コマンドと fork 起動方法が表示され、終了コードは非ゼロになり、fork は起動しない
+- **THEN** 理由と修復コマンドと旧版への戻し方が表示され、終了コードは非ゼロになり、フォークは起動しない
+
+### Requirement: ホスト API の限定互換モード
+システムは、ホストに spirits が必要とする任意 API が無い場合、拡張全体のロードを失敗させず、文書化された限定互換モードでロードしなければならない。(SHALL)
+限定互換モードでは、利用できない機能を起動時に明示し、利用可能であるかのように表示してはならない。(MUST)
+固定したホストに API が無いことは限定互換モードの通常の状態である。(SHALL)
+
+#### Scenario: role API が無い場合のロード
+- **WHEN** role 登録 API が無いホストで spirits 拡張を起動する
+- **THEN** spirits 拡張はロードされ、`tsrepl` と TODO と harness のツールが登録され、role 関連機能が `/spirits-role` で提供される旨が表示される
+
+#### Scenario: API が利用できる場合の通常動作
+- **WHEN** 必要な API がすべて利用できるホストで spirits 拡張を起動する
+- **THEN** 限定互換モードの通知は出さず、通常の登録が行われる
+
+### Requirement: 単一の managed 起動
+システムは、コンパイル済み・未コンパイルを問わず、`spirits` の既定の起動経路として managed を起動しなければならない。(SHALL)
+managed の起動は、検証済みの専用 Pi を絶対パスで spawn し、spirits 拡張 bundle を `-e` で読み込む。(SHALL)
+既定経路は PATH 上の `pi`、システムの `pi`、フォークの実行ファイルを使用してはならない。(MUST)
+一式が未導入のときの扱いは「既定経路の一式の欠落と失敗時の挙動」に従う。(SHALL)
+
+#### Scenario: 既定の起動
+- **WHEN** `SPIRITS_ROUTE` を設定せずにコンパイル済み `spirits` を起動する
+- **THEN** 検証済みの専用 Pi が spirits 拡張 bundle とともに起動する
+
+#### Scenario: 未コンパイル実行
+- **WHEN** managed の一式を導入済みの環境で、ソースから `bun packages/spirits/bin/spirits.ts` を起動する
+- **THEN** 導入済みの managed ホストを検証して起動する
