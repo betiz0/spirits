@@ -23,6 +23,17 @@ while [ -z "$session" ]; do
 done
 ```
 
+The runner does not scrub the environment: the pane keeps whatever `PI_*` and
+`SPIRITS_*` variables the caller carries, and an inherited
+`SPIRITS_CODING_AGENT_DIR` overrides an isolated `HOME` (it names the agent
+directory outright). When the run is supposed to touch only a temporary `HOME`,
+strip them for the runner:
+
+```bash
+bash scripts/test-clean-env.sh -- \
+  env HOME=/tmp/verify-home scripts/tmux-verify.sh run --session smoke -- ./dist/spirits-linux-x64
+```
+
 `run` prints `session=<name>` as its first line before it starts the pane. Wait
 for the record before acting on the session:
 

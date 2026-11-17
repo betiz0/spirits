@@ -287,6 +287,7 @@
   - 実測 (2026-11-15): `cd packages/spirits && bun test` -> 1284 pass / 0 fail / 5045 expect / 114 file。基準 1280 pass との差は +4 で、内訳は host コマンド語の拒否 routing 2 件・`OFFICIAL_PI_HOST.commandWords` pin 1 件・`--` 経由の host 起動保持 1 件。
   - host specifier の解決 (`packages/spirits` に一時 probe を置いて実行、確認後に削除): `@earendil-works/pi-coding-agent` と `@earendil-works/pi-coding-agent/rpc-entry` は `node_modules/.bun/@earendil-works+pi-coding-agent@1.5.0+.../dist/{index.js,bundle/rpc-entry.js}`、`@earendil-works/pi-tui` は同 `@1.5.0`、`typebox` は 1.3.27。リポジトリ内の fork ソースへ解決される経路は無い。
   - 実行中に見つけた欠陥: `test/managed-pi-build-inputs.test.ts` が release workflow を cwd 相対 (`../../.github/...`) で読んでおり、リポジトリルートから `bun test` すると 1 件失敗した。`import.meta.dir` 基準に修正 (commit `e93232d91`)。修正後はルート実行・パッケージ実行の両方で 7 pass。
+  - **この実測は spirits のセッション内 (`PI_PACKAGE_DIR` が導入済み overlay を指す) で取っており、同じコマンドが CI で 3 件失敗した**。上の pass 数は呼び出し元の環境を含んだ値で、15. にやり直した。
 - [x] 14.3 `bun scripts/build-binaries.ts` で起動役をビルドし、バイナリの挙動を確認する。完了確認: `dist/spirits-linux-x64 --version` が `spirits <version> (Bun <bun>)` を返して終了コード 0。`dist/spirits-linux-x64 --help` が spirits の help を出して終了コード 0。`dist/spirits-linux-x64 -- --help` がホストの help を出す。
   - 実測 (2026-11-15): `rm -rf dist && bun scripts/build-binaries.ts --version 0.0.0-15` 成功。`dist/spirits-linux-x64 --version` -> `spirits 0.0.0-15 (Bun 1.4.2)` (exit 0)。`rg -a -c "createAgentSession|InteractiveMode" dist/spirits-linux-x64` -> マッチなし (exit 1)。`cmp scripts/compat-theme/dark.json dist/theme/dark.json` と light が一致、`(cd dist/theme && sha256sum -c dark.json.sha256 && sha256sum -c light.json.sha256)` -> OK。
   - 隔離 HOME `/tmp/s13-home` での挙動 (呼び出しはすべて agent/session/package の env を除去): `-- --version` -> `1.5.0` (exit 0)、`list` -> exit 1 で `Run it on the host this install uses:` に `/tmp/s13-home/.spirits/managed-pi/current/pi/pi list`、`update --extensions` -> exit 1 で `spirits managed-pi update` と host 実行ファイルの `update --extensions` を案内。commit `7111f41dd`、`650098f17`。
@@ -324,6 +325,26 @@
   - 6. TODO 折りたたみキー: `manage_todos` で 2 件追加してパネルに `○ #1` / `○ #2` を出した状態で、既定 `ctrl+alt+p` を送ると `2 pending` に折りたたまれ、再送で展開。`settings.json` の `todo.toggleKey` を `ctrl+alt+t` に変えてセッションを立て直すと既定キーは効かず `ctrl+alt+t` で折りたたみ/展開。
   - 7. `manage_todos` の表示: ツール結果に `- [ ] #1 ...` / `- [ ] #2 ...`、パネルに `#1` / `#2`、折りたたみ時に `2 pending`。
   - 条件付きの注意: 修飾キーを tmux から送るには `set -g extended-keys on` と `set -g extended-keys-format csi-u` が必要。既定の `xterm` では `ctrl+alt+p` がホストに届かず、6 が「効いていない」ように見える (14.7 の 0.7.2 確認が xterm のままだった)。`/exit` が効かない場合は `C-d` で終了する。
+
+## 15. CI のテスト失敗 (Spirits CI #16) の修正
+
+`feat/remove-pi-fork` の commit `9c428b688` に対して Spirits CI #16 が 3 件失敗した。3 件とも「テストがコードではなく呼び出し元の環境を測っていた」ことで、spirits のセッションからは再現し、クリーンな CI でだけ失敗した。
+
+- 失敗: `test/harness-paths.test.ts:24` (期待 `/tmp/spirits-agent-paths-test` / 実 `/home/runner/.pi/agent`)、`test/extension-degradation.test.ts:272` と `:282` (期待 `ctrl+shift+k` / 実 `ctrl+alt+p` = 設定が読めていないときの既定キー)。
+- 原因: ホストは package ディレクトリの `package.json` の `piConfig.name` から識別名を導き、その名前から agent dir の変数名を決める (`spirits` なら `SPIRITS_CODING_AGENT_DIR`、無しなら `PI_CODING_AGENT_DIR`)。overlay は導入済みの一式にだけ書かれ、`node_modules` の公式パッケージの `piConfig` は `configDir` を持つだけである。よって spirits のセッションから起動した `bun test` は launcher の `PI_PACKAGE_DIR` (overlay 済み) を継承して識別名 `spirits` になり、CI はそれを継承せず `node_modules` の未 overlay パッケージを解決して識別名 `pi` になる。後者では `SPIRITS_CODING_AGENT_DIR` も隔離した設定ディレクトリも無視される。旧 `test/preload.ts` の `process.env.PI_APP_NAME = "spirits"` は公式が読まない死んだ設定で、テストの前提を一切支えていなかった。
+- 修正: `test/preload.ts` を書き換え、テストファイルがホストを import する前に (1) 呼び出し元の `PI_*` / `SPIRITS_*` を全て落とす (例外は `SPIRITS_COMPAT_ARTIFACT_ROOT` のみ、これは観測の入力であり実行の識別子ではない)、(2) 製品の overlay 経路その物である `createOverlayPackageJson` (`src/managed-pi/overlay.ts`) を適用した `package.json` を一時ディレクトリに stage し、`PI_PACKAGE_DIR` をそこに張る (識別子の第 2 経路は作らない)、(3) agent dir をその staging 配下の空ディレクトリに張る、(4) 残りの名前は launcher の規則 `computeManagedEnv` で固定する、(5) 終了時に staging を削除する。デッド設定 `PI_APP_NAME` は削除した。テスト個別の assert は変えていない。
+- 追加: `test/host/package-dir.ts` (installed host package を import せずに解決する。ホストを import すると識別子が環境から計算される側へ落ちてしまう)、`test/runtime-env.ts` (prefix と例外と不活性名の単一の一覧)、`test/run-environment.test.ts` (固定されていること自体の回帰 5 件: 識別子が overlay であること、agent dir が spirits 変数から読めること、agent dir が tmpdir 配下であること、呼び出し元の値が残っていないこと、環境が `computeManagedEnv` の規則と一致すること)。ルート `bunfig.toml` に `[test] preload` を追加し、ルートから `bun test` しても同じ環境になるようにした。`test/managed-pi-compat-guard.test.ts` のリテラル `SPIRITS_COMPAT_ARTIFACT_ROOT` を `runtime-env.ts` の定数に置き換えた。
+- 呼び出し元の環境に依存していた他の検証の洗い出し:
+  - `bun run check`、`openspec validate`、`bun scripts/build-binaries.ts`、起動役の `--version` / `-- --version` / `list` 拒否は、変数を落とした環境で再実行して §14 と同じ結果 (拒否文に出る host 実行ファイルは隔離 HOME の導入先)。
+  - 互換性ランナー公式モード: 変数を落とした環境で `bun scripts/managed-pi-compat/run.ts --inputs /tmp/s15ci-inputs --artifact-root /tmp/s12-artifact --commit HEAD --out /tmp/compat/s15-ci.json` -> `confirmed=38 limited=0 unavailable=0 not-run=3 failed=0`、`compatibilityMet` 真、`existingAgentDirUnchanged` 真 (`workingTreeClean` はこの修正が未コミットのため偽)。not-run 3 件は 14.6 と同一。
+  - 14.4 / 14.5 の自己更新 smoke は `scripts/self-update-smoke.sh` が導入済みバイナリの実行ごとに agent dir・session dir・`PI_PACKAGE_DIR` を除去しており (`env -u`、スクリプト冒頭に理由を明記)、呼び出し元の環境に依存しない。
+  - 14.7 / 14.8 / 14.10 の tmux 確認は、agent dir が隔離先に解決されていたことを実データで確認した (実 `~/.spirits/agent/settings.json` に `todo` キーは無く、隔離コピー `/tmp/s14h/home/.spirits/agent/settings.json` に `ctrl+alt+t` が入っている)。加えて変数を落とした環境で `scripts/tmux-verify.sh run --session ci15 -- ./dist/spirits-linux-x64` を実行し、ホスト子の環境が `SPIRITS_CODING_AGENT_DIR=<隔離 HOME>/.spirits/agent`・`PI_PACKAGE_DIR=<導入一式の pi>`・`PI_SKIP_VERSION_CHECK=1`・`PI_TELEMETRY=0` の 4 つに固定されること、ヘッダと `[Extensions] spirits-extension.js` が出ることを確認 (`scripts/tmux-verify.sh check` -> `clean`)。`tmux-verify.sh` 自身は環境を scrub しないので、隔離 HOME を使う実行では呼び出し元の変数を落とす必要がある。
+- CI と同じ条件をローカルで出す方法: `bash scripts/test-clean-env.sh` (_suite_: check / test / install / tmux-verify、既定は全部。`-- <cmd>` で任意のコマンドを scrub した環境で実行)。HOME は意図的に落とさない (agent dir は staging に張られるため `~/.pi` と `~/.spirits` は読まれないし書かれない。互換観測だけが残った一式を `$HOME` から探す)。HOME まで独立させるには `HOME=<tmp> bash scripts/test-clean-env.sh`。
+- 実測 (2026-11-16、`bash scripts/test-clean-env.sh`、呼び出し元に 10 個の `PI_*` / `SPIRITS_*` があった状態から scrub):
+  - `bun run check` -> 終了コード 0 (biome、`tsc -p tsconfig.scripts.json`、`packages/spirits` の `tsc --noEmit`)。
+  - `cd packages/spirits && bun test` -> **1289 pass / 0 fail / 5062 expect / 115 file**。14.2 の 1284 pass との差 +5 は `test/run-environment.test.ts` の 5 件。
+  - `sh scripts/install.test.sh` -> 全 assert pass、`bash scripts/tmux-verify.test.sh` -> 125 passed / 0 failed。
+  - 修正前に戻した再現: 旧 `preload.ts` (`PI_APP_NAME` を立てるだけ) に戻して scrub した環境で `bun test test/run-environment.test.ts` -> 5 件すべて失敗 (識別子が overlay でないことを指摘)。戻して CI の 3 件を含む `bun test` 全体も同じ環境で失敗することを確認済み。
 
 ## Follow-up candidates (この change では実施しない)
 

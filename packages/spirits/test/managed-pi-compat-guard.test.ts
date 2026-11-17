@@ -26,6 +26,7 @@ import { startFakeProvider, type FakeReply } from "../../../scripts/managed-pi-c
 import { loadOfficialArtifact, OfficialArtifactError, type OfficialArtifact } from "../../../scripts/managed-pi-compat/official.ts";
 import { runRpcProbe, type RpcRecord } from "../../../scripts/managed-pi-compat/rpc.ts";
 import { ENV_ACTION_GUARD, MANAGED_PI_FIRST_ARTIFACT_NAME } from "../src/constants.ts";
+import { ENV_COMPAT_ARTIFACT_ROOT } from "./runtime-env.ts";
 import { computeManagedEnv } from "../src/managed-pi/environment.ts";
 
 const REPO = join(import.meta.dir, "..", "..", "..");
@@ -153,7 +154,7 @@ function textOf(record: RpcRecord): string {
  * as it is. A root with neither is handed to the loader anyway, which is what reports it as a gap.
  */
 async function stageOfficialArtifactRoot(workRoot: string): Promise<string> {
-	const installed = process.env.SPIRITS_COMPAT_ARTIFACT_ROOT ?? join(homedir(), ".spirits/managed-pi/current");
+	const installed = process.env[ENV_COMPAT_ARTIFACT_ROOT] ?? join(homedir(), ".spirits/managed-pi/current");
 	if (existsSync(join(installed, MANAGED_PI_FIRST_ARTIFACT_NAME))) return installed;
 	const tarball = join(installed, "pi.tar.gz");
 	if (!existsSync(tarball) || !existsSync(join(installed, "manifest.json"))) return installed;

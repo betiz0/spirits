@@ -3,3 +3,10 @@
 # 2 日 = 172800 秒。旧 .npmrc の min-release-age=2 と同じ意図。
 [install]
 minimumReleaseAge = 172800
+
+# `bun test` from the repository root does not read `packages/spirits/bunfig.toml`, so the same pinning
+# has to be named here too: without it a root run resolves the host identity from the caller's
+# environment (the identity-sensitive tests then fail or pass by luck). Keep both entries pointing at
+# the one preload.
+[test]
+preload = ["./packages/spirits/test/preload.ts"]

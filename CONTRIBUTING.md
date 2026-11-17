@@ -32,6 +32,12 @@ cd packages/spirits && bun test
 
 All three must pass. `bun run check` does not rewrite files; formatting fixes come from `bun run fix`.
 
+CI runs with no spirits or pi variables in its environment, and a run started from a live spirits does
+not. `packages/spirits/test/preload.ts` pins the host identity, the agent directory, and the host's own
+knobs so both cases measure the same thing; `bash scripts/test-clean-env.sh` re-runs the suites with
+every `PI_*` and `SPIRITS_*` variable removed, which is how you reproduce CI locally. Use it before a PR
+that touches launch, the managed set, or anything that reads an environment variable.
+
 If your change affects launch, update, or the managed set, also run the checks named in `AGENTS.md`
 (compatibility runner, installer and self-update smokes, tmux launch verification). State in the PR
 which measurements you ran and what their results were.

@@ -51,6 +51,7 @@ source tree exists.
 - After code changes (not docs): `bun run check` from the repo root (full output, no tail). It runs biome, `tsc -p tsconfig.scripts.json`, and the package type check **without rewriting files**. Fix everything it reports before committing. It does not run tests.
 - Rewriting/formatting is `bun run fix`, never a `check` variant.
 - Tests: `cd packages/spirits && bun test`. A single file: `cd packages/spirits && bun test test/name.test.ts`.
+- CI has no `PI_*`/`SPIRITS_*` variables and a live spirits session does. `packages/spirits/test/preload.ts` pins the host identity, agent dir, and host knobs for every run; reproduce CI with `bash scripts/test-clean-env.sh` before believing a green suite or after a red CI job.
 - If you create or modify a test file, run it and iterate on test or implementation until it passes.
 - Tests use the fake host in `packages/spirits/test/host/fake-pi.ts` and the faux provider. No real provider APIs, keys, or paid tokens.
 - Architecture rules, layers, and baselines are recorded in `docs/architecture/convention-registry.md` and enforced by `packages/spirits/test/architecture-conventions.test.ts`. Re-record the baselines when you add, delete, or move files.

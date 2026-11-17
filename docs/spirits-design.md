@@ -245,6 +245,7 @@ spirits は Pi をフォークしない。ホストは公式配布物であり�
 - **起動性能**: REPL 初期化は遅延(初回ツール呼び出し時)にして体感起動を悪化させない
 - **長時間稼働**: CI のビルド Bun は 1.4.2+ 固定(長時間稼働 JIT クラッシュ修正のため)。REPL コンテキストのメモリ肥大化対策としてセッション間でのコンテキスト再生成オプションを用意
 - **テスト**: `bun test`。REPL はセル評価・エラー整形・`rlm()` 深度制限をユニットテストで網羅
+  - テスト実行の環境は `packages/spirits/test/preload.ts` が固定する。ホストは自分の package.json の `piConfig.name` から識別名 (=`SPIRITS_CODING_AGENT_DIR` という変数名) を導くため、`PI_PACKAGE_DIR` を渡した実行 (つまり spirits のセッションから起動した実行) と、それを渡さない実行 (CI) ではホストの識別名その物が違う。preload は呼び出し元の `PI_*` / `SPIRITS_*` を全て落としてから、製品の overlay (`managed-pi/overlay.ts`) を適用した package.json を一時ディレクトリに stage し、`PI_PACKAGE_DIR` と agent dir をそこに張る。CI と同じ条件の再実行は `bash scripts/test-clean-env.sh`
 - **CI / リリース**: GitHub Actions(linux ランナーのみ)
   - 通常 CI: Bun 1.4.0 / 1.4.2 / latest マトリクス + `bun install --frozen-lockfile` + `bun test` + 型検査
   - リリース: `spirits-v*` タグ push で linux-x64 をコンパイル → SHA256 同梱で GitHub Releases(バージョン部に `-` を含むタグは prerelease)→ install.sh は draft と prerelease を除く `spirits-v*` の先頭を latest とする
