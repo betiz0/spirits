@@ -99,19 +99,25 @@ OpenSpec 工作流中只有两个步骤需要更强的模型：评审变更的 `
   { "models": { "strong": "anthropic/claude-opus-4-7" } }
   ```
 
-  只写模型 ID(`"claude-opus-4-7"`)时，用当时的默认 provider 解析。`models` 是 spirits 的键，pi 保存其他设置时会保留它。
+  只写模型 ID(`"claude-opus-4-7"`)时，用当时的默认 provider 解析。但 `models.strong` 请写成 `provider/id`：`save` 可能把默认 provider 改成 `spirits`，那样省掉 provider 的 strong 就解析不出来了。`models` 是 spirits 的键，pi 保存其他设置时会保留它。
 - propose、apply、verify、archive 走 normal，路由到默认 provider 与默认模型。默认无法解析时改用最近一次成功响应的模型，并提示一次。运行 `sprt-opsx-review-change` 或 `sprt-opsx-verify-deep` 期间的请求走 strong，run settle 后回到**当前锁定的角色**(Escape 中断或出错也会回到)。
-- 用 `/spirits-role <normal|strong>` 锁定角色：锁定在后续输入中持续生效，锁定另一个角色时切换。`/reload` 会重新读取 `models.role`，仅作用于本会话的锁定会回到默认角色。选择物理模型期间既不分流也没有徽章（`/spirits-role status` 会显示 `routing: off (a physical model is selected)`）；锁定从切回 `spirits/auto` 之后的请求开始生效。
-- `defaultProvider` / `defaultModel` 里保留**物理**模型。virtual model 永远不会成为 normal 的目标：把 `spirits/auto` 存为默认后，normal 没有可解析的目标，新会话的第一个请求会以错误结束。
+- 用 `/spirits-role <normal|strong>` 锁定角色：锁定在后续输入中持续生效，锁定另一个角色时切换。`/reload` 和重新打开都会读回会话自己的 role 记录，所以本会话锁定的角色会跨过它们保留；`models.role` 只是没有 role 记录的会话的默认值。选择物理模型期间不分流，徽章显示 `[off]`（`/spirits-role status` 会点名导致 off 的模型）；锁定从切回 `spirits/auto` 之后的请求开始生效。要选中那个模型，可能需要切换 model selector 的选择范围（`Tab`）或者用 `/scoped-models`：把会话限定在自己的模型列表里时，列表外的模型不会出现在 selector 中。
+- 用 `/spirits-role save`，或者从设置列表（`/spirits-role` 不带参数）保存会话当前持有的选择。列表按 `use normal`、`use strong`、`save` 的顺序打开。`use` 行一次 Enter 先锁定会话再保存，等同于先执行 `/spirits-role <normal|strong>` 再执行 `/spirits-role save` 的两次写入；`save` 只写默认值，不动锁定。这些行在操作前显示与 global 设置的差异，在操作后显示写进文件的内容。保存成立或没有差异时，列表关闭并发送信息通知；失败时，以及锁定成立但保存失败时，列表保持打开并把原因留在这两行上。操作行只响应 Enter：Space、鼠标点击、`save` 后面的空行，以及你把列表确认键改到别处时的任何键，都不会动文件。正在运行的会话什么都不变——model selector、锁定、对话都停在原处。只保存就关闭列表时不会重载；`use` 行和普通的设置变更在关闭列表时重载一次，如果宿主拒绝重载，通知会说明保存已成立、重载未完成。
+- `save` 写的是 **pi 的 global 设置文件**（`~/.spirits/agent/settings.json`），不写 project 文件，也不写会话记录。这些键是**新会话**启动时的默认值，而 pi 取模型的顺序是：先看 `--models` / `--model` 和会话自己的选择范围，再看 `defaultProvider` / `defaultModel`，`models.role` 则是没有 role 记录的会话的默认锁定。project 的 `.pi/settings.json` 在那里仍然继续覆盖它们，所以保存之后，普通列表行和 `/spirits-role status` 依旧报告 project 的生效值，文件里的值只出现在 `save` 这一行。
+- 保存 `spirits/auto` 需要 global 文件自己能解析的 `models.normal`，因为还没问过任何问题的会话没有可依赖的成功响应。没有它时，`save` 只写角色，不碰 `defaultProvider` / `defaultModel`，并在这一行和通知里说明原因。**物理**模型总是能保存：以物理模型启动的会话就是没有分流的普通会话。想让新会话不经分流就能应答，就往默认值里留一个物理模型——`save` 的安全检查之外的 virtual 默认值会让 normal 无可解析，新会话的第一个请求会以错误结束。
+- 不是交互终端的地方做的是同一次写入，只是不说话：`--print` 模式下的 `/spirits-role save` 更新文件且不输出任何东西。要核对请看那个文件，或者在会读取该设置的会话里看 `/spirits-role status`。
 - 没有 `models.strong` 时静默保持 normal。已配置但不可用的目标(ID 不存在、provider 没有凭据)会回退到 normal，并在同一个 run 内只提示一次。
-- 徽章由扩展自己的 status 行显示在模型行下方，不在主机的页脚里。徽章表示**最近一次请求所用的角色**，因此滞后一个请求：刚启动技能时仍是 `[normal]`，技能刚结束时在下一次请求前仍是 `[strong]`。
+- 徽章显示**下一个请求**将运行的角色，不是最近一次请求的记录。重画的时机是它背后的状态可能改变的那一刻：会话开始、你发送输入、在分支之间移动、锁定角色、一个 run 落幕时，以及主机的模型或 thinking 级别选择改变时。状态有 `[normal]` 和 `[strong]`，能解析到级别时紧随其后（`[strong high]`），选择物理模型期间是 `[off]`，分流生效但没有任何模型可解析时是 `[!]`。
+- 角色旁边，在另一个 status key 上，页脚用不带 provider 的模型 ID 写出将会应答的物理模型，超过 24 字符时截成前 23 字符加 `…`（`abcdefghijklmnopqrstuvw…`）。分流无效或没有可应答的模型时这里什么都不写，因为主机自己的统计行已经写出了会话所在的模型。
+- 跨 run 延续的步骤，在你重新打开当时正处于该步骤的会话时（`--resume`、fork，或者从分支末尾开始）会回来，徽章也由它绘制，所以重开后的第一个输入就按该步骤定下的角色运行。手工编辑 `settings.json` 要经过扩展重载（`/reload`）才影响徽章与分流，因为运行中的扩展只在加载时读取一次设置。
 - `/spirits-role status` 显示分流状态、锁定、进行中的步骤、最近一次请求，以及 normal / strong 的解析结果。
 
 ## 已知限制
 
 - 在 `await` 之后开始的同步循环无法中断：timeout 不会触发，整个进程会失去响应（需要重启）。
 - 仅支持 Linux x86_64。
-- role 徽章画在扩展的 status 行上，因此与主机的模型显示不在同一行。role 命令是 `/spirits-role ...`；主机的 `/model` 没有 role 参数。
+- role 徽章画在扩展的 status 行上，因此与主机的模型显示不在同一行，也不共享其显示位置与是否清除。role 命令是 `/spirits-role ...`；主机的 `/model` 没有 role 参数。
+- 在选择物理模型的会话里启动一个期待角色的步骤时会先询问：询问会说清这个角色现在不会被使用，并给出重新启用分流的做法，等待 10 秒。倒计时结束或者选择继续，输入就会发送；选择停止或者按 Escape，输入不发送，步骤回到该输入之前的状态。询问只出现在交互式终端，由扩展发出的输入不会触发，所以脚本驱动的会话不会被拦下。
 - 主机的命令无法通过 `spirits` 运行：`spirits update <其他参数>`、`spirits install`、`spirits list` 等会被拒绝并给出主机可执行文件路径。启动器先加载扩展包，而主机只在自身第一个参数是命令时才 dispatch。
 - 没有自动更新。升级用 `spirits update` 或重新运行安装器。
 - 首次启动需要网络：把固定的主机 tarball（Pi 1.5.0 为 58,876,253 字节）与 spirits 扩展包下载到 `~/.spirits/managed-pi`，安装后占用 182 MB。之后在本地校验已安装的套件，损坏时用 `spirits managed-pi repair` 重建。`PI_OFFLINE=1` 作用于 `spirits update`，不作用于 managed 套件。

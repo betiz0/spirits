@@ -29,6 +29,7 @@ import type { ExtensionModelRegistry, PiModel, ThinkingLevel } from "../types/ho
 import {
 	type Component,
 	getKeybindings,
+	matchesKey,
 	SelectList,
 	SettingsList,
 	type SelectListTheme,
@@ -38,7 +39,17 @@ import {
 } from "@earendil-works/pi-tui";
 import type { IgnoredSetting, RoutingSettings } from "../config.ts";
 
-import { MODEL_ROLES, MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG, PI_VIRTUAL_MODEL_API, STEP_DEFINITIONS, THINKING_LEVELS } from "../constants.ts";
+import {
+	MODEL_ROLES,
+	MODEL_ROLE_NORMAL,
+	MODEL_ROLE_STRONG,
+	PI_VIRTUAL_MODEL_API,
+	ROLE_SAVE_ROW,
+	ROLE_SAVE_WORD,
+	ROUTING_MODEL_REFERENCE,
+	STEP_DEFINITIONS,
+	THINKING_LEVELS,
+} from "../constants.ts";
 import type { StepDefinition } from "../constants.ts";
 import type { ActiveStep } from "../routing/phase.ts";
 import { resolveRequestPlan } from "../routing/plan.ts";
@@ -47,13 +58,22 @@ import { modelKey } from "../routing/resolve.ts";
 import {
 	formatModelKey,
 	roleResolutionLines,
-	roleSettingWarning,
+	strongSettingWarning,
 	type LastRequestReport,
 	type RoleResolutionLine,
 	type SettingItem,
 	targetAnswers,
 } from "./role.ts";
-import { applyRoleLock, applyRoleSetting, strongIsUsable, type RoleWrite, type RoleWriteDeps } from "./role-write.ts";
+import {
+	applyRoleLock,
+	applyRoleSave,
+	applyRoleSetting,
+	describeSavePreview,
+	strongIsUsable,
+	type RoleWrite,
+	type RoleWriteDeps,
+	type SessionSelection,
+} from "./role-write.ts";
 import type { SettingsPath } from "./settings-store.ts";
 
 /** The word that returns a setting to unset, the same word the command takes. */
@@ -81,6 +101,72 @@ const FAILURE_PREFIX = "not saved: ";
  * `not saved` about a change the session took takes the change back on screen (d-verify5 W-1).
  */
 const REDRAW_FAILURE_PREFIX = "not redrawn: ";
+
+/**
+ * Leads every row while a physical model holds the session, and says what the rest of the row describes.
+ *
+ * Each row describes a resolution the routing would reach, and on that selection it reaches nothing, so a
+ * row still in the present tense would promise a model the session will not use. One sentence serves the
+ * whole screen because the fact it states belongs to the session rather than to any row (spec
+ * `managed-commands` / 一覧の説明は実際の解決結果を示す).
+ */
+const ROUTING_OFF_LEAD = "routing is off while";
+
+/** Names the model the session sits on in the spelling a reference is typed in. */
+function routingOffLead(model: string | undefined): string {
+	return `${ROUTING_OFF_LEAD} ${model ?? "a physical model"} is selected; if routing were in force, `;
+}
+
+/**
+ * The same fact, stated as a fact, for the one row that describes no resolution.
+ *
+ * The `save` row talks about the settings file, not about what a request would answer, so the conditional
+ * the ordinary rows need would read as a hedge on a write that either landed or did not. It says the
+ * routing is off once, the way every row does, and stops there (spec `managed-commands` /
+ * save はディスク上の結果と実効状態を区別する).
+ */
+function routingOffFact(model: string | undefined): string {
+	return `${ROUTING_OFF_LEAD} ${model ?? "a physical model"} is selected. `;
+}
+
+/** The row id of the blank separator that follows `save`. The list owns it: no command takes it. */
+export const SEPARATOR_ROW = "separator";
+
+/**
+ * The row id prefix of the two `use` action rows.
+ *
+ * `use normal` and `use strong` are list-only: the spec keeps the command vocabulary to
+ * `/spirits-role <role>` and `/spirits-role save`, and the rows are those two writes in sequence. The
+ * ids therefore live with the list rather than in the shared vocabulary (design Decision 8).
+ */
+const USE_ROW_PREFIX = "use:";
+
+/** The row id that locks the session to `role` and saves the selection. */
+export function useRowId(role: string): string {
+	return `${USE_ROW_PREFIX}${role}`;
+}
+
+/** The role a `use` row names, or undefined when the id is not one. */
+export function useRowRole(rowId: string): string | undefined {
+	if (!rowId.startsWith(USE_ROW_PREFIX)) return undefined;
+	const role = rowId.slice(USE_ROW_PREFIX.length);
+	return role === MODEL_ROLE_NORMAL || role === MODEL_ROLE_STRONG ? role : undefined;
+}
+
+/** Whether a row is an action row that acts only on confirm Enter. */
+function isActionRow(rowId: string): boolean {
+	return rowId === ROLE_SAVE_ROW || useRowRole(rowId) !== undefined;
+}
+
+/**
+ * The one value the `save` row carries.
+ *
+ * `SettingsList` acts on a row either through a submenu or by cycling `values`, and a row with neither does
+ * nothing. One value that never changes is therefore what makes the row answer Enter through `onChange`
+ * while leaving its right-hand column blank — a second value would give the row something to switch to
+ * (design Decision 1).
+ */
+const SAVE_ROW_VALUE = "";
 
 /**
  * What a row says for the level pi itself holds when nothing of ours is set and the snapshot carried no
@@ -114,6 +200,14 @@ export interface RolePanelRow {
 	values: string[];
 	/** True for a row that chooses among the catalog's models, which decides what an edit accepts. */
 	models?: boolean;
+	/**
+	 * The sentence naming the routing off and the model it sits on, empty when the routing is in force.
+	 *
+	 * Carried apart from the description because two of the failures this screen can hit happen outside the
+	 * list, in code that rewrites a row it already drew, and their reason has to land after the lead rather
+	 * than in front of it.
+	 */
+	lead: string;
 	/**
 	 * Set for a step row, which is one setting shown as a pair: the row's `role` and `thinking` halves.
 	 *
@@ -167,15 +261,39 @@ export interface RolePanelSnapshot {
 	previous?: PiModel;
 	/** True when the session sits on a physical model, so no routing is in force. */
 	routingOff?: boolean;
+	/** The model the session sits on, in `provider/id` spelling, which the lead names. */
+	currentModel?: string;
 	/** Values the settings file holds that routing will not read. */
 	ignored?: readonly IgnoredSetting[];
 	/** Models a role's model row can offer, in `provider/id` spelling. */
 	modelChoices: readonly string[];
 	/** Steps none of whose starter commands this session has. */
 	missingStarters: ReadonlySet<string>;
+	/** The session's lock and selected model, which is what `save` writes. */
+	saveSelection: SessionSelection;
+	/**
+	 * pi's global settings file, read for the `save` row's preview.
+	 *
+	 * The file and not `pi.getSettings()`, because the effective settings merge the trusted project file
+	 * that `save` does not write to, and a preview built from them would promise a change to something the
+	 * save leaves alone. Absent when the read failed, which costs the preview and nothing else: the
+	 * ordinary rows are read through the host and stay usable (spec `managed-commands` /
+	 * save はディスク上の結果と実効状態を区別する).
+	 */
+	globalSettings?: Record<string, unknown>;
+	/** Why {@link globalSettings} is absent, shown on the `save` row in place of the preview. */
+	globalSettingsError?: string;
 }
 
-/** What the models a role can be pointed at: pi's available models, minus every virtual entry. */
+/**
+ * What the models a role can be pointed at: pi's available models, minus every virtual entry.
+ *
+ * The session's own model scope is deliberately not applied. A role's target is resolved independently of
+ * the scope — the routing reaches it, and the command line writes it — so a list limited by the scope would
+ * be a fourth rule about a setting no other surface limits, and a session scoped to `spirits/auto` alone
+ * would be left with no candidate and no way back to `unset` (spec `managed-commands` /
+ * 一覧の説明は実際の解決結果を示す: 一覧の候補はセッションのスコープで制限しない).
+ */
 export function modelChoices(models: readonly PiModel[]): string[] {
 	// Excluded by api, the same test the routing lookup uses: a virtual entry routes requests instead of
 	// answering them, and another extension's virtual model is not named `spirits/auto`.
@@ -274,6 +392,13 @@ export class RolePanel {
 	/** Writes that reached the settings file, in the order the user made them. */
 	private readonly changes: PendingWrite[] = [];
 	/**
+	 * The last `save` this list ran, kept so the row can report the disk rather than a promise.
+	 *
+	 * Only the newest one is carried: the row is one line, and a user who saves twice wants to know what the
+	 * second write did.
+	 */
+	private lastSave: RoleWrite | undefined;
+	/**
 	 * The reason the last edit refused, carried by the row that refused it.
 	 *
 	 * A list edit goes wrong inside the list, so its reason belongs there rather than in notices stacking
@@ -295,23 +420,38 @@ export class RolePanel {
 
 	/** Whether anything this list changed is waiting to be read back by a reload. */
 	hasWrites(): boolean {
+		// Only an ordinary edit earns the close-time reload. A `save` writes the next session's defaults
+		// and deliberately leaves this one alone, so a screen that only saved closes without a restart
+		// (spec `managed-commands` / save はディスク上の結果と実効状態を区別する).
 		return this.changes.length > 0;
 	}
 
-	/** Every row, in screen order: the lock, the two roles, then each step's two items. */
+/**
+ * Every row, in screen order: `use normal`, `use strong`, `save`, a blank separator, the lock, the two
+ * roles, then each step's items.
+ */
 	rows(): RolePanelRow[] {
 		const refused = this.refused;
 		if (!refused) return this.buildRows();
 		// The refusal rides on the row that caused it and disappears on the next redraw, so a corrected
-		// write clears it without any code remembering to.
+		// write clears it without any code remembering to. It goes after the lead and before the row's own
+		// text, which is the order one description has to hold.
 		return this.buildRows().map((row) =>
-			row.id === refused.rowId ? { ...row, description: `${FAILURE_PREFIX}${refused.reason}. ${row.description}` } : row,
+			row.id === refused.rowId
+				? { ...row, description: afterLead(row.description, row.lead, `${FAILURE_PREFIX}${refused.reason}.`) }
+				: row,
 		);
 	}
 
 	/** The rows as the session reads, before a refused edit is written on one of them. */
 	private buildRows(): RolePanelRow[] {
 		const current = this.read(this.changes);
+		const rows: RolePanelRow[] = [
+			useRow(MODEL_ROLE_NORMAL, current),
+			useRow(MODEL_ROLE_STRONG, current),
+			saveRow(current, this.lastSave),
+			{ ...SEPARATOR_ROW_SHAPE },
+		];
 		const settings = current.settings;
 		const step = current.step;
 		// The role the running step actually takes, which is its own setting, then the step list's default,
@@ -323,13 +463,25 @@ export class RolePanel {
 			...(current.previous ? { previous: current.previous } : {}),
 			...(current.ignored ? { ignored: current.ignored } : {}),
 		});
-		const warning = lockWarning(current, stepRole, settings);
-		const rows: RolePanelRow[] = [
-			{
+		// One lead for the whole screen: a session either routes or it does not, and every row's resolution is
+		// read under the assumption the lead states.
+		const lead = current.routingOff ? routingOffLead(current.currentModel) : "";
+		// The lead already says the routing is not working, so the notice a command would send keeps only its
+		// own content here: one row that named the same fact twice would read as two different failures.
+		const warning = strongSettingWarning(
+			current.lock === MODEL_ROLE_STRONG || stepRole === MODEL_ROLE_STRONG,
+			!strongIsUsable(settings, current.lookup),
+		);
+		rows.push({
 				id: LOCK_ROW,
 				label: "role lock",
 				description:
-					`Requests run on the locked role unless a step says otherwise. ` +
+					// The lead opens every row, then the warning: the warning is the reason the row's answer is
+					// not the answer the user set (spec `managed-commands` /
+					// 設定時の警告は書き込んだ値で判定し、一覧では行の説明で伝える).
+					lead +
+					(warning ? `${warning} ` : "") +
+					`${current.routingOff ? "Requests would run" : "Requests run"} on the locked role unless a step says otherwise. ` +
 					(step
 						? `The ${step.name} step is running and runs ${stepRole}; it ${step.continuing ? "continues after its run" : "ends with its run"}.`
 						: "No step is running.") +
@@ -339,21 +491,60 @@ export class RolePanel {
 					" " +
 					(current.last
 						? `Last request: ${current.last.role} on ${current.last.model}${current.last.thinkingLevel ? ` at ${current.last.thinkingLevel}` : ""}.`
-						: "No request since the last reload.") +
-					// The list says nothing out loud, so the notice a command would send belongs here
-					// (spec `managed-commands` / 設定時の警告は書き込んだ値で判定し、一覧では行の説明で伝える).
-					// Spaced, because the sentence before it does not end in one.
-					(warning ? ` ${warning}` : ""),
+						: "No request since the last reload."),
 				currentValue: current.lock,
 				values: [...MODEL_ROLES],
-			},
-		];
+				lead,
+			});
 		for (const role of [MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG] as const) {
-			rows.push(modelRow(role, current, targets));
-			rows.push(levelRow(role, current));
+			rows.push(modelRow(role, current, targets, lead));
+			rows.push(levelRow(role, current, lead));
 		}
-		for (const definition of STEP_DEFINITIONS) rows.push(stepRow(definition, current, targets));
+		for (const definition of STEP_DEFINITIONS) rows.push(stepRow(definition, current, targets, lead));
 		return rows;
+	}
+
+	/**
+	 * Save the session's lock and selected model into pi's global settings.
+	 *
+	 * The list's `save` row and `/spirits-role save` run the same operation, and the list shows its result
+	 * on the row rather than in a notice, which is where every other fact on this screen is read (spec
+	 * `managed-commands` / `/spirits-role save` はセッションの選択状況を設定に保存する). The result stays on
+	 * the row through the later redraws, because the row has to say what reached the disk and not what it
+	 * would have written.
+	 */
+	save(): RoleWrite {
+		const current = this.read(this.changes);
+		const write = applyRoleSave(this.writes, current.saveSelection, current.lookup);
+		this.lastSave = write;
+		// The save does not join `changes`: those are folded onto the host's effective settings to redraw
+		// the ordinary rows, and a global value written there would paint over a project file this screen
+		// must keep showing (design Decision 7).
+		return write;
+	}
+
+	/**
+	 * The `save` row's description after a save, for a redraw that could not read the session.
+	 *
+	 * The result is held rather than rebuilt, because the read that would rebuild it is the one that
+	 * failed, and a row sent back to its preview would take back a write the file accepted (design
+	 * Decision 6). `lead` is the routing-off sentence the row already opened with.
+	 */
+	saveResult(lead: string): string | undefined {
+		return this.lastSave ? `${lead}${this.lastSave.message}` : undefined;
+	}
+
+	/**
+	 * Run one action row: `save` as it is, a `use` row as its lock followed by that save.
+	 *
+	 * Both are invoked only by the list's confirm Enter, and both leave the ordinary rows alone: an action
+	 * row reports on the row (or, when it closes the screen, in a notice) rather than through `pending`
+	 * writes that would repaint a project's effective settings.
+	 */
+	activate(rowId: string): RoleWrite {
+		if (rowId === ROLE_SAVE_ROW) return this.save();
+		if (useRowRole(rowId) !== undefined) return this.edit(rowId, "");
+		return { message: `${rowId} is not an action row`, saved: false, failure: "unknown row", wrote: [] };
 	}
 
 	/**
@@ -368,47 +559,79 @@ export class RolePanel {
 		// that shows both halves.
 		this.refused = write.saved ? undefined : { rowId: rowOfSetting(rowId), reason: write.failure ?? write.message };
 		// The host's settings will not carry this until the reload that closes the screen, so the list
-		// carries it itself: that is what lets a row's description show the new resolution.
-		if (write.saved && write.wrote) this.changes.push(write.wrote);
+		// carries it itself: that is what lets a row's description show the new resolution. A `use` row
+		// whose lock landed before its save refused keeps that half, so the close-time reload still happens.
+		if (write.saved || write.partial === true) this.changes.push(...write.wrote);
 		return write;
+	}
+
+	/**
+	 * Lock the session, then draw the badge the command draws.
+	 *
+	 * Applying a lock is two steps — the phase, then the session record — and the second one can throw
+	 * where the first already landed. The badge is drawn in a `finally`, and from the phase rather than
+	 * from `role`, so a failed record leaves the session and the badge agreeing (d-verify4 C-2), and a
+	 * read that raises still does not leave the lock undrawn (d-verify5 W-1).
+	 */
+	private applyLock(role: string): RoleWrite {
+		try {
+			return applyRoleLock(this.writes, role);
+		} finally {
+			this.hooks.lockDrawn?.(this.hooks.sessionLock?.() ?? this.read(this.changes).lock);
+		}
 	}
 
 	/** The write one row choice stands for, before its outcome is remembered for the next redraw. */
 	private apply(rowId: string, value: string): RoleWrite {
 		if (rowId === LOCK_ROW) {
-			// The lock lands in the phase at once, so the next read already shows it; there is nothing to
-			// fold in the way a settings path needs. The badge follows it whatever the file says, because the
-			// session really is locked and the command draws it the same way (spec `managed-commands` /
-			// 一覧のロックの行は保存に失敗してもセッションのロックを示す).
-			//
-			// Applying a lock is two steps — the phase, then the session record — and the second one can throw
-			// where the first already landed. So the badge is drawn in a `finally`, and from the phase rather
-			// than from `value`: after a failed record the two agree, and before one they would not
-			// (d-verify4 C-2).
-			try {
-				return applyRoleLock(this.writes, value);
-			} finally {
-				// From the phase rather than from the rows: the read that builds them also reads the settings
-				// file, and a read that raises there must not leave the lock undrawn (d-verify5 W-1).
-				this.hooks.lockDrawn?.(this.hooks.sessionLock?.() ?? this.read(this.changes).lock);
-			}
+			return this.applyLock(value);
+		}
+		const useRole = useRowRole(rowId);
+		if (useRole !== undefined) {
+			// The two writes the spec puts in this order: the lock `/spirits-role <role>` performs, then the
+			// save `/spirits-role save` performs. A lock the session refused stops before the save — the save
+			// would otherwise write a default the session never took (spec `managed-commands` /
+			// `use` の行はロックと保存を行い、成功で閉じる).
+			const lock = this.applyLock(useRole);
+			if (!lock.saved) return lock;
+			// The lock is in the phase before the first write returns, so the snapshot already holds the
+			// new role and the save writes the state the user is about to be in.
+			const current = this.read(this.changes);
+			const save = applyRoleSave(this.writes, current.saveSelection, current.lookup);
+			const message = `${lock.message}; ${save.message}`;
+			if (save.failure !== undefined) return { message, saved: false, failure: save.failure, wrote: lock.wrote, partial: true };
+			// The lock's writes are the ones the ordinary rows fold in; the save's are the next session's
+			// defaults and must not paint over the project values this screen reports.
+			return { message, saved: true, wrote: lock.wrote, ...(save.skipped ? { skipped: save.skipped } : {}) };
 		}
 		const setting = rowSetting(rowId);
 		if (!setting) {
 			// A row id this panel did not build means the caller and the row list disagree, which is a bug
 			// rather than a user error. Saying so beats writing to a path nobody named.
-			return { message: `${rowId} is not a setting row`, saved: false, failure: "unknown row" };
+			return { message: `${rowId} is not a setting row`, saved: false, failure: "unknown row", wrote: [] };
 		}
 		// A model row accepts only a reference it offered, so an empty catalog — or any value the row never
 		// listed — writes nothing (spec `managed-commands` / 利用できるモデルが無いときの候補).
 		if (setting.item === "model") {
 			const row = this.rows().find((candidate) => candidate.id === rowId);
 			if (!row || row.values.length === 0 || !row.values.includes(value)) {
-				return { message: `no models available, so nothing to set`, saved: false, failure: "no choice offered" };
+				return { message: `no models available, so nothing to set`, saved: false, failure: "no choice offered", wrote: [] };
 			}
 		}
 		return applyRoleSetting(this.writes, setting, rowValue(value));
 	}
+}
+
+/**
+ * Write a failure into a description the screen has already drawn, behind its lead rather than in front.
+ *
+ * The lead states the fact every row opens with, and a reason put in front of it reads as a statement about
+ * the whole screen rather than about this one row's write.
+ */
+function afterLead(description: string, lead: string, failure: string): string {
+	return description.startsWith(lead) && lead !== ""
+		? `${lead}${failure} ${description.slice(lead.length)}`
+		: `${failure} ${description}`;
 }
 
 /**
@@ -423,14 +646,88 @@ function rowOfSetting(rowId: string): string {
 	return dot === -1 ? rowId : `${STEP_ROW}${rest.slice(0, dot)}`;
 }
 
-/** The notice a lock change would get, worded as the command words it, for the lock row's description. */
-function lockWarning(current: RolePanelSnapshot, stepRole: string, settings: RoutingSettings): string | undefined {
-	return roleSettingWarning({
-		setStrong: current.lock === MODEL_ROLE_STRONG || stepRole === MODEL_ROLE_STRONG,
-		strongUnresolved: !strongIsUsable(settings, current.lookup),
-		physicalModelSelected: current.routingOff === true,
-	});
+/**
+ * The answer verbs of a sentence with the given subject, conditional while the routing is off.
+ *
+ * On a physical model nothing answers, and a row that kept the present tense would name a model the
+ * session will not use; the lead in front of the row states the assumption these verbs stand in.
+ */
+function answerVerbs(off: boolean, plural: boolean): { answer: string; ask: string; run: string } {
+	if (off) return { answer: "would answer with", ask: "would ask for", run: "would run" };
+	return plural
+		? { answer: "answer with", ask: "ask for", run: "run" }
+		: { answer: "answers with", ask: "asks for", run: "runs" };
 }
+
+/**
+ * The row that locks the session to `role` and then saves the selection, in that order.
+ *
+ * It is an action rather than a setting: no value, no candidate list, and a description that states both
+ * halves — the lock it applies and the change `save` would write to the global file. The single blank value
+ * is the same workaround the `save` row uses, so the host list hands the row to `onChange` without ever
+ * cycling it (design Decision 1).
+ */
+function useRow(role: string, current: RolePanelSnapshot): RolePanelRow {
+	const lead = current.routingOff ? routingOffFact(current.currentModel) : "";
+	const preview =
+		current.globalSettings === undefined
+			? `nothing to preview: ${current.globalSettingsError ?? "pi's global settings could not be read"}.`
+			: describeSavePreview({ ...current.saveSelection, role }, current.globalSettings, current.lookup);
+	return {
+		id: useRowId(role),
+		label: `use ${role}`,
+		description: `${lead}Locks this session to ${role} and ${preview}`,
+		currentValue: SAVE_ROW_VALUE,
+		values: [SAVE_ROW_VALUE],
+		lead,
+	};
+}
+
+/**
+ * The row that saves the session's selection, and the blank row that separates it from the settings.
+ *
+ * `save` is one row rather than a submenu because the operation has nothing to choose: it writes what the
+ * session already holds, and the row says what that is before it is asked and what reached the file after.
+ * Its right-hand column stays empty — the row is an action, and a value there would read as a setting the
+ * row owns (spec `managed-commands` / `/spirits-role` は対話端末で設定と稼働の一覧を開く).
+ */
+function saveRow(current: RolePanelSnapshot, lastSave: RoleWrite | undefined): RolePanelRow {
+	const lead = current.routingOff ? routingOffFact(current.currentModel) : "";
+	// Once the row has been used it reports the disk, not the plan: the user who pressed it is asking what
+	// happened, and a preview left standing after a refusal would still be promising the write that failed.
+	const body = lastSave
+		? lastSave.message
+		: current.globalSettings === undefined
+			? `nothing to preview: ${current.globalSettingsError ?? "pi's global settings could not be read"}.`
+			: describeSavePreview(current.saveSelection, current.globalSettings, current.lookup);
+	return {
+		id: ROLE_SAVE_ROW,
+		label: ROLE_SAVE_WORD,
+		description: `${lead}${body}`,
+		currentValue: SAVE_ROW_VALUE,
+		// One value that is never shown, so the row answers the list's confirm input without ever cycling
+		// into a candidate list (design Decision 1).
+		values: [SAVE_ROW_VALUE],
+		lead,
+	};
+}
+
+/**
+ * The blank row between `save` and the settings: no label, no value, no description, no choices.
+ *
+ * It takes the cursor and the scroll like any row and does nothing with either, which is what keeps the
+ * action row from reading as the first setting. A description would be the only way this row could say
+ * something, and the spec gives it nothing to say (spec `managed-commands` /
+ * 区行はいずれの確定操作でも候補を開かず、設定とセッションを変えてはならない).
+ */
+const SEPARATOR_ROW_SHAPE: RolePanelRow = {
+	id: SEPARATOR_ROW,
+	label: "",
+	description: "",
+	currentValue: "",
+	values: [],
+	lead: "",
+};
 
 /**
  * The row for one role's model: the saved reference as the value, the model that would answer as the
@@ -447,7 +744,12 @@ function modelRow(
 	role: string,
 	current: RolePanelSnapshot,
 	targets: { normal: RoleResolutionLine; strong: RoleResolutionLine },
+	lead: string,
 ): RolePanelRow {
+	const off = current.routingOff === true;
+	// The subject of these sentences is one request, spelled out so the off case reads as a case rather
+	// than as a typo.
+	const verbs = answerVerbs(off, false);
 	const target = targets[role === MODEL_ROLE_STRONG ? MODEL_ROLE_STRONG : MODEL_ROLE_NORMAL];
 	const spec = role === MODEL_ROLE_STRONG ? current.settings.strong : current.settings.normal;
 	// The four states a target can be in say four different things, and the resolution — not the settings
@@ -458,38 +760,38 @@ function modelRow(
 		target.target === "unreadable"
 			? `${role} holds a value routing cannot read: ${target.source}`
 			: target.target === "unset"
-				? `${role} has no model of its own, so a ${role} request runs normal${
+				? `${role} has no model of its own, so a ${role} request ${verbs.run} normal${
 						targetAnswers(targets.normal) ? ` on ${targets.normal.target}` : ""
 					}. Set one here, or with /spirits-role ${role} model <provider/id>.`
 				: target.target === "unusable"
 					? `${role} cannot use what is set: ${target.source}`
 					: target.target === "unresolved"
 						? `Nothing answers ${role} requests: ${target.source}`
-						: `${role} answers with ${target.target} (${target.source}).`;
+						: `${role} ${verbs.answer} ${target.target} (${target.source}).`;
 	// The same warning a command sends for strong, on the row that sets strong's target: a user who sets a
-	// step to strong from the list needs it there too, where no notice is allowed (design Decision 4).
+	// step to strong from the list needs it there too, where no notice is allowed (design Decision 4). The
+	// routing-off half is left to the lead, which is already in front of the row.
 	const strongWarning =
 		role === MODEL_ROLE_STRONG
-			? roleSettingWarning({
-					setStrong: true,
-					strongUnresolved: !strongIsUsable(current.settings, current.lookup),
-					physicalModelSelected: current.routingOff === true,
-				})
-				: undefined;
+			? strongSettingWarning(true, !strongIsUsable(current.settings, current.lookup))
+			: undefined;
 	return {
 		id: `${role}.model`,
 		label: `${role} model`,
-		description: strongWarning ? `${description} ${strongWarning}` : description,
+		description: `${lead}${strongWarning ? `${strongWarning} ` : ""}${description}`,
 		currentValue: spec ? modelKey(spec) : role === MODEL_ROLE_NORMAL ? PI_DEFAULT_LABEL : UNSET,
 		// With no catalog there is nothing to pick, and `unset` is not a substitute for one: a row that
 		// offered it would let the screen write where the user chose nothing.
 		values: current.modelChoices.length === 0 ? [] : [...current.modelChoices, UNSET],
 		models: true,
+		lead,
 	};
 }
 
 /** The row for one role's thinking level. */
-function levelRow(role: string, current: RolePanelSnapshot): RolePanelRow {
+function levelRow(role: string, current: RolePanelSnapshot, lead: string): RolePanelRow {
+	// Both sentences here speak of requests in general, which is the plural form.
+	const verbs = answerVerbs(current.routingOff === true, true);
 	// The level on the row is the one a request on this role carries. When strong has nothing to run on,
 	// a strong request runs normal, so the row has to name normal's level rather than strong's setting
 	// (spec `managed-commands` / 一覧の説明の thinking レベルは要求に載るレベルを示す).
@@ -506,14 +808,15 @@ function levelRow(role: string, current: RolePanelSnapshot): RolePanelRow {
 	const level = plan.thinkingLevel ?? SESSION_LEVEL_WORDS;
 	const description =
 		role === MODEL_ROLE_STRONG && plan.strongUnavailable
-			? `strong requests run normal and carry ${level}. Set a usable strong model with /spirits-role ${role} model <provider/id>. pi rounds a level the model cannot take.`
-			: `${role} requests ask for ${level}. pi rounds a level the model cannot take.`;
+			? `strong requests ${verbs.run} normal and carry ${level}. Set a usable strong model with /spirits-role ${role} model <provider/id>. pi rounds a level the model cannot take.`
+			: `${role} requests ${verbs.ask} ${level}. pi rounds a level the model cannot take.`;
 	return {
 		id: `${role}.thinking`,
 		label: `${role} thinking`,
-		description,
+		description: `${lead}${description}`,
 		currentValue: (role === MODEL_ROLE_STRONG ? current.settings.thinking?.strong : current.settings.thinking?.normal) ?? UNSET,
 		values: [...THINKING_CHOICES],
+		lead,
 	};
 }
 
@@ -537,7 +840,10 @@ function stepRow(
 	definition: StepDefinition,
 	current: RolePanelSnapshot,
 	targets: { normal: RoleResolutionLine; strong: RoleResolutionLine },
+	lead: string,
 ): RolePanelRow {
+	// A step row says "it", which is singular.
+	const verbs = answerVerbs(current.routingOff === true, false);
 	const entry = current.settings.steps?.[definition.name];
 	// The step read the way the route reads it, so a step that is not running is described by the same
 	// resolution a request in it would take.
@@ -569,27 +875,23 @@ function stepRow(
 				: entry
 					? `No role is set, so ${definition.name} follows the lock (${current.lock}).`
 					: `Nothing is set, so ${definition.name} follows the lock (${current.lock}).`,
-		plan.model ? `It answers with ${modelKey(plan.model)}.` : `Nothing answers it: ${answers.source}.`,
-		`It asks for ${level}.`,
+		plan.model ? `It ${verbs.answer} ${modelKey(plan.model)}.` : `Nothing answers it: ${answers.source}.`,
+		`It ${verbs.ask} ${level}.`,
 		definition.continuing
 			? "It continues after its run, until a role lock, /spirits-clear, or another step."
 			: "It ends with its run.",
 	];
+	// The warning opens the row rather than trailing the answer, which is what it qualifies, and the
+	// routing-off half is the lead's job.
 	const strongWarning =
-		plan.role === MODEL_ROLE_STRONG && plan.strongUnavailable
-			? roleSettingWarning({
-					setStrong: true,
-					strongUnresolved: true,
-					physicalModelSelected: current.routingOff === true,
-				})
-			: undefined;
-	if (strongWarning) sentences.push(strongWarning);
+		plan.role === MODEL_ROLE_STRONG && plan.strongUnavailable ? strongSettingWarning(true, true) : undefined;
 	if (current.missingStarters.has(definition.name)) sentences.push("This session has none of its starter commands.");
 	return {
 		id: `${STEP_ROW}${definition.name}`,
 		step: definition.name,
 		label: definition.name,
-		description: sentences.join(" "),
+		description: `${lead}${strongWarning ? `${strongWarning} ` : ""}${sentences.join(" ")}`,
+		lead,
 		// The pair as one value, the halves spelled the way the command spells them.
 		currentValue: `${entry?.role ?? UNSET}${STEP_VALUE_SEPARATOR}${entry?.thinking ?? UNSET}`,
 		// The submenu offers the role first and the level second, so the row's own list is the first stage.
@@ -605,6 +907,8 @@ function stepRow(
  * for it.
  */
 export async function openRolePanel(ctx: ExtensionCommandContext, panel: RolePanel): Promise<boolean> {
+	/** The result an action row closes with, told to the user after the screen is gone. */
+	let closingNotice: string | undefined;
 	await ctx.ui.custom<void>((_tui, theme, _keybindings, done) => {
 		const items: TuiSettingItem[] = [];
 
@@ -619,7 +923,7 @@ export async function openRolePanel(ctx: ExtensionCommandContext, panel: RolePan
 		const showFailure = (rowId: string, error: unknown): void => {
 			const reason = error instanceof Error ? error.message : String(error);
 			const item = items.find((candidate) => candidate.id === rowOfSetting(rowId));
-			if (item) item.description = `${FAILURE_PREFIX}${reason}. ${item.description}`;
+			if (item) item.description = afterLead(item.description ?? "", leads.get(item.id) ?? "", `${FAILURE_PREFIX}${reason}.`);
 		};
 
 		/**
@@ -635,6 +939,7 @@ export async function openRolePanel(ctx: ExtensionCommandContext, panel: RolePan
 				if (!item) return;
 				item.currentValue = row.currentValue;
 				item.description = row.description;
+				leads.set(row.id, row.lead);
 			});
 		};
 
@@ -650,7 +955,99 @@ export async function openRolePanel(ctx: ExtensionCommandContext, panel: RolePan
 			const item = items.find((candidate) => candidate.id === rowOfSetting(rowId));
 			if (!item) return;
 			item.currentValue = landedValue(item.currentValue, rowId, value);
-			item.description = `${REDRAW_FAILURE_PREFIX}${reason}. ${item.description}`;
+			item.description = afterLead(item.description ?? "", leads.get(item.id) ?? "", `${REDRAW_FAILURE_PREFIX}${reason}.`);
+		};
+
+		/** Mark effective rows stale when a save's redraw fails without attributing a failure to the save. */
+		const markRowsNotRedrawn = (error: unknown): void => {
+			const reason = error instanceof Error ? error.message : String(error);
+			for (const item of items) {
+				if (item.id === ROLE_SAVE_ROW || item.id === SEPARATOR_ROW || useRowRole(item.id) !== undefined) continue;
+				const lead = leads.get(item.id) ?? "";
+				item.description = afterLead(item.description ?? "", lead, `${REDRAW_FAILURE_PREFIX}${reason}.`);
+			}
+		};
+
+		/**
+		 * Run the shared save and put its result on the row, without a notice until the screen closes.
+		 *
+		 * A save that the file refused is reported by the row it was pressed on — the same place every other
+		 * failure on this screen is reported — and stays open. A write that landed, or a file that already
+		 * agreed, closes the screen and reports in a notice, so the result is still readable afterwards (spec
+		 * `managed-commands` / 成立した保存は一覧を閉じて通知する).
+		 */
+		const runSave = (): void => {
+			let write: RoleWrite;
+			try {
+				write = panel.activate(ROLE_SAVE_ROW);
+			} catch (error) {
+				// Reading the session back is the only thing here that can raise outside the file write, and the
+				// write itself reports through `lastSave`. The host calls `handleInput` without a try, so this
+				// catch is what keeps a refused save from ending the terminal.
+				showFailure(ROLE_SAVE_ROW, error);
+				return;
+			}
+			try {
+				refresh();
+			} catch (error) {
+				// The redraw could not read the session, but the save's result is held by the panel. Keep it
+				// on the row rather than falling back to the preview, and mark the effective rows stale rather
+				// than leaving old settings to look current (spec `managed-commands` /
+				// 保存結果は再描画の失敗で失われない).
+				const result = panel.saveResult(leads.get(ROLE_SAVE_ROW) ?? "");
+				if (result !== undefined) {
+					const item = items.find((candidate) => candidate.id === ROLE_SAVE_ROW);
+					if (item) item.description = result;
+				}
+				markRowsNotRedrawn(error);
+			}
+			// A failure keeps the screen open so its reason stays where the user pressed; a write and a
+			// no-op both close and leave their message in a notice.
+			if (write.failure !== undefined) return;
+			closingNotice = write.message;
+			done();
+		};
+
+		/**
+		 * Run a `use` row: lock the session, then save, and close only when both halves finished.
+		 *
+		 * The row is the list's shortcut for `/spirits-role <role>` followed by `/spirits-role save`. A lock
+		 * that the session refused stops before the save; a lock that landed with a save that refused keeps
+		 * the screen open, because the row has to say why the second half did not happen. A model the save
+		 * deliberately skipped is not a failure: the lock and the role are written and the screen closes with
+		 * the reason in its notice (spec `managed-commands` / `use` の行はロックと保存を行い、成功で閉じる).
+		 */
+		const runUse = (rowId: string): void => {
+			let write: RoleWrite;
+			try {
+				write = panel.activate(rowId);
+			} catch (error) {
+				// The same two-step lock can raise where its first half landed, so the rows are rebuilt first
+				// and the reason then rides on the row the user pressed.
+				try {
+					refresh();
+				} catch {
+					// The redraw failed too; the reason still goes on the drawn row.
+				}
+				showFailure(rowId, error);
+				return;
+			}
+			if (write.failure !== undefined) {
+				// The refusal rides on the row's own description, which the rebuild reads from the panel.
+				try {
+					refresh();
+				} catch {
+					showFailure(rowId, write.failure);
+				}
+				return;
+			}
+			try {
+				refresh();
+			} catch {
+				// The screen is closing, and the notice below carries the result the row could not redraw.
+			}
+			closingNotice = write.message;
+			done();
 		};
 
 		const write: Writer = (rowId, value) => {
@@ -673,6 +1070,7 @@ export async function openRolePanel(ctx: ExtensionCommandContext, panel: RolePan
 					message: `set ${rowId} ${value}; the row was not saved`,
 					saved: false,
 					failure: error instanceof Error ? error.message : String(error),
+					wrote: [],
 				};
 			}
 			// The change is in the session. Re-reading the rows touches the host, and a read that raises here
@@ -685,7 +1083,11 @@ export async function openRolePanel(ctx: ExtensionCommandContext, panel: RolePan
 			return write;
 		};
 
+		/** The lead of every row, kept so a failure written onto a drawn row keeps it in front. */
+		const leads = new Map<string, string>();
+
 		for (const row of panel.rows()) {
+			leads.set(row.id, row.lead);
 			items.push({
 				id: row.id,
 				label: row.label,
@@ -693,20 +1095,111 @@ export async function openRolePanel(ctx: ExtensionCommandContext, panel: RolePan
 				// description together; `SettingsList` reads these fields, not the row it was handed.
 				description: row.description,
 				currentValue: row.currentValue,
-				// The `done` pi-tui hands in closes this submenu and returns to the list. The outer `done`
-				// from `ctx.ui.custom()` ends the screen, so nothing a submenu does may call it — an Esc that
-				// dismisses the whole settings screen instead of one choice list is the bug that proves it.
-				submenu: (current, close) => rowSubmenu(row, current, theme, write, close),
+				// The ordinary rows offer their choices through a submenu, and a row that has one is never read
+				// for `values`. The action rows are the rows without a submenu, and their single value is what
+				// makes the list hand them to `onChange` at all.
+				...(row.values.length === 0 || isActionRow(row.id) ? { values: [...row.values] } : {}),
+				// The action rows and the separator have no submenu: the first act on Enter through `onChange`
+				// and the last acts on nothing, and giving either a submenu would open a list of candidates
+				// where the spec forbids one.
+				...(isActionRow(row.id) || row.id === SEPARATOR_ROW
+					? {}
+					: // The `done` pi-tui hands in closes this submenu and returns to the list. The outer `done`
+						// from `ctx.ui.custom()` ends the screen, so nothing a submenu does may call it — an Esc that
+						// dismisses the whole settings screen instead of one choice list is the bug that proves it.
+						{ submenu: (current: string, close: (selected?: string, options?: { navigateTo?: string }) => void) => rowSubmenu(row, current, theme, write, close) }),
 			});
 		}
-		return new SettingsList(items, MAIN_VISIBLE_ROWS, settingsListTheme(theme), () => {}, () => done());
+		return new RolePanelList(
+			items,
+			MAIN_VISIBLE_ROWS,
+			settingsListTheme(theme),
+			(rowId) => (rowId === ROLE_SAVE_ROW ? runSave() : runUse(rowId)),
+			() => done(),
+		);
 	});
 	// The panel knows what reached the file, so a screen the user only looked through costs no restart.
 	// Reading it here rather than threading a flag through the callbacks is what keeps the submenu code
 	// about editing and nothing else.
-	if (!panel.hasWrites()) return false;
-	await ctx.reload();
+	//
+	// The notice is posted through the UI object rather than through `ctx.ui` after a successful reload: the
+	// host invalidates the context, and the reload also clears the transcript that a notice written before it
+	// would land in. The UI object belongs to the interactive mode, which survives the reload, so the result
+	// stays readable after the screen is gone.
+	const ui = ctx.ui;
+	if (!panel.hasWrites()) {
+		if (closingNotice !== undefined) ui.notify(closingNotice, "info");
+		return false;
+	}
+	try {
+		await ctx.reload();
+	} catch (error) {
+		// A save that landed is not undone by a host that refused the reload while it was answering; the
+		// two facts are reported apart so the user does not read the refusal as a lost write.
+		const reason = error instanceof Error ? error.message : String(error);
+		const saved = closingNotice === undefined ? "" : `${closingNotice}; `;
+		ctx.ui.notify(`${saved}saved, but the reload did not finish: ${reason}`, "warning");
+		return true;
+	}
+	if (closingNotice !== undefined) ui.notify(closingNotice, "info");
 	return true;
+}
+
+/**
+ * Whether a key is the Enter the list reads as confirm.
+ *
+ * Both halves are needed. `matchesKey` says the key the terminal sent is Enter; the keybinding says this
+ * session's confirm input is Enter, which it is by default but not necessarily — a user who moved the
+ * confirm key to another one gets no save from either key, and keeps the command (spec
+ * `managed-commands` / save は確認 Enter だけで作動する).
+ */
+function isConfirmEnter(data: string): boolean {
+	return matchesKey(data, "enter") && getKeybindings().matches(data, "tui.select.confirm");
+}
+
+/**
+ * The list, with the action rows' one input rule added.
+ *
+ * `SettingsList` hands Enter, Space, and a click to the same activation, and a row with values cycles them
+ * into `onChange` — so the three arrive indistinguishable, and the action rows would fire on all three. This
+ * subclass keeps the key that Enter confirm is while the list is working on it, which is the only window in
+ * which an action row's `onChange` writes (design Decision 1). Nothing else changes: Space, the mouse,
+ * another confirm key, the ordinary rows, the scroll, and Esc are the host's own behaviour, and no
+ * non-public member is touched.
+ *
+ * The withdrawal condition is the host's own: once `SettingsList` offers an action row that names its
+ * trigger, this subclass and the single-value rows it exists to serve both go away.
+ */
+class RolePanelList extends SettingsList {
+	/** True while the list is handling a key this session confirms with Enter. */
+	private confirmEnter = false;
+
+	constructor(
+		items: TuiSettingItem[],
+		maxVisible: number,
+		theme: SettingsListTheme,
+		onActivate: (rowId: string) => void,
+		onCancel: () => void,
+	) {
+		super(
+			items,
+			maxVisible,
+			theme,
+			(id) => {
+				if (this.confirmEnter && isActionRow(id)) onActivate(id);
+			},
+			onCancel,
+		);
+	}
+
+	override handleInput(data: string): void {
+		this.confirmEnter = isConfirmEnter(data);
+		try {
+			super.handleInput(data);
+		} finally {
+			this.confirmEnter = false;
+		}
+	}
 }
 
 /**

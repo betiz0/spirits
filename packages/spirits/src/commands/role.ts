@@ -17,17 +17,24 @@
  */
 
 import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
-import type { ExtensionModelRegistry, PiModel } from "../types/host.ts";
+import type { ExtensionModelRegistry, PiModel, ThinkingLevel } from "../types/host.ts";
 import type { IgnoredSetting, ModelSpec, RoutingSettings } from "../config.ts";
 import { readRoleName } from "../config.ts";
 import {
+	HOST_COMMANDS,
 	MODEL_ROLES,
 	MODEL_ROLE_NORMAL,
 	MODEL_ROLE_STRONG,
 	PI_VIRTUAL_MODEL_API,
 	MODEL_SPEC_SEPARATOR,
+	ROLE_BADGE_NONE,
+	ROLE_BADGE_OFF,
 	ROLE_ENTRY_TYPE,
+	ROLE_MODEL_DISPLAY_MAX_LENGTH,
+	ROLE_MODEL_ELLIPSIS_AFTER,
+	ROLE_MODEL_STATUS_KEY,
 	ROLE_STATUS_KEY,
+	ROUTING_MODEL_REFERENCE,
 	ROUTING_STATE_ENTRY_TYPE,
 	SETTINGS_KEY_MODELS,
 	SETTINGS_KEY_NORMAL_MODEL,
@@ -36,8 +43,11 @@ import {
 	SETTINGS_KEY_THINKING,
 	STEP_DEFINITIONS,
 	THINKING_LEVELS,
+	ROLE_SAVE_WORD,
 } from "../constants.ts";
 import type { ThinkingLevelName } from "../constants.ts";
+import { resolveRequestPlan } from "../routing/plan.ts";
+import type { RequestPlanInput } from "../routing/plan.ts";
 import { modelKey, resolveNormalTarget, resolveStrongTarget } from "../routing/resolve.ts";
 
 /** Control characters, including the escape that starts a terminal sequence. */
@@ -78,6 +88,8 @@ export type RoleCommand =
 	/** No arguments: the settings list on a terminal, the running report anywhere else. */
 	| { kind: "panel" }
 	| { kind: "status" }
+	/** Write the session's own selection into pi's global settings. It takes no item and no value. */
+	| { kind: "save" }
 	| { kind: "lock"; role: string }
 	/** Change one setting. `value` is `undefined` for `unset`, which deletes the key. */
 	| { kind: "set"; setting: SettingItem; value: string | undefined }
@@ -111,6 +123,15 @@ export function parseRoleCommand(args: string): RoleCommand {
 	if (head === STATUS_WORD) {
 		if (tokens.length > 1) return { kind: "usage", reason: `status takes no arguments: ${tokens.slice(1).join(" ")}` };
 		return { kind: "status" };
+	}
+	// `save` is the one target that names an action rather than something to change, so it owns no item
+	// and no value — and a line that continues it names nothing (spec `managed-commands` /
+	// save に項目や値を続けない).
+	if (head === ROLE_SAVE_WORD) {
+		if (tokens.length > 1) {
+			return { kind: "usage", reason: `${ROLE_SAVE_WORD} takes no item or value: ${tokens.slice(1).join(" ")}` };
+		}
+		return { kind: "save" };
 	}
 
 	const role = asRoleName(head);
@@ -165,7 +186,7 @@ export function parseRoleCommand(args: string): RoleCommand {
 		return { kind: "set", setting: { target: "step", name: step, item }, value: level };
 	}
 
-	return { kind: "usage", reason: `${tokens[0]} is not a role, a step, or status` };
+	return { kind: "usage", reason: `${tokens[0]} is not a role, a step, status, or ${ROLE_SAVE_WORD}` };
 }
 
 /** The settings path one setting occupies in pi's settings file, as a `models.…` key path. */
@@ -291,6 +312,12 @@ export function targetAnswers(line: RoleResolutionLine): boolean {
 export interface RoleStatusReport {
 	/** True when the session selected the routing model, so the routing is in force. */
 	routingEnabled: boolean;
+	/** The model the session holds, in `provider/id` spelling, named on the same line as the verdict. */
+	sessionModel: string;
+	/** False when the session's model scope leaves the routing model out, which changes the way out. */
+	routingModelInScope: boolean;
+	/** True on a terminal, the only place a host operation can be named to someone who can run it. */
+	interactive: boolean;
 	lock: string;
 	/** The running step, or undefined when the session runs on the lock alone. */
 	step?: { name: string; continuing: boolean; role: string };
@@ -312,7 +339,11 @@ export interface RoleStatusReport {
  */
 export function formatRoleStatus(report: RoleStatusReport): string {
 	const lines: string[] = [
-		report.routingEnabled ? "routing: on (spirits/auto is selected)" : "routing: off (a physical model is selected)",
+		// The verdict and the model behind it, because "off" is a fact about the session's selection and the
+		// user needs to see which selection that was.
+		report.routingEnabled
+			? `routing: on (${report.sessionModel} is selected)`
+			: `routing: off (${report.sessionModel} is selected)`,
 		`lock: ${report.lock}`,
 	];
 	if (report.step) {
@@ -335,7 +366,47 @@ export function formatRoleStatus(report: RoleStatusReport): string {
 	lines.push(`strong: ${report.strong.target} (${report.strong.source})`);
 	if (report.stepSettings.length > 0) lines.push(`step settings: ${report.stepSettings.join("; ")}`);
 	if (report.ignored.length > 0) lines.push(`ignored settings: ${report.ignored.join("; ")}`);
+	// The way out, where there is one to explain: an off session whose scope does hold the routing model has
+	// nothing broken, and a report that lectured about it would be describing a problem the user does not
+	// have (spec `managed-commands` / 振り分け用モデルがスコープ外だと分かる).
+	if (!report.routingEnabled && !report.routingModelInScope) {
+		const guide = routingModelGuide({ scoped: true, interactive: report.interactive });
+		// A terminal is told how to get out of the state, so the line reads as an instruction. The fact a
+		// headless session is told is not something to enable, so it stands on its own.
+		lines.push(report.interactive ? `to enable: ${guide}` : guide);
+	}
 	return lines.join("\n");
+}
+
+/**
+ * How the routing model gets selected, in the host's own operations where there is someone to run them.
+ *
+ * The routing is in force only while the session holds `spirits/auto`, so every off session has to be told
+ * how to change that, and the honest answer depends on whether the session limits its models: a scope
+ * excludes the routing model as surely as a missing provider does, and naming the selector alone would name
+ * a list the model is not in. Only a terminal has a selector, a key, or a slash command to name, and a
+ * session nobody is operating is told the fact alone — it has no screen to press a key on, and pointing at
+ * a settings file would send someone who may be driving a script through an editor (spec
+ * `managed-commands` / 物理モデル選択中の設定変更は振り分けが働いていないことを伝える:
+ * 対話端末でないセッションでは操作を名指さない).
+ *
+ * The strings carry no trailing period: the report, the warning, and the confirmation each close the
+ * sentence their own way.
+ */
+export function routingModelGuide(options: { scoped: boolean; interactive: boolean }): string {
+	const fact = options.scoped
+		? `${ROUTING_MODEL_REFERENCE} is not in this session's model scope`
+		: `${ROUTING_MODEL_REFERENCE} is not the model this session selected`;
+	if (!options.interactive) return `${fact}, and routing is in force only while it is selected`;
+	return options.scoped
+		? `${fact}: press ${HOST_COMMANDS.scopeToggle} in ${HOST_COMMANDS.model} to switch its scope to all models, or run ${HOST_COMMANDS.scopedModels} to add it`
+		: `select ${ROUTING_MODEL_REFERENCE} with ${HOST_COMMANDS.model} to put this to work`;
+}
+
+/** The one thing worth saying about a strong that nothing resolves to, or undefined when strong is usable. */
+export function strongSettingWarning(setStrong: boolean, strongUnresolved: boolean): string | undefined {
+	if (!setStrong || !strongUnresolved) return undefined;
+	return `strong has no usable model, so these requests run ${MODEL_ROLE_NORMAL}. set one with /spirits-role ${MODEL_ROLE_STRONG} model <provider/id>.`;
 }
 
 /**
@@ -353,15 +424,16 @@ export function roleSettingWarning(options: {
 	strongUnresolved: boolean;
 	/** True when the session has a physical model selected instead of the routing model. */
 	physicalModelSelected: boolean;
-	/** How the routing model is spelled to the user, so the line names something they can select. */
-	routingModel?: string;
+	/** True when the session limits its models, which is what makes the selector answer different. */
+	scoped: boolean;
+	/** True on a terminal, the only session that can be told to press something. */
+	interactive: boolean;
 }): string | undefined {
 	const parts: string[] = [];
-	if (options.setStrong && options.strongUnresolved) {
-		parts.push(`strong has no usable model, so these requests run ${MODEL_ROLE_NORMAL}. set one with /spirits-role ${MODEL_ROLE_STRONG} model <provider/id>.`);
-	}
+	const strong = strongSettingWarning(options.setStrong, options.strongUnresolved);
+	if (strong) parts.push(strong);
 	if (options.physicalModelSelected) {
-		parts.push(`routing is off while a physical model is selected; select ${options.routingModel ?? "spirits/auto"} to put this to work.`);
+		parts.push(`routing is off while a physical model is selected; ${routingModelGuide(options)}.`);
 	}
 	return parts.length === 0 ? undefined : parts.join(" ");
 }
@@ -450,8 +522,15 @@ export function roleResolutionLines(
 	const answersSource = normal ? ` (${normalLanding(normal.source)})` : "";
 
 	const normalUnreadable = !settings.normal ? unreadable(`${SETTINGS_KEY_MODELS}.${SETTINGS_KEY_NORMAL_MODEL}`) : undefined;
+	// An unreadable `models.normal` is a diagnosis, not a replacement for the answer: the row still has
+	// to name the model that answers, because a request is on its way and the user is reading this line
+	// to find out what will handle it (spec `managed-commands` / 読めない normal でも実際に応答するモデルを出す).
 	const normalLine: RoleResolutionLine = normalUnreadable
-		? { role: MODEL_ROLE_NORMAL, target: "unreadable", source: `${SETTINGS_KEY_MODELS}.${SETTINGS_KEY_NORMAL_MODEL} ${normalUnreadable}` }
+		? {
+				role: MODEL_ROLE_NORMAL,
+				target: answers ?? "unresolved",
+				source: `${SETTINGS_KEY_MODELS}.${SETTINGS_KEY_NORMAL_MODEL} ${normalUnreadable}${answers ? `; running ${normalLanding(normal!.source)}` : ""}`,
+			}
 		: { role: MODEL_ROLE_NORMAL, target: answers ?? "unresolved", source: normalSource };
 	const strongKey = `${SETTINGS_KEY_MODELS}.${MODEL_ROLE_STRONG}`;
 
@@ -505,27 +584,145 @@ export const SETTINGS_PATHS = {
 } as const;
 
 /**
- * One printable line for a role: control characters and the escape that opens a terminal sequence
- * are removed, and a role that leaves nothing behind prints nothing. Without the strip, a role read
- * from a hand-edited settings file or a foreign session entry could reformat the terminal.
+ * What the next request would run on, decided once and drawn by everything that shows it.
+ *
+ * The badge used to be a record: the route reported the role it had used and that report was drawn, so
+ * the line stayed on whatever the last request had been until a request came along, and it never said
+ * anything about whether the routing was in force at all. It is now a projection — the same resolution
+ * the route, the list, and `status` read, taken from the settings, the phase, and the session's model at
+ * the moment of drawing — which is what lets it name the role, the level, and the model before the user
+ * sends the request they are asking about.
  */
-export function roleBadgeText(role: string | undefined): string | undefined {
-	if (role === undefined) return undefined;
-	const printable = role.replace(CONTROL_CHARACTERS, "").trim();
+
+/**
+ * What the projection reads. Every one of these is read at the draw, never cached.
+ *
+ * The list is {@link RequestPlanInput}'s, not a second one written beside it: the badge promises the
+ * resolution a request reaches, so a fact the resolution gains has to reach the badge without anyone
+ * remembering to add it in two places. Two differences, both stated here:
+ *
+ * - `routingEnabled`, which a plan has no use for because a plan only runs where routing is in force.
+ * - `previous`, boxed by the plan and plain where it is read, which is the only shape that differs.
+ */
+export type RoleBadgeInput = Omit<RequestPlanInput, "previous"> & {
+	/** False when the session runs on a physical model, which is the one reason for `[off]`.
+	 *  The caller decides it with {@link isRoutingModel} on the session's selection. */
+	routingEnabled: boolean;
+	/** Physical model of the latest successful response, the last normal candidate. */
+	previous?: PiModel;
+};
+
+/** The state the badge is a picture of. */
+export type RoleBadgeState =
+	/**
+	 * Routing is in force and something answers: the role that answers, what it asks for, and its model.
+	 *
+	 * The model is absent only where a draw could not resolve one — a host that refused the read the
+	 * resolution needs — because a role the session really holds is worth drawing on its own.
+	 */
+	| { kind: "role"; role: string; model?: PiModel; thinkingLevel?: ThinkingLevel }
+	/** The session runs on a physical model, so nothing routes here. */
+	| { kind: "off" }
+	/** Routing is in force and no role resolves to a model, so nothing can answer whatever is asked. */
+	| { kind: "none" };
+
+/**
+ * Project the badge from the same plan the route would produce.
+ *
+ * The role drawn is the role that *answers*, not the one a step asked for: a step set to a strong that
+ * has nothing to run on answers on normal, and a badge that named strong would name a role no request
+ * uses (spec `managed-commands` / badge は応答する物理モデルを別の status key に出す:
+ * strong が落ちれば応答モデルも従う).
+ */
+export function roleBadgeState({ routingEnabled, previous, ...rest }: RoleBadgeInput): RoleBadgeState {
+	if (!routingEnabled) return { kind: "off" };
+	const plan = resolveRequestPlan({ ...rest, ...(previous ? { previous: { model: previous } } : {}) });
+	// `modelMissing` is the one state with nothing to answer on, and it is the only one that says so.
+	if (!plan.model) return { kind: "none" };
+	return {
+		kind: "role",
+		role: plan.answerRole,
+		model: plan.model,
+		...(plan.thinkingLevel ? { thinkingLevel: plan.thinkingLevel } : {}),
+	};
+}
+
+/** The ellipsis that stands for the tail of a model id too long for the footer. */
+const MODEL_ID_ELLIPSIS = "\u2026";
+
+/**
+ * The answering model as the footer shows it: the id without its provider, its head when it is long.
+ *
+ * The provider is dropped because the footer truncates the end of the whole status line, so a long
+ * reference would take the space of the other extensions' statuses and of this one too. Leaving the
+ * truncation to the footer would lose the same characters in a way nobody configured.
+ */
+export function roleModelDisplay(model: Pick<PiModel, "id">): string {
+	const id = model.id ?? "";
+	if (id.length <= ROLE_MODEL_DISPLAY_MAX_LENGTH) return id;
+	return `${id.slice(0, ROLE_MODEL_ELLIPSIS_AFTER)}${MODEL_ID_ELLIPSIS}`;
+}
+
+/** The two status lines the badge occupies, `undefined` where nothing is drawn. */
+export interface RoleBadgeLines {
+	/** The role line: `[strong high]`, `[off]`, `[!]`, or nothing. */
+	readonly role: string | undefined;
+	/** The answering model, or nothing where the badge has no model to name. */
+	readonly model: string | undefined;
+}
+
+/**
+ * One printable bracketed word: control characters and the escape that opens a terminal sequence are
+ * removed, and a word that leaves nothing behind prints nothing. Without the strip, a value that reached
+ * a resolution from a hand-edited settings file or a foreign session entry could reformat the terminal.
+ */
+function badgeWord(word: string): string | undefined {
+	const printable = word.replace(CONTROL_CHARACTERS, "").trim();
 	return printable === "" ? undefined : `[${printable}]`;
 }
 
-/** The footer status line the managed route shows the role on. */
-export interface RoleBadge {
-	/** Render `role`, or clear the line when there is nothing to show. */
-	update(role: string | undefined, ctx: Pick<ExtensionContext, "ui">): void;
+/**
+ * Draw the state onto the two lines.
+ *
+ * The role and its level are one word, because they answer one question. The model is a separate line
+ * and is left out wherever there is no answering model — the routing is off, or nothing resolves — since
+ * the host's own stats row already names the physical model a session sits on.
+ */
+export function roleBadgeLines(state: RoleBadgeState): RoleBadgeLines {
+	if (state.kind === "off") return { role: badgeWord(ROLE_BADGE_OFF), model: undefined };
+	if (state.kind === "none") return { role: badgeWord(ROLE_BADGE_NONE), model: undefined };
+	// A level that resolves to nothing is not a level to draw: `strong` alone is the honest line, and the
+	// session's own selection is only absent when pi has none either.
+	const word = state.thinkingLevel ? `${state.role} ${state.thinkingLevel}` : state.role;
+	return { role: badgeWord(word), model: state.model ? roleModelDisplay(state.model) : undefined };
 }
 
-/** Build the badge. It holds no state: the role always comes from the session or the route. */
+/** The footer status lines the managed route shows the role and the answering model on. */
+export interface RoleBadge {
+	/** Draw the two lines, clearing whichever of them holds nothing. */
+	update(lines: RoleBadgeLines, ctx: Pick<ExtensionContext, "ui">): void;
+}
+
+/**
+ * Build the badge. It holds no state: every draw is a fresh projection the caller hands it.
+ *
+ * The two keys are written independently on purpose. The footer is one host surface shared with other
+ * extensions, and a host that refuses a write to one key loses that key alone — the role still reads, and
+ * the request still gets routed (spec `managed-commands` / 片方の key の書き込みが失敗しても他方は描く).
+ */
 export function createRoleBadge(): RoleBadge {
 	return {
-		update(role, ctx) {
-			ctx.ui.setStatus(ROLE_STATUS_KEY, roleBadgeText(role));
+		update(lines, ctx) {
+			try {
+				ctx.ui.setStatus(ROLE_STATUS_KEY, lines.role);
+			} catch {
+				// The role line is lost; the model line and the request are not.
+			}
+			try {
+				ctx.ui.setStatus(ROLE_MODEL_STATUS_KEY, lines.model);
+			} catch {
+				// The model line is lost; the role line and the request are not.
+			}
 		},
 	};
 }

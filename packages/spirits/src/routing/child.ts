@@ -20,6 +20,7 @@ import {
 	PI_VIRTUAL_MODEL_API,
 	ROUTING_MODEL_ID,
 	ROUTING_PROVIDER_ID,
+	isRoutingModel,
 	SETTINGS_KEY_DEFAULT_MODEL,
 	SETTINGS_KEY_DEFAULT_PROVIDER,
 	SETTINGS_KEY_MODELS,
@@ -69,7 +70,7 @@ export function createChildModelResolver(
 		// A physical parent selection passes through with no thinking level of its own, so the child
 		// keeps the session's level: spirits changes nothing about a session it does not route.
 		if (parentModel.api !== PI_VIRTUAL_MODEL_API) return { model: parentModel };
-		if (parentModel.provider !== ROUTING_PROVIDER_ID || parentModel.id !== ROUTING_MODEL_ID) {
+		if (!isRoutingModel(parentModel)) {
 			throw new Error(
 				`${modelKey(parentModel)} is a virtual model spirits does not route, so it cannot start a child session: select ${ROUTING_PROVIDER_ID}${MODEL_SPEC_SEPARATOR}${ROUTING_MODEL_ID} or a physical model`,
 			);

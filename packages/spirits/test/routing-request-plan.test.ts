@@ -112,10 +112,11 @@ test("the route, the child, and the panel agree on the model and the level", () 
 					sessionThinkingLevel: "medium",
 					modelChoices: modelChoices(available),
 					missingStarters: new Set<string>(),
+																																saveSelection: { role: "normal" },
 				};
 				const panel = new RolePanel(
 					() => snapshot,
-					{ lockRole: () => {}, patchSettings: () => {}, patchSettingsPath: () => {} },
+					{ lockRole: () => {}, patchSettings: () => {}, patchSettingsPath: () => {}, saveSettings: () => ({}) },
 				);
 				const row = panel.rows().find((candidate) => candidate.id === `step:${step.name}`);
 				if (!row) throw new Error(`no row for ${step.name}`);
@@ -173,8 +174,9 @@ test("the model row and the lock row agree with the route", () => {
 			sessionThinkingLevel: "medium",
 			modelChoices: modelChoices(available),
 			missingStarters: new Set<string>(),
+																																saveSelection: { role: "normal" },
 		}),
-		{ lockRole: () => {}, patchSettings: () => {}, patchSettingsPath: () => {} },
+		{ lockRole: () => {}, patchSettings: () => {}, patchSettingsPath: () => {}, saveSettings: () => ({}) },
 	);
 	const rows = panel.rows();
 	const strongModel = rows.find((row) => row.id === "strong.model");
@@ -224,10 +226,11 @@ test("a strong fallback carries the normal level", () => {
 		sessionThinkingLevel: "medium",
 		modelChoices: modelChoices([SONNET, OPUS]),
 		missingStarters: new Set<string>(),
+																																saveSelection: { role: "normal" },
 	};
 	const panel = new RolePanel(
 		() => snapshot,
-		{ lockRole: () => {}, patchSettings: () => {}, patchSettingsPath: () => {} },
+		{ lockRole: () => {}, patchSettings: () => {}, patchSettingsPath: () => {}, saveSettings: () => ({}) },
 	);
 	expect(panel.rows().find((row) => row.id === "step:opsx-propose")?.description).toContain(
 		`It asks for ${routed.thinkingLevel}.`,

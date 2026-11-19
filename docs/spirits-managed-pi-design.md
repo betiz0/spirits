@@ -101,9 +101,13 @@ managed 経路で「そのパッチが要るか」で分類する。
 |---|---|---|
 | `skill-strong-phase` 1 選択のまま review/deep を strong へ | **拡張**（実装済み・実測 available） | `pi.registerVirtualModel()`（`types.ts:2150`）+ `input` で skill phase、`agent_settled` で settle。clean 実行の official で `available`。パッチ不要 |
 | `model-role-vocabulary` モデルを変えずに role を固定 | **拡張**（`/spirits-role normal\|strong` + `models.role` 既定） | `pi.setModel()` を呼ばずに位相だけ変える。操作系が変わる（`/model ... strong` は使えない）。上流提案（`registerModelRoles`）が LAND すれば統合可能 |
-| `role-badge` 最後の要求を扱う role の表示 | **拡張**（`ui.setStatus("spirits", "[strong]")`） | 公式 footer が拡張 status を描画（footer.ts:289-292）。**表示位置は「拡張 status 行」で、フォークのモデル名隣のバッジではない**。永続化が要るなら `appendEntry()` でセッションに残す |
+| `role-badge` 次のリクエストが走る role と応答モデルの表示 | **拡張**（`ui.setStatus("spirits", "[strong high]")` と `ui.setStatus("spirits-model", "<id>")`） | 公式 footer が拡張 status を描画（footer.ts:289-292）。**表示位置は「拡張 status 行」で、フォークのモデル名隣のバッジではない**。key は 2 つで、ロール・thinking の語と実際に応答する物理モデルを分ける（片方の書込み失敗がもう片方を消さない）。badge は位相・設定・セッションのモデルの射影でリクエストの履歴ではなく、`[off]`（物理モデル選択中）と `[!]`（有効なのに無解決）を出す。永続化が要るなら `appendEntry()` でセッションに残す |
 | `step-role-settings` 1 つのワークフローステップの role と thinking level を決める | **拡張**（`/spirits-role <step> role\|thinking <値>` と `models.steps.<name>`） | フォーク経路にも無かった新しい目的。ステップ名は一覧（`STEP_DEFINITIONS`）が決めるので、一覧に無い名前は書かず、`/spirits-role status` が無視した値として出す |
 | `role-status-report` ロック・実行中のステップ・両ロールの対象を読む | **拡張**（`/spirits-role status`） | pi は選択を出すだけでルーティングを出さない。どのモデルが応答したかを出す面は、この報告しかない |
+
+badge と振り分けが読む設定は、拡張が読み込み時に一度だけ読む。`settings.json` を手で編集した場合は効かず、`/reload`（`ctx.reload()`）から効く。一覧とコマンドの書き込みはこの再読み込みを自分で発火するので、その経路では即時に効く。
+
+セッションの開始（`resume` / `fork` / `continue` と枝の末尾からの `startup`）は分岐の `spirits_step` 記録から継続中のステップとロックを戻し、badge をその解決で描く。`new` と、開いたセッションが継続中のステップを含まない `startup` はステップを外す。開始はステップを外しても `{ step: null }` を追記しないし、再読み込みも追記しない: 開いた分岐はすでに何が走っているかを記録しており、開き直したセッションの開始が直前のセッションのステップの終わりを追記すると、次の `--resume` がそのステップを取り戻してしまう。開始が記録を追記するのは 1 ケースだけ、開いたままの `continuing: false` のステップ（run の途中で閉じられたもの）を棄却したときで、棄却そのものを `{ step: null }` として書く — 棄却をメモリ上だけで外すと、runtime を置き換える再読み込みが同じ開いた記録を読んでそのステップを戻す。
 
 ### /clear
 
@@ -125,7 +129,7 @@ managed 経路で「そのパッチが要るか」で分類する。
 | `thinking-level` thinking level を選ぶ | **拡張** | ロール別・ステップ別の level を `models.thinking.*` と `models.steps.<name>.thinking` に保存し、route が要求本文へ載せる。pi 自身の選択（`set_thinking_level`）は変更しない。差は「`/model` 行ではなく `/spirits-role` 行」 |
 | `role-model` 1 つのロールに固有のモデルを割り当てて保存する | **拡張**（`/spirits-role <role> model <ref>`） | 保存するのはロールの対象でありセッションのモデルではない。pi 自身の選択は `/model` のまま。`unify-spirits-role-command` まで `role-selection` という id だった |
 | `session-model-selection` セッションのモデルを選んで読み戻す | **pi 本体**（`set_model`） | spirits はセッションのモデルを選ばない。ルーティング用モデルを選ぶと全リクエストがルーティングを通り、物理モデルを選ぶと外れる。この差を観測する行として残す |
-| `default-save` 選んだ モデル/level を既定として保存 | **拡張** | 下記 §3 |
+| `default-save` 選んだ モデル/level を既定として保存 | **pi 本体**（`/model` selector の既定保存）＋ **拡張**（`/spirits-role save`） | pi が保存するのはセッションのモデル選択と thinking level の既定で、selector 自身の操作なので RPC には無い。`save` が保存するのは phase のロック（`models.role`）と host の選択が今何であるか（`defaultProvider` / `defaultModel`）で、選択そのものは変えない。下記 §3 |
 | `settings-list` 対話一覧でロールの設定を編集する | **拡張**（`/spirits-role` 無引数） | 一覧は対話 TUI にしか無い。ランナーは RPC で駆動するのでこの行は `not-run` で、一覧が編集できる設定はすべてコマンド 1 行で届く |
 
 `spirits-model`（削除した旧コマンド）からの上の表の目的の移行先は [docs/spirits-managed-pi.md](./spirits-managed-pi.md) の「role / `/clear` / `/model` の限定互換モード」節の移行表に置く。セッションのモデル選択とその既定保存は公式 `/model` と公式 `/thinking` が担い、`/spirits-role` が設定するのはロールの対象（とステップの設定）だけであり、セッションの選択は変えない。同じ表をここに写すと 2 箇所で食い違うので、参照だけ持つ。
@@ -145,9 +149,11 @@ spirits 専用ファイルにしない理由（具体的な損失）:
 - `defaultProvider` / `defaultModel` は **Pi が所有するキー**で、`resolveNormalTarget` の入力そのもの。専用ファイルにすると「Pi の既定モデル」と「spirits の既定モデル」が二重になり、`/model` で Pi が保存した値を spirits が無視する形になる。
 - `pi.getSettings()` で読める唯一の場所に書かないと、編集後 `ctx.reload()` だけで効くという既存の反映経路を再発明する。
 
+`default-save` のもう一つの面として、`/spirits-role save` は「いま何を選んでいるか」をそのまま global settings に書く。pi の既定保存がセッションの選択を保存するのに対して、`save` は選択に触れない。セッションのモデル・thinking level・step・session 記録はどれも変えず、書き込むのは `models.role`（phase のロック）と `defaultProvider` / `defaultModel`（host の選択が routing モデルか物理モデルか）だけである。routing モデルを既定に置けるのは、保存後の global settings と global の資格情報・カタログだけで、履歴の無い新規セッションの normal が解決できるときだけです。旧既定・成功履歴・project の `models.normal`・project の拡張が登録した provider は根拠にせず、それらでしか解決できないときは model の 2 キーに触れず、ロールだけを書いてその理由を通知と一覧の行に出す。比較と書き込みは global ファイルのロック内で 1 回行う（予告を出したあと他所が同じ変更を落としても、その書き込みを同じ値で上書きしない）。`save` は **reload しない**: 現在のセッションのロックや未解決のステップを project の既定に戻さないためであり、応答中にホストが reload を拒否することとも両立する。通常の設定変更だけが reload し、コマンドでは書き込み後に 1 回、一覧では閉じるときにまとめて 1 回である。`save` は TUI・RPC で通知し、print では保存だけして通知しない。print の引数なし `/spirits-role` も同じ出力契約で、一覧も稼働状況も出さない。起動時のモデルは `--model` / `--models` と project の上書きが `defaultProvider` / `defaultModel` より先に効く。project settings・ホストの実効状態・global の書き込み結果は別の事実として、一覧の通常行と `status` は実効値を出し続け、一覧の `save` 行だけがファイルの値を出す。一覧は `use normal` / `use strong` を `save` とその区行の上に置く。`use` の行は `/spirits-role <role>` のロックを書いてから同じ `save` を行い、両方が成立するかロックが成立して保存に差分が無いときにだけ閉じる。ロックだけ成立して保存が失敗したときは開いたままその行に理由を出し、ロックの分の reload は閉じるときに 1 回試みる。成立・差分なしで閉じるときは結果と見送り理由を TUI 通知で出し、reload が拒否されたときは保存済みと reload 未完了を区別して通知する。`use` と `save` の行は確認 Enter だけで作動し、Space・クリック・別の確定キーではロックも保存もしない（Decision 12）。
+
 留意点:
-- `assertProjectTrustedForWrite` に相当する信頼判定がある。**global にだけ書く**（project settings への書込みは信頼ダイアログを伴う。判断事項 5）。
-- `ctx.reload()` は重い（extensions/skills/prompts/context files 再読込、`session_start` 再発火）。設定保存時のみ、かつ idle の時に限る。
+- `assertProjectTrustedForWrite` に相当する信頼判定がある。**global にだけ書く**（project settings への書込みは信頼ダイアログを伴う。判断事項 5。`save` も global のみ）。
+- `ctx.reload()` は重い（extensions/skills/prompts/context files 再読込、`session_start` 再発火）。通常の設定変更のときだけ、かつ idle の時に限る（`save` は reload しない）。
 - `session_start` で role 既定を書く既存挙動（`register.ts`）は、`appendEntry()` 側に移せる。
 
 ---

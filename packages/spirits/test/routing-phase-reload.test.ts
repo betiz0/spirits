@@ -53,7 +53,7 @@ function wire(options: { skills?: readonly string[]; settings?: Record<string, u
 	};
 	/** The `status` report the command would show. */
 	const status = async () => {
-		const context = fakeCommandContext({ available: AVAILABLE });
+		const context = fakeCommandContext({ available: AVAILABLE, authedProviders: ["compat-fake"], model: AUTO_SELECTION });
 		await pi.commands.get("spirits-role")!.handler("status", context.ctx);
 		return context.notices.at(-1) ?? "";
 	};
@@ -68,19 +68,20 @@ function stepRecords(branch: readonly SessionEntry[]): unknown[] {
 }
 
 async function start(pi: FakePi, reason: string, branch: readonly SessionEntry[] = []) {
-	const context = fakeCommandContext({ available: AVAILABLE, branch });
+	const context = fakeCommandContext({ available: AVAILABLE, authedProviders: ["compat-fake"], model: AUTO_SELECTION, branch });
 	await pi.fire("session_start", { type: "session_start", reason }, context.ctx);
 	return context;
 }
 
 async function input(pi: FakePi, text: string) {
-	const context = fakeCommandContext({ available: AVAILABLE });
+	const context = fakeCommandContext({ available: AVAILABLE, authedProviders: ["compat-fake"], model: AUTO_SELECTION });
 	await pi.fire("input", { type: "input", text, source: "interactive" }, context.ctx);
+	return context;
 }
 
 /** Move between branches the way `/tree` does: no session start, only the new branch behind the runtime. */
 async function treeMove(pi: FakePi, branch: readonly SessionEntry[]) {
-	const context = fakeCommandContext({ available: AVAILABLE, branch });
+	const context = fakeCommandContext({ available: AVAILABLE, authedProviders: ["compat-fake"], model: AUTO_SELECTION, branch });
 	await pi.fire(
 		"session_tree",
 		{ type: "session_tree", newLeafId: "new-leaf", oldLeafId: "old-leaf", fromExtension: false },
@@ -142,19 +143,100 @@ test("a reload keeps the continuing step", async () => {
 	expect(fresh.route()).toMatchObject({ role: "strong", model: FAKE_STRONG, thinkingLevel: "high" });
 });
 
-// spec scenario "a resume drops the step": resuming is opening a different conversation.
-test("a resume drops the step", async () => {
+// spec scenario "復帰でも継続中のステップを戻す": the branch's records say what runs on it, and a start
+// reads them. What it does not do is write a step back that its own list no longer carries.
+test("a resume restores the step the branch recorded", async () => {
 	const branch: SessionEntry[] = [
-		customEntry(ROLE_ENTRY_TYPE, { role: "strong" }, nextEntryId()),
+		customEntry(ROLE_ENTRY_TYPE, { role: "normal" }, nextEntryId()),
 		customEntry(STEP_ENTRY_TYPE, { step: "opsx-apply" }, nextEntryId()),
 	];
 	const { pi, phase } = wire();
 
 	await start(pi, "resume", branch);
 
-	// The lock is the session's and comes back; the step belonged to the conversation that was running.
-	expect(phase.current()).toBe("strong");
+	expect(phase.lock()).toBe("normal");
+	expect(phase.step()?.name).toBe("opsx-apply");
+	// Nothing was written: the records already describe this branch, and a start that added one would make
+	// the next reload believe the step had ended.
+	expect(pi.entries).toEqual([]);
+});
+
+// spec scenario "run の途中で閉じた継続しないステップは復帰で戻さない": an open record of a step that ends
+// with its run means the run was interrupted, and an interrupted run returns to the lock. The rejection is
+// written down, which is what keeps the next reload from putting the step back.
+test("a resume does not restore a step that ends with its run", async () => {
+	const branch = restoredBranch("normal", "sprt-opsx-verify-deep");
+	const { pi, phase, decision } = wire();
+
+	await start(pi, "resume", branch);
+
 	expect(phase.step()).toBeUndefined();
+	expect(decision()).toBe("normal:fake-model");
+	expect(stepRecords(branch.concat(pi.entries.map((entry) => makeCustomEntry(entry.customType, entry.data))).slice(-2))).toEqual([
+		{ step: "sprt-opsx-verify-deep" },
+		{ step: null },
+	]);
+});
+
+// spec scenario "棄却した継続しないステップは再読み込みでも戻さない": the rejection has to survive the thing
+// it was made for. A runtime is replaced by a reload, so a rejection that lived only in memory would let the
+// next reload read the same open record and put the strong step back — measured in verification as normal
+// right after the resume and strong again after the reload.
+test("a rejected step that does not continue stays rejected through a reload", async () => {
+	const branch = restoredBranch("normal", "sprt-opsx-verify-deep");
+	const { pi, phase } = wire();
+
+	await start(pi, "resume", branch);
+	expect(phase.step()).toBeUndefined();
+
+	// The branch as the reopened session leaves it: the record of the interrupted step, then the end this
+	// start wrote over it. Read back by a fresh runtime through a reload.
+	const reopened: SessionEntry[] = [
+		...branch,
+		...pi.entries.map((entry) => makeCustomEntry(entry.customType, entry.data)),
+	];
+	const fresh = wire();
+	const started = await start(fresh.pi, "reload", reopened);
+
+	expect(fresh.phase.step()).toBeUndefined();
+	expect(started.statuses.get("spirits")).toBe("[normal]");
+	expect(fresh.decision()).toBe("normal:fake-model");
+	// The reload itself adds nothing.
+	expect(fresh.pi.entries).toEqual([]);
+});
+
+// spec scenario "復帰では復元しない": `/spirits-clear` ended the step and recorded that, and the end is the
+// newest thing the branch says.
+test("a resume does not restore a step `/spirits-clear` ended", async () => {
+	const branch: SessionEntry[] = [
+		makeCustomEntry(ROLE_ENTRY_TYPE, { role: "normal" }),
+		makeCustomEntry(STEP_ENTRY_TYPE, { step: "opsx-apply" }),
+		makeCustomEntry(STEP_ENTRY_TYPE, { step: null }),
+	];
+	const { pi, phase, decision } = wire();
+
+	await start(pi, "resume", branch);
+
+	expect(phase.step()).toBeUndefined();
+	expect(decision()).toBe("normal:fake-model");
+});
+
+// spec scenario "復帰後にロールが戻る" and the reopened half of "開き直したセッションは開いた時点で戻し、
+// 再読み込みの後も同じ": the lock, the step, the badge, and the first request all come back as one state.
+test("a resumed session continues its step on the role the badge shows", async () => {
+	const { pi, phase, decision } = wire({
+		settings: { models: { strong: "compat-fake/fake-strong", steps: { "opsx-apply": { role: "strong" } } } },
+	});
+
+	const started = await start(pi, "resume", restoredBranch("normal", "opsx-apply"));
+
+	expect(phase.lock()).toBe("normal");
+	expect(phase.step()?.name).toBe("opsx-apply");
+	// The badge is drawn from the state that came back, so the footer says strong before the first request.
+	expect(started.statuses.get("spirits")).toBe("[strong]");
+	expect(started.statuses.get("spirits-model")).toBe("fake-strong");
+	// And the first idle input really goes there: the line and the route cannot be telling two stories.
+	expect(decision()).toBe("strong:fake-strong");
 });
 
 // The record of a step that ended is a record too, and it is the reason nothing comes back.
@@ -175,8 +257,8 @@ test("a reload after the step ended restores nothing", async () => {
 // the step's role rather than the lock the user set before the step opened.
 test("the badge and status match the phase restored across a reload", async () => {
 	const branch = restoredBranch("normal", "sprt-opsx-verify-deep");
-	const { pi, phase } = wire();
-	const started = fakeCommandContext({ available: [FAKE_MODEL], branch });
+	const { pi, phase } = wire({ settings: { models: { strong: "compat-fake/fake-strong" } } });
+	const started = fakeCommandContext({ available: AVAILABLE, authedProviders: ["compat-fake"], model: AUTO_SELECTION, branch });
 
 	await pi.fire("session_start", { type: "session_start", reason: "reload" }, started.ctx);
 
@@ -184,8 +266,10 @@ test("the badge and status match the phase restored across a reload", async () =
 	expect(phase.step()?.name).toBe("sprt-opsx-verify-deep");
 	expect(phase.step()?.defaultRole).toBe("strong");
 	expect(phase.current()).toBe("strong");
-	// The badge is redrawn on the new runtime, on the role the phase settled on for the step.
-	expect([...started.statuses.values()].at(-1)).toBe("[strong]");
+	// The badge is redrawn on the new runtime, on the role the phase settled on for the step, and the
+	// answering model comes with it on its own key.
+	expect(started.statuses.get("spirits")).toBe("[strong]");
+	expect(started.statuses.get("spirits-model")).toBe("fake-strong");
 
 	// The status line reads the same restored phase: the lock the session holds stays the lock, and the
 	// step that came back is named as the thing running.
@@ -201,9 +285,14 @@ test("the badge and status match the phase restored across a reload", async () =
 test("a reload draws the badge from the step setting", async () => {
 	const { pi, phase } = wire({
 		skills: ["skill:openspec-propose"],
-		settings: { models: { steps: { "opsx-propose": { role: "strong" } } } },
+		settings: { models: { strong: "compat-fake/fake-strong", steps: { "opsx-propose": { role: "strong", thinking: "high" } } } },
 	});
-	const started = fakeCommandContext({ available: [FAKE_MODEL], branch: restoredBranch("normal", "opsx-propose") });
+	const started = fakeCommandContext({
+		available: AVAILABLE,
+		authedProviders: ["compat-fake"],
+		model: AUTO_SELECTION,
+		branch: restoredBranch("normal", "opsx-propose"),
+	});
 
 	await pi.fire("session_start", { type: "session_start", reason: "reload" }, started.ctx);
 
@@ -211,7 +300,9 @@ test("a reload draws the badge from the step setting", async () => {
 	// The lock alone reads normal and the step list gives `opsx-propose` no role of its own, so a badge
 	// drawn from the phase alone would say `[normal]` while the next request routes strong.
 	expect(phase.lock()).toBe("normal");
-	expect([...started.statuses.values()].at(-1)).toBe("[strong]");
+	// spec scenario "ステップ設定のロールを badge に出す": the level the step asks for rides on the same word.
+	expect(started.statuses.get("spirits")).toBe("[strong high]");
+	expect(started.statuses.get("spirits-model")).toBe("fake-strong");
 });
 
 // spec scenario "再読み込み中の設定変更は継続中のステップに次から効く": a settings change that the reload
@@ -251,28 +342,24 @@ test("a changed step setting reaches the next request after a reload", async () 
 	expect(after.route()).toMatchObject({ role: "strong", model: FAKE_STRONG, thinkingLevel: "high" });
 });
 
-// spec scenario "開き直したセッションでは後の再読み込みでも復元しない": a process that opens a session has no
-// memory of the step that died with the old one, so the start itself has to close the record. Without it,
-// changing a setting after the reopen — anything that reloads the extension — reads the step back.
+// spec scenario "開き直したセッションは開いた時点で戻し、再読み込みの後も同じ": the step is restored when the
+// session is opened, not when a reload happens to follow, and no record is written to say so. The point of
+// the old behavior was to stop a later reload reading back a step nobody remembered; reading the records at
+// the open is what stops it now, and it stops it without inventing a record this branch never had.
 for (const reason of ["startup", "resume", "fork"]) {
-	test(`a reopened session restores no step on the next reload (${reason})`, async () => {
+	test(`a reopened session restores its step at the open and on the next reload (${reason})`, async () => {
 		const branch = restoredBranch("normal", "opsx-apply");
 		const { pi, phase } = wire();
 
 		await start(pi, reason, branch);
 
-		// Nothing was in memory to end, and the start records the end anyway.
-		expect(phase.step()).toBeUndefined();
-		expect(pi.entries).toEqual([{ customType: STEP_ENTRY_TYPE, data: { step: null } }]);
+		expect(phase.step()?.name).toBe("opsx-apply");
+		expect(pi.entries).toEqual([]);
 
-		// The session file as the reopened session now holds it, read by a later reload.
+		// The session file as the reopened session holds it — unchanged — read by a later reload.
 		const reloaded = wire();
-		await start(
-			reloaded.pi,
-			"reload",
-			[...branch, ...pi.entries.map((entry) => makeCustomEntry(entry.customType, entry.data))],
-		);
-		expect(reloaded.phase.step()).toBeUndefined();
+		await start(reloaded.pi, "reload", branch);
+		expect(reloaded.phase.step()?.name).toBe("opsx-apply");
 	});
 }
 
@@ -401,17 +488,27 @@ test("a tree move to a branch with no step record ends the step", async () => {
 
 // spec scenario "移動の後に badge を描き直す": nothing else fires on a move, so the badge would keep showing the
 // role from before it. The step's own role is what the next request takes, so that is what is drawn.
-test("a tree move redraws the badge", async () => {
-	const { pi } = wire({
+// spec scenario "移動の後に badge を描き直す", and "分岐ごとにロールを持つ": the badge follows the branch the
+// user landed on, and so does the next request, because both read the same phase.
+test("a tree move redraws the badge and moves the next request with it", async () => {
+	const { pi, decision } = wire({
 		skills: ["skill:openspec-propose"],
-		settings: { models: { steps: { "opsx-propose": { role: "strong" } } } },
+		settings: { models: { strong: "compat-fake/fake-strong", steps: { "opsx-propose": { role: "strong" } } } },
 	});
 	const started = await start(pi, "startup");
-	expect([...started.statuses.values()].at(-1)).toBe("[normal]");
+	expect(started.statuses.get("spirits")).toBe("[normal]");
+	expect(started.statuses.get("spirits-model")).toBe("fake-model");
 
 	const moved = await treeMove(pi, [makeCustomEntry(STEP_ENTRY_TYPE, { step: "opsx-propose" })]);
 
-	expect([...moved.statuses.values()].at(-1)).toBe("[strong]");
+	expect(moved.statuses.get("spirits")).toBe("[strong]");
+	expect(moved.statuses.get("spirits-model")).toBe("fake-strong");
+	expect(decision()).toBe("strong:fake-strong");
+
+	// Back to the branch with no step of its own, and both follow.
+	const back = await treeMove(pi, [makeCustomEntry(ROLE_ENTRY_TYPE, { role: "normal" })]);
+	expect(back.statuses.get("spirits")).toBe("[normal]");
+	expect(decision()).toBe("normal:fake-model");
 });
 
 // A move reads the destination's record; it does not add one, because the destination leaf would then
@@ -429,15 +526,45 @@ test("a tree move appends no step record", async () => {
 });
 
 // A start that records nothing leaves the configured default standing, which is what makes `models.role`
-// a default rather than a session's state.
+// a default rather than a session's state. spec `managed-commands` / どちらも無ければ既定ロール: the lock is
+// the default, and the badge is drawn from it rather than from a record that does not exist.
 test("a new session with no records takes the configured default", async () => {
 	const pi = new FakePi();
-	pi.settings = { defaultProvider: "compat-fake", defaultModel: "fake-model", models: { role: "strong" } };
+	pi.settings = {
+		defaultProvider: "compat-fake",
+		defaultModel: "fake-model",
+		models: { role: "strong", strong: "compat-fake/fake-strong" },
+	};
 	const routing = registerDualModelRouting(asExtensionApi(pi));
 	registerManagedCommands(asExtensionApi(pi), { phase: routing.phase, patchSettings: () => {} });
 
-	await start(pi, "new");
+	const started = await start(pi, "new");
 
+	expect(routing.phase.lock()).toBe("strong");
 	expect(routing.phase.current()).toBe("strong");
 	expect(routing.phase.step()).toBeUndefined();
+	expect(started.statuses.get("spirits")).toBe("[strong]");
+	expect(started.statuses.get("spirits-model")).toBe("fake-strong");
+});
+
+// spec "dual-model-routing / strong フェーズからの復帰": 新規セッションの開始では継続中のステップを終える。
+// A new conversation has no records of its own, so the step this process was holding is simply gone and the
+// next request runs on the lock.
+test("a new session ends the step the process was holding", async () => {
+	const { pi, phase, decision } = wire({
+		settings: { models: { strong: "compat-fake/fake-strong", steps: { "opsx-apply": { role: "strong" } } } },
+	});
+	await start(pi, "startup");
+	await input(pi, "/skill:openspec-apply-change add-dual-model-routing");
+	expect(phase.step()?.name).toBe("opsx-apply");
+	expect(decision()).toBe("strong:fake-strong");
+
+	await start(pi, "new");
+
+	expect(phase.step()).toBeUndefined();
+	expect(phase.lock()).toBe("normal");
+	expect(decision()).toBe("normal:fake-model");
+	// Ending the step for a new conversation writes nothing: the record belongs to the conversation that
+	// ended, and this one has no file of its own to append it to.
+	expect(pi.entries).toEqual([{ customType: STEP_ENTRY_TYPE, data: { step: "opsx-apply" } }]);
 });

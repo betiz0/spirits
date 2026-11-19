@@ -1,8 +1,27 @@
 import type { ExtensionContext, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
+import type { SettingsPatch } from "../src/commands/settings-store.ts";
 import type { CallableToolInfo, ExtensionModelRegistry, ReadonlySessionManager } from "../src/types/host.ts";
 import { fakeModelRegistry, fakeProjection, fakeSessionManager, fakeToolCallOutcome, fakeToolContext, fakeUi } from "./host/fake-pi.ts";
 import type { HostFnScope } from "../src/repl/registry.ts";
 import type { ToolCallRecord } from "../src/repl/metrics.ts";
+
+/** Apply the same shallow object merge the settings store uses, for in-memory command fixtures. */
+export function mergeSettingsPatch(current: Record<string, unknown>, patch: SettingsPatch): Record<string, unknown> {
+	const merged = { ...current };
+	for (const [key, value] of Object.entries(patch)) {
+		if (isPlainObject(value)) {
+			const base = isPlainObject(current[key]) ? current[key] : {};
+			merged[key] = { ...base, ...value };
+		} else {
+			merged[key] = value;
+		}
+	}
+	return merged;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 const EMPTY_SESSION_MANAGER: ReadonlySessionManager = fakeSessionManager({
 	getBranch: () => [],

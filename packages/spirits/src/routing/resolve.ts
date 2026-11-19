@@ -11,8 +11,17 @@ import type { ExtensionModelRegistry, PiModel } from "../types/host.ts";
 import { MODEL_SPEC_SEPARATOR, PI_VIRTUAL_MODEL_API } from "../constants.ts";
 import type { ModelSpec } from "../config.ts";
 
-/** Catalog view a resolver needs. `ctx.modelRegistry` satisfies it. */
-export type ModelLookup = Pick<ExtensionModelRegistry, "getAvailable" | "hasConfiguredAuth">;
+/**
+ * Catalog view a resolver needs. `ctx.modelRegistry` satisfies it.
+ *
+ * `getRegisteredProviderIds` is optional because a resolver that only answers for the current session
+ * has no use for it, and a test double that does not model provider provenance leaves it out. Where it
+ * is present it is the host's own list of providers an extension registered — the one signal that tells
+ * a model every project can reach from one a project extension brought with it.
+ */
+export type ModelLookup = Pick<ExtensionModelRegistry, "getAvailable" | "hasConfiguredAuth"> & {
+	getRegisteredProviderIds?: ExtensionModelRegistry["getRegisteredProviderIds"];
+};
 
 /** How a normal target was reached: the setting, pi's default model, or the last successful model. */
 export type NormalSource = "spec" | "default" | "previous";

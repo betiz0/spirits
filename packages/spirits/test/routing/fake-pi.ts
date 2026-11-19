@@ -10,13 +10,21 @@ import type {
 	ExtensionCommandContext,
 	ExtensionContext,
 	ExtensionToolContext,
+	ExtensionUIContext,
 	ExtensionVirtualModel,
 	ModelRouteRequest,
 	SessionEntry,
 	SlashCommandInfo,
 	ToolDefinition,
 } from "@earendil-works/pi-coding-agent";
-import type { AgentMessage, ExtensionMode, PiModel, RegisteredCommandOptions, ThinkingLevel } from "../../src/types/host.ts";
+import type {
+	AgentMessage,
+	ExtensionMode,
+	PiModel,
+	RegisteredCommandOptions,
+	ScopedModel,
+	ThinkingLevel,
+} from "../../src/types/host.ts";
 import type { TSchema } from "typebox";
 import {
 	asExtensionApi,
@@ -142,15 +150,23 @@ export class FakePi {
 		return (this.handlers.get(event) ?? []).length;
 	}
 
-	/** Fire an event through the recorded handlers, collecting handler errors like pi reports them. */
-	async fire(event: string, payload: unknown, ctx: ExtensionContext): Promise<void> {
+	/**
+	 * Fire an event through the recorded handlers, collecting handler errors like pi reports them.
+	 *
+	 * The results come back in registration order, because an `input` handler's answer is the thing a test
+	 * needs: pi stops at the first `handled` and sends nothing, and a step the user stopped is only stopped
+	 * if that answer is there.
+	 */
+	async fire(event: string, payload: unknown, ctx: ExtensionContext): Promise<unknown[]> {
+		const results: unknown[] = [];
 		for (const handler of [...(this.handlers.get(event) ?? [])]) {
 			try {
-				await handler(payload, ctx);
+				results.push(await handler(payload, ctx));
 			} catch (error) {
 				this.errors.push(error);
 			}
 		}
+		return results;
 	}
 
 	/** The route of the last registration, which is the live one: re-registering replaces it. */
@@ -165,13 +181,38 @@ export class FakePi {
  * Input event payload with the given text, as pi fires it before expanding the text. `steer` and
  * `followUp` deliver the input into a run in progress; the default is an idle input that starts one.
  */
-export function makeInputEvent(text: string, streamingBehavior?: "steer" | "followUp"): unknown {
-	return { type: "input", text, source: "interactive", streamingBehavior };
+export function makeInputEvent(
+	text: string,
+	streamingBehavior?: "steer" | "followUp",
+	source: "interactive" | "rpc" | "extension" = "interactive",
+): unknown {
+	return { type: "input", text, source, streamingBehavior };
 }
 
 /** `agent_settled` payload with the given abort flag. */
 export function makeSettledEvent(aborted = false): unknown {
 	return { type: "agent_settled", aborted };
+}
+
+/**
+ * `model_select` payload as pi fires it when the selection changes.
+ *
+ * pi names how the change happened: `set` for `/model`, `cycle` for the model-cycle shortcut, and
+ * `restore` for a selection the session took back. The step-start badge redraw reads the event, not the
+ * reason, so a test picks whichever reason it wants to stand behind the change.
+ */
+export function makeModelSelectEvent(model: PiModel, previousModel?: PiModel, source: "set" | "cycle" | "restore" = "set"): unknown {
+	return { type: "model_select", model, previousModel, source };
+}
+
+/**
+ * `thinking_level_select` payload as pi fires it.
+ *
+ * pi fires only when the resolved level really changed, so `previousLevel` is whatever the session
+ * carried before.
+ */
+export function makeThinkingLevelSelectEvent(level: ThinkingLevel, previousLevel: ThinkingLevel = "off"): unknown {
+	return { type: "thinking_level_select", level, previousLevel };
 }
 
 /** A routing request as pi would build one for the `spirits/auto` selection. */
@@ -215,6 +256,79 @@ export interface FakeCustomUi {
 	readonly components: unknown[];
 }
 
+/**
+ * How the fake answers one `ctx.ui.select()`.
+ *
+ * The host closes a selector on a choice, on Esc, on its own countdown, and on an `abort` of the
+ * `signal` the caller handed it, and the last three all come back as `undefined`. A test therefore says
+ * which of the four it stands for rather than handing over a bare value, which is the only way to tell
+ * "the wait ran out" from "the user closed it" in a test.
+ */
+export interface FakeSelectBehavior {
+	/** Resolve with this choice. An absent value stands for an Esc typed at once. */
+	value?: string;
+	/** Wait this long, then resolve `undefined` the way an Esc does. */
+	escAfterMs?: number;
+	/** Resolve `undefined` when the caller's `signal` aborts, which is how a timeout reaches the caller. */
+	abortAsCancel?: boolean;
+	/** Throw instead of showing the dialog, the way a host that refuses it does. */
+	error?: string;
+	/**
+	 * Runs while the dialog is held open, before the answer arrives.
+	 *
+	 * The host awaits an `input` handler with the dialog on screen, so the session keeps living — another
+	 * extension's input can start a step, `/tree` can move the branch — while the answer is still out. This is
+	 * the only way a test can put something in that window.
+	 */
+	during?: () => void | Promise<void>;
+}
+
+/** One call an extension made through `ctx.ui.select()`. */
+export interface FakeSelectCall {
+	title: string;
+	options: string[];
+	timeout?: number;
+	signal?: AbortSignal;
+}
+
+/** The `ui.select` double and the calls it recorded. */
+export interface FakeSelect {
+	/** Every call, in order, with the `timeout` and `signal` the extension passed. */
+	readonly calls: FakeSelectCall[];
+	readonly select: ExtensionUIContext["select"];
+}
+
+/** Build the `ui.select` double out of the answer one test wants. */
+export function fakeSelect(behavior: FakeSelectBehavior = {}): FakeSelect {
+	const calls: FakeSelectCall[] = [];
+	const select: ExtensionUIContext["select"] = async (title, options, opts) => {
+		calls.push({
+			title,
+			options: [...options],
+			...(opts?.timeout === undefined ? {} : { timeout: opts.timeout }),
+			...(opts?.signal === undefined ? {} : { signal: opts.signal }),
+		});
+		if (behavior.error !== undefined) throw new Error(behavior.error);
+		if (behavior.during) await behavior.during();
+		if (behavior.escAfterMs !== undefined) await new Promise((resolve) => setTimeout(resolve, behavior.escAfterMs));
+		if (behavior.abortAsCancel) await aborted(opts?.signal);
+		return behavior.value;
+	};
+	return { calls, select };
+}
+
+/** Resolves when `signal` aborts, so a fake can stand for the host closing the dialog on it. */
+function aborted(signal: AbortSignal | undefined): Promise<void> {
+	if (!signal) throw new Error("the fake select was told to close on abort, but the caller gave no signal");
+	if (signal.aborted) return Promise.resolve();
+	return new Promise((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+}
+
+/** One entry of a session's model scope, as `ctx.scopedModels` reports it. */
+export function scopedModel(model: PiModel): ScopedModel {
+	return { model };
+}
+
 export function fakeCatalog(options: {
 	available?: readonly PiModel[];
 	authedProviders?: readonly string[];
@@ -224,6 +338,19 @@ export function fakeCatalog(options: {
 	mode?: ExtensionMode;
 	/** Thinking level the session selected, which is what a role or step level overrides. */
 	thinkingLevel?: ThinkingLevel;
+	/**
+	 * The session's model scope, as pi resolves it from `--models` / `enabledModels`. Empty means every
+	 * available model is usable, which is what pi's own reader reports for an unscoped session.
+	 */
+	scopedModels?: readonly ScopedModel[];
+	/** How `ui.select()` answers. Absent means the session has no dialog-capable host to ask. */
+	select?: FakeSelectBehavior;
+	/**
+	 * Providers an extension registered, as `modelRegistry.getRegisteredProviderIds()` reports them.
+	 * Absent leaves the method out, which is the shape of a host that publishes no provenance; the
+	 * default reports a known-empty list, the shape of the pinned host when nothing registered one.
+	 */
+	registeredProviders?: readonly string[];
 	/** The value `custom()` hands back, standing for the result a closed screen reports. */
 	customResult?: unknown;
 	/**
@@ -235,24 +362,36 @@ export function fakeCatalog(options: {
 } = {}): {
 	ctx: ExtensionContext;
 	notices: string[];
+	/** The notices with the type each was sent as, which is what a test of the notice's kind reads. */
+	notifications: Array<{ message: string; type: "info" | "warning" | "error" | undefined }>;
 	statuses: Map<string, string | undefined>;
 	custom: FakeCustomUi;
+	/** The `ui.select()` calls, in order, only when the test gave a `select` behavior. */
+	selects?: FakeSelectCall[];
 } {
 	const authed = new Set(options.authedProviders ?? []);
 	const notices: string[] = [];
+	const notifications: Array<{ message: string; type: "info" | "warning" | "error" | undefined }> = [];
 	const statuses = new Map<string, string | undefined>();
 	const components: unknown[] = [];
 	const custom: FakeCustomUi = { components };
+	const selector = options.select === undefined ? undefined : fakeSelect(options.select);
 	return {
 		notices,
+		notifications,
 		statuses,
 		custom,
+		...(selector ? { selects: selector.calls } : {}),
 		ctx: fakeContext({
 			ui: fakeUi({
 				setHeader: () => {},
 				setWidget: () => {},
-				notify: (message: string) => notices.push(message),
+				notify: (message: string, type?: "info" | "warning" | "error") => {
+					notifications.push({ message, type });
+					notices.push(message);
+				},
 				setStatus: (key: string, text: string | undefined) => statuses.set(key, text),
+				...(selector ? { select: selector.select } : {}),
 				// pi's `custom()` builds the component through the factory and resolves with what `done()`
 				// carries. The fake runs the factory with a `done` that closes at once, so a test sees the
 				// component the screen built without a terminal in front of it.
@@ -260,6 +399,7 @@ export function fakeCatalog(options: {
 			}),
 			mode: options.mode ?? "tui",
 			thinkingLevel: options.thinkingLevel,
+			scopedModels: options.scopedModels ?? [],
 			model: options.model,
 			// pi's projection contributes one model-visible message per conversation entry and none
 			// for state-only entries, which is what a clear boundary counts.
@@ -278,6 +418,9 @@ export function fakeCatalog(options: {
 				find: (provider: string, modelId: string) =>
 					(options.available ?? []).find((model) => model.provider === provider && model.id === modelId),
 				hasConfiguredAuth: (model: PiModel) => authed.has(model.provider),
+				...(options.registeredProviders === undefined
+					? { getRegisteredProviderIds: () => [] }
+					: { getRegisteredProviderIds: () => [...options.registeredProviders!] }),
 			}),
 		}),
 	};
@@ -333,23 +476,28 @@ export const AUTO_SELECTION: PiModel = fakeModel("spirits", "auto", { api: PI_VI
  * them, because "nothing runs after reload" is a rule a test has to be able to see.
  */
 export function fakeCommandContext(
-	options: Parameters<typeof fakeCatalog>[0] = {},
+	options: Parameters<typeof fakeCatalog>[0] & { reloadError?: string } = {},
 ): {
 	ctx: ExtensionCommandContext;
 	notices: string[];
+	notifications: Array<{ message: string; type: "info" | "warning" | "error" | undefined }>;
 	statuses: Map<string, string | undefined>;
 	custom: FakeCustomUi;
+	selects?: FakeSelectCall[];
 	reloads: () => number;
 } {
-	const { ctx, notices, statuses, custom } = fakeCatalog(options);
+	const { ctx, notices, notifications, statuses, custom, selects } = fakeCatalog(options);
 	let reloadCount = 0;
 	return {
 		notices,
+		notifications,
 		statuses,
 		custom,
+		...(selects ? { selects } : {}),
 		reloads: () => reloadCount,
 		ctx: hostCommandContext({ ...ctx, reload: async () => {
 				reloadCount += 1;
+				if (options.reloadError !== undefined) throw new Error(options.reloadError);
 			} }),
 	};
 }

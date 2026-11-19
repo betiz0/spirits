@@ -326,6 +326,99 @@ test("keeps the phase on steer and follow-up input", () => {
 });
 
 // The step record is what a reload reads back, so every change reaches the hook exactly once, and a
+// spec "managed-commands / 中止すれば入力前に戻る": a stopped input takes the phase back with it, and the
+// record has to land where the phase did — the record is what a reload, a resume, and a branch move read,
+// so a restore that lived only in memory would put the stopped step back on the next reload.
+test("undoing an input puts the step that was running back and records it", () => {
+	const seen: (string | null)[] = [];
+	const phase = phaseWithCommands(["skill:openspec-apply-change", "skill:openspec-propose"], { onStepChange: (step) => seen.push(step) });
+	phase.handleInput("/skill:openspec-apply-change x");
+
+	phase.handleInput("/skill:openspec-propose x");
+	expect(phase.step()?.name).toBe("opsx-propose");
+	expect(phase.stepStartedByInput()).toBe(true);
+
+	phase.undoInput(phase.undoToken());
+
+	expect(phase.step()?.name).toBe("opsx-apply");
+	expect(phase.stepStartedByInput()).toBe(false);
+	// The newest record names the step the input found, which is the state the session is back in.
+	expect(seen).toEqual(["opsx-apply", "opsx-propose", "opsx-apply"]);
+});
+
+test("undoing the input that opened the first step leaves no step and records none", () => {
+	const seen: (string | null)[] = [];
+	const phase = phaseWithCommands(["skill:openspec-propose"], { onStepChange: (step) => seen.push(step) });
+
+	phase.handleInput("/skill:openspec-propose x");
+	phase.undoInput(phase.undoToken());
+
+	expect(phase.step()).toBeUndefined();
+	expect(seen).toEqual(["opsx-propose", null]);
+});
+
+// An input that opened nothing has nothing to take back. Writing a record for it would tell a reload that a
+// step had ended, in a session that never ran one.
+test("undoing an input that opened no step writes nothing and asks nothing", () => {
+	const seen: (string | null)[] = [];
+	const phase = phaseWithCommands(["skill:openspec-propose"], { onStepChange: (step) => seen.push(step) });
+
+	phase.handleInput("keep going");
+	expect(phase.stepStartedByInput()).toBe(false);
+	phase.undoInput(phase.undoToken());
+
+	expect(phase.step()).toBeUndefined();
+	expect(seen).toEqual([]);
+});
+
+// The confirmation asks once per start, so it reads the flag rather than comparing step names: an input that
+// joined a run already going names the same step it found.
+test("an input that joins a run already going starts nothing", () => {
+	const phase = phaseWithCommands(["skill:openspec-propose"]);
+	phase.handleInput("/skill:openspec-propose x");
+
+	phase.handleInput("keep going", "steer");
+
+	expect(phase.stepStartedByInput()).toBe(false);
+	// The steer arms nothing of its own, and the idle input's rollback is gone with the input it belonged to.
+	expect(phase.undoToken()).toBeUndefined();
+	phase.undoInput(undefined);
+	expect(phase.step()?.name).toBe("opsx-propose");
+});
+
+// spec `managed-commands` / 中止すれば入力前に戻る, design Decision 7: the rollback belongs to one input, and
+// only to the state that input left. Anything that moves the phase or the branch while the confirmation is
+// open is a change the ask has no claim on, and taking it back would rewrite that other input's session.
+test("a rollback only reaches the input it was armed for", () => {
+	const seen: (string | null)[] = [];
+	const phase = phaseWithCommands(["skill:openspec-propose", "skill:openspec-apply-change"], {
+		onStepChange: (step) => seen.push(step),
+	});
+	phase.handleInput("/skill:openspec-propose x");
+	const first = phase.undoToken();
+
+	// A second input starts a step of its own — the case of an extension sending a line while a person has
+	// the dialog open. Its token is the live one, and the first input's rollback is spent.
+	phase.handleInput("/skill:openspec-apply-change y");
+	expect(phase.step()?.name).toBe("opsx-apply");
+
+	phase.undoInput(first);
+
+	expect(phase.step()?.name).toBe("opsx-apply");
+	// Nothing was written, because nothing was moved.
+	expect(seen).toEqual(["opsx-propose", "opsx-apply"]);
+
+	// A branch move is the other change a waiting confirmation cannot undo: the phase is now what the
+	// destination's record says, and the generation moved with it, so the step the input found does not come
+	// back and the destination keeps what it was moved to.
+	phase.handleInput("/skill:openspec-propose x");
+	const token = phase.undoToken();
+	phase.followStepRecord(undefined);
+	phase.undoInput(token);
+	expect(phase.step()).toBeUndefined();
+	expect(seen).toEqual(["opsx-propose", "opsx-apply", "opsx-propose"]);
+});
+
 // host that refuses the write loses the record and nothing else.
 test("reports every step change to the hook, and a throwing hook is contained", () => {
 	const seen: (string | null)[] = [];

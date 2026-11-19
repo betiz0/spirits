@@ -9,7 +9,7 @@ import type { AutocompleteItem } from "../src/types/host.ts";
 
 import { expect, test } from "bun:test";
 
-import { MODEL_ROLES, STEP_DEFINITIONS, THINKING_LEVELS } from "../src/constants.ts";
+import { MODEL_ROLES, ROLE_SAVE_WORD, STEP_DEFINITIONS, THINKING_LEVELS } from "../src/constants.ts";
 import { roleCompletions } from "../src/commands/register.ts";
 
 function values(items: AutocompleteItem[] | null): string[] {
@@ -19,6 +19,8 @@ function values(items: AutocompleteItem[] | null): string[] {
 test("offers the vocabulary of the first word", () => {
 	const first = values(roleCompletions(""));
 	expect(first).toContain("status");
+	// `save` is a word of the first level, beside the lock words and the step names.
+	expect(first).toContain(ROLE_SAVE_WORD);
 	for (const role of MODEL_ROLES) expect(first).toContain(role);
 	for (const step of STEP_DEFINITIONS) expect(first).toContain(step.name);
 });
@@ -61,6 +63,9 @@ test("every completion item carries a label", () => {
 
 test("offers nothing where the grammar has no more words", () => {
 	expect(roleCompletions("status ")).toBeNull();
+	// `save` takes no item and no value, so the grammar ends at it.
+	expect(roleCompletions("save ")).toBeNull();
+	expect(roleCompletions("save strong")).toBeNull();
 	expect(roleCompletions("strong model x y ")).toBeNull();
 	expect(roleCompletions("teleport ")).toBeNull();
 	// A completed value with the space typed after it is still a completed value: the grammar has no fourth

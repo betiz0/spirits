@@ -80,10 +80,15 @@ test("routes through the registered model after a reload", async () => {
 	const registrations = pi.registrations.map((model) => `${model.provider}/${model.id}`);
 	expect(registrations).toEqual([`${ROUTING_PROVIDER_ID}/${ROUTING_MODEL_ID}`, `${ROUTING_PROVIDER_ID}/${ROUTING_MODEL_ID}`]);
 
-	const { ctx, statuses } = fakeCatalog({ available: [SONNET], authedProviders: ["anthropic"] });
+	const { ctx, statuses } = fakeCatalog({ available: [SONNET], authedProviders: ["anthropic"], model: AUTO_SELECTION });
 	expect(pi.route()(makeRequest(), ctx)).toMatchObject({ model: SONNET });
-	// The role the replaced routing answered with reaches the user the way the host shows it: the report
-	// the route made went to the extension's own status line.
+	// A request draws nothing any more: the badge is a projection of the session's state, not a report of
+	// what answered, so it would be wrong to leave the last answer standing across a replaced runtime.
+	expect(statuses.get(ROLE_STATUS_KEY)).toBeUndefined();
+
+	// The session start that follows the reload is where the line is drawn, from the state the reloaded
+	// runtime reads back rather than from anything the replaced one remembered.
+	await pi.fire("session_start", { type: "session_start", reason: "reload" }, ctx);
 	expect(statuses.get(ROLE_STATUS_KEY)).toBe(`[${MODEL_ROLE_NORMAL}]`);
 });
 

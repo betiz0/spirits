@@ -37,6 +37,14 @@ export type ExtensionMode = ExtensionContext["mode"];
 /** The model catalog a router resolves its targets against. */
 export type ExtensionModelRegistry = ExtensionContext["modelRegistry"];
 
+/**
+ * One model the session has in scope, as the host reports that scope on `ctx.scopedModels`.
+ *
+ * The scope comes from `--models` / `enabledModels` and is what pi's `/model` and its model selector
+ * will accept, so it is also what tells an extension whether a model it names is reachable here.
+ */
+export type ScopedModel = ExtensionContext["scopedModels"][number];
+
 /** The session reader spirits walks for its own entries and for the last answered model. */
 export type ReadonlySessionManager = ExtensionContext["sessionManager"];
 

@@ -314,6 +314,56 @@ export const ROUTING_MODEL_ID = "auto";
 /** Name shown for the routing virtual model in the model selector. */
 export const ROUTING_MODEL_NAME = "Auto";
 
+/**
+ * The routing model as a user types it into `/model`, built from the two constants above so no message
+ * can spell it differently from what spirits registers. Earlier the warning line carried its own copy of
+ * the spelling, which is how it came to name something the session could not select.
+ */
+export const ROUTING_MODEL_REFERENCE = `${ROUTING_PROVIDER_ID}${MODEL_SPEC_SEPARATOR}${ROUTING_MODEL_ID}`;
+
+/**
+ * The host's own commands and keys, spelled the way the host's help spells them.
+ *
+ * Only the interactive terminal is told these, because they are operations on a screen that only exists
+ * there, and each one was read out of the pinned host rather than guessed: `scoped-models` is in its
+ * command table and the model selector's scope hint names its toggle key.
+ */
+/**
+ * The host mode with a terminal in front of a person.
+ *
+ * Named rather than spelled at each read because the operations spirits can name — a selector, a key, a
+ * slash command — only exist there, and the host's own mode union uses this word for it.
+ */
+export const EXTENSION_MODE_TUI = "tui";
+
+/** The mode whose whole output contract is the model's answer on stdout, so the extension adds nothing. */
+export const EXTENSION_MODE_PRINT = "print";
+
+export const HOST_COMMANDS = {
+	/** Opens the model selector. */
+	model: "/model",
+	/** Sets which models a session may select, saved into the settings file. */
+	scopedModels: "/scoped-models",
+	/** Key the model selector reads to switch between all models and the session's scope. */
+	scopeToggle: "Tab",
+} as const;
+
+/**
+ * True when a selected model is the virtual model spirits routes, which is the one condition the
+ * routing is in force under.
+ *
+ * The single test every surface uses — the badge, the list, `status`, the setting warning, and the
+ * step-start confirmation — so none of them can call a session routed while another calls it off. The
+ * lookup excludes virtual models by their api instead, because another extension's virtual model is not
+ * one spirits routes; `routing/child.ts` keeps that api test in front of this comparison.
+ *
+ * The parameter is the shape the readers hold (`provider` and `id`) rather than a host type, so this
+ * file keeps importing nothing.
+ */
+export function isRoutingModel(model: { provider?: string; id?: string } | undefined): boolean {
+	return model?.provider === ROUTING_PROVIDER_ID && model.id === ROUTING_MODEL_ID;
+}
+
 /** Role of every request that is not made during a strong phase. */
 export const MODEL_ROLE_NORMAL = "normal";
 
@@ -355,6 +405,26 @@ export const ROUTING_STATE_ENTRY_TYPE = "pi.virtual-model-state";
 export const COMMAND_SPIRITS_ROLE = "spirits-role";
 
 /**
+ * Word the list's first row and the command's first argument share: write the session's own selection
+ * (its lock and its model) into pi's global settings.
+ *
+ * One constant because the row, the grammar, the usage line, and the completion all name the same
+ * operation, and a copy in each place is how the completion came to offer a word the grammar refused.
+ * The blank row that separates `save` from the settings rows is a layout detail of the list alone and
+ * stays there.
+ */
+export const ROLE_SAVE_WORD = "save";
+
+/**
+ * Row id of the `save` row, kept apart from the word so a step or a role named `save` could not be
+ * mistaken for it. The id is what the list adapter matches to decide that a key press saves.
+ */
+export const ROLE_SAVE_ROW = "save:selection";
+
+/** Model references the `save` row lists when it explains how to make a global `models.normal` resolvable. Unit: references. */
+export const ROLE_SAVE_SUGGESTION_MAX = 3;
+
+/**
  * spirits-owned session entry carrying the role the session is locked to on the managed route. The
  * fork route records the role in pi's routing-state entry instead; this entry exists so the managed
  * route never writes an entry the official core owns. Data: `{ role }`.
@@ -378,8 +448,50 @@ export const COMMAND_SPIRITS_CLEAR = "spirits-clear";
  */
 export const CLEAR_ENTRY_TYPE = "spirits_clear";
 
-/** Extension status key holding the role badge shown on the footer's extension status line. */
+/**
+ * Extension status key holding the role badge, the first half of the managed route's footer line.
+ *
+ * The footer sorts extension statuses by key, so this key is the shorter prefix of
+ * {@link ROLE_MODEL_STATUS_KEY}: the role always comes first and the model that answers after it, which
+ * is the order the two read as one sentence.
+ */
 export const ROLE_STATUS_KEY = "spirits";
+
+/**
+ * Extension status key holding the physical model that answers, drawn after {@link ROLE_STATUS_KEY}.
+ *
+ * It is a key of its own so a footer that refuses one write still gets the other, and so the role stays
+ * readable when there is no model to name.
+ */
+export const ROLE_MODEL_STATUS_KEY = "spirits-model";
+
+/**
+ * Word the badge shows while the session runs on a physical model, so the routing is not in force.
+ *
+ * The alternative — drawing nothing — reads as "spirits is not running" rather than as a fact about the
+ * session's model, and the host's own stats line already names the physical model and its level, so the
+ * badge adds no model here.
+ */
+export const ROLE_BADGE_OFF = "off";
+
+/**
+ * Word the badge shows when the routing is in force and no role resolves to a model at all, which is the
+ * one state where the routing cannot answer whatever it is asked.
+ */
+export const ROLE_BADGE_NONE = "!";
+
+/**
+ * Maximum length of the answering model on the footer's status line. Unit: characters.
+ *
+ * The footer joins every extension's status onto one line and truncates its tail, so a long reference
+ * would eat the space of the other extensions and of the model display itself. The provider is dropped
+ * first, and an id past this length becomes its first {@link ROLE_MODEL_ELLIPSIS_AFTER} characters plus
+ * the ellipsis, which keeps the whole display at 24.
+ */
+export const ROLE_MODEL_DISPLAY_MAX_LENGTH = 24;
+
+/** Characters kept from an over-long model id before the ellipsis. Unit: characters. */
+export const ROLE_MODEL_ELLIPSIS_AFTER = ROLE_MODEL_DISPLAY_MAX_LENGTH - 1;
 
 /** Prefix of the skill commands the `input` event reports before pi expands them. */
 export const SKILL_COMMAND_PREFIX = "/skill:";
@@ -422,6 +534,31 @@ export const STEP_DEFINITIONS: readonly StepDefinition[] = [
 	{ name: "sprt-opsx-verify-deep", starters: ["/skill:sprt-opsx-verify-deep"], defaultRole: MODEL_ROLE_STRONG, continuing: false },
 	{ name: "sprt-architecture-guards", starters: ["/skill:sprt-architecture-guards"], continuing: true },
 ];
+
+/**
+ * How long the confirmation before a step's start waits for the user, and how much earlier the timer
+ * that decides a timeout fires. Unit: milliseconds.
+ *
+ * pi's own countdown closes the dialog no earlier than its `timeout`, so spirits runs a timer of its own
+ * {@link STEP_CONFIRM_TIMEOUT_SLACK_MS} ahead and reads a dialog that closes after that as the wait
+ * running out, and one that closed before it as the user pressing Esc — the host returns `undefined` for
+ * both. The slack is far wider than a keystroke can land, so the boundary is the timer, not the race.
+ */
+export const STEP_CONFIRM_TIMEOUT_MS = 10_000;
+export const STEP_CONFIRM_TIMEOUT_SLACK_MS = 100;
+
+/** The two answers the step-start confirmation offers, in the words the dialog shows. */
+export const STEP_CONFIRM_CONTINUE = "continue";
+export const STEP_CONFIRM_CANCEL = "cancel";
+
+/**
+ * The `input` event's source word for a line typed at the terminal.
+ *
+ * The other two sources are a session driven over RPC and a line another extension sent, and neither has a
+ * person who can be asked, so this is the one source the confirmation is asked under — the host's own union,
+ * spelled once here.
+ */
+export const INPUT_SOURCE_INTERACTIVE = "interactive";
 
 /**
  * pi's api id for virtual catalog entries. pi keeps `isVirtualModel` inside the package, so spirits

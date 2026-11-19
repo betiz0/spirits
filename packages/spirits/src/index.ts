@@ -52,7 +52,12 @@ const DEGRADED_NOTICE = "spirits: {feature} is unavailable in this runtime. tsre
  * per child, and a parent on a physical model never reads it at all: the child gets the parent's
  * model either way.
  */
-export function fallbackRoutingPhase(readDefaultRole: () => string | undefined): Pick<RoutingPhase, "current" | "lock" | "setRole" | "restoreLock" | "restoreStep" | "step" | "endStep" | "snapshot" | "restore"> {
+export function fallbackRoutingPhase(
+	readDefaultRole: () => string | undefined,
+): Pick<
+	RoutingPhase,
+	"current" | "lock" | "setRole" | "restoreLock" | "restoreStep" | "step" | "endStep" | "snapshot" | "restore" | "undoInput" | "undoToken" | "rejectStep" | "stepStartedByInput"
+> {
 	let lock: string | undefined;
 	return {
 		current: () => lock ?? readDefaultRole() ?? MODEL_ROLE_NORMAL,
@@ -68,6 +73,12 @@ export function fallbackRoutingPhase(readDefaultRole: () => string | undefined):
 		restoreStep: () => {},
 		endStep: () => {},
 		step: () => undefined,
+		// No step an input could have opened, so there is nothing to undo and nothing to confirm, and no
+		// session start with a step it could refuse to put back.
+		undoInput: () => {},
+		undoToken: () => undefined,
+		rejectStep: () => {},
+		stepStartedByInput: () => false,
 		snapshot: () => ({ lock: lock ?? readDefaultRole() ?? MODEL_ROLE_NORMAL }),
 		restore: (snapshot) => {
 			lock = snapshot.lock;
@@ -135,11 +146,10 @@ export default function spiritsExtension(pi: ExtensionAPI): void {
 	// Routing registers before the REPL tool: `rlm` and `routing` are sibling layers, so the entry
 	// point is the only place that can join them. The resolver reads the phase and the settings when a
 	// child starts, which is what makes a settings edit take effect on the next child.
-	// The badge shows the role that answered the last request, which the route reports through this hook.
-	// It is the extension status line the official footer draws on its own status row, not a badge the
-	// host attaches to the model name.
-	// A badge that cannot draw is contained inside the routing layer: the hook runs on the way to the
-	// user's answer, and a host that refuses a status write loses the footer line and nothing else.
+	// The badge is the extension status line the official footer draws on its own status row, not a badge
+	// the host attaches to the model name. It is a projection of the session's state and the command
+	// surface owns drawing it, so the routing reports nothing to it: a line fed by requests would go stale
+	// in a session that makes none, and would say nothing at all about a session the routing is not in.
 	const badge = createRoleBadge();
 	// The last request the routing answered. The routing layer decides it and the command surface reports
 	// it, and the two are sibling layers, so this file is the only place that can carry it across.
@@ -148,11 +158,12 @@ export default function spiritsExtension(pi: ExtensionAPI): void {
 		"model routing",
 		() =>
 			registerDualModelRouting(pi, {
-				onRole: (role, ctx) => badge.update(role, ctx),
+				// Only the record of what a request ran on, which is what `status` reports. The badge is not
+				// supplied from here: it is drawn from the state, by the command surface.
 				onRequest: (request) => {
 					lastRequest = request;
 				},
-		}),
+			}),
 		() => ({ phase: fallbackRoutingPhase(() => readRoutingSettings(pi.getSettings()).defaultRole) }),
 	);
 

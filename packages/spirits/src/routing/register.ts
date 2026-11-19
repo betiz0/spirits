@@ -45,7 +45,17 @@ export interface RoutingRegistrationResult {
 	 */
 	phase: Pick<
 		RoutingPhase,
-		"current" | "lock" | "setRole" | "restoreLock" | "restoreStep" | "step" | "endStep"
+		| "current"
+		| "lock"
+		| "setRole"
+		| "restoreLock"
+		| "restoreStep"
+		| "step"
+		| "endStep"
+		| "undoInput"
+		| "undoToken"
+		| "rejectStep"
+		| "stepStartedByInput"
 	>;
 }
 
@@ -69,8 +79,12 @@ export interface RoutedRequest {
 /** Observers a host attaches to the routing decisions. */
 export interface RoutingHooks {
 	/**
-	 * Called with the role that will handle a request. The managed route uses it to keep the footer
-	 * badge on the role that actually answered, which is not always the session lock.
+	 * Called with the role that will handle a request, which is not always the session lock.
+	 *
+	 * An observer only: the managed route no longer draws anything from here. Its badge is a projection of
+	 * the session's state, drawn by the command surface at every point that state can change, so a line fed
+	 * by requests would go stale in a session that makes none (spec `managed-commands` /
+	 * badge は状態の射影を決められた時点で描き直す).
 	 */
 	onRole?: (role: string, ctx: ExtensionContext) => void;
 	/**
@@ -143,10 +157,10 @@ export function registerDualModelRouting(pi: ExtensionAPI, hooks: RoutingHooks =
 
 	pi.on("session_start", (event) => {
 		const { defaultRole } = readRoutingSettings(pi.getSettings());
-		// A reload is the one start that keeps the step; every other start opens a conversation that never
-		// had it. The lock then reads as the default role, and the command surface — which owns the session
-		// records and runs on this event after this handler — puts back the lock it recorded and, on a
-		// reload only, the step that was still running.
+		// A reload is the one start that keeps the step in memory; every other start opens a conversation
+		// that never had it. The lock then reads as the default role, and the command surface — which owns
+		// the session records and runs on this event after this handler — puts back the lock and the step the
+		// branch recorded, which is what makes a reopened session continue where it left off.
 		phase.beginSession(event.reason);
 		phase.restoreLock(defaultRole ?? MODEL_ROLE_NORMAL);
 	});
@@ -177,6 +191,10 @@ export function registerDualModelRouting(pi: ExtensionAPI, hooks: RoutingHooks =
 			restoreStep: phase.restoreStep,
 			step: phase.step,
 			endStep: phase.endStep,
+			undoInput: phase.undoInput,
+			undoToken: phase.undoToken,
+			rejectStep: phase.rejectStep,
+			stepStartedByInput: phase.stepStartedByInput,
 		},
 	};
 }

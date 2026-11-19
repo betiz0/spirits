@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { PiModel } from "../src/types/host.ts";
-import { COMMAND_SPIRITS_CLEAR, COMMAND_SPIRITS_ROLE, DEFAULT_TODO_TOGGLE_KEY, ENV_ACTION_GUARD, ENV_AGENT_DIR, SETTINGS_FILE_NAME, TOOL_NAME_SKILL_SAVE } from "../src/constants.ts";
+import { COMMAND_SPIRITS_CLEAR, COMMAND_SPIRITS_ROLE, DEFAULT_TODO_TOGGLE_KEY, ENV_ACTION_GUARD, ENV_AGENT_DIR, ROLE_MODEL_STATUS_KEY, ROLE_STATUS_KEY, SETTINGS_FILE_NAME, TOOL_NAME_SKILL_SAVE } from "../src/constants.ts";
 import { TODO_ENTRY_TYPE } from "../src/todo/state.ts";
 import { MANAGE_TODOS_TOOL_NAME } from "../src/todo/tool.ts";
 import spiritsExtension, { fallbackRoutingPhase } from "../src/index.ts";
@@ -182,6 +182,44 @@ test("a footer that refuses a status write does not stop the request", () => {
 	} as unknown as ExtensionContext;
 
 	expect(pi.route()(makeRequest(), ctx)).toMatchObject({ model: SONNET });
+});
+
+// spec "managed-commands / 片方の key の書き込みが失敗しても他方は描く": the footer is one host surface other
+// extensions write to as well, and the role and its model are two writes on two keys. A host that refuses
+// one loses that line alone — the other still reads, and the request is still routed.
+test("a footer that refuses one status key still draws the other and routes the request", async () => {
+	const pi = new FakePi();
+	pi.settings = { defaultProvider: "anthropic", defaultModel: "claude-sonnet-4-5" };
+	spiritsExtension(asExtensionApi(pi));
+
+	const base = fakeCatalog({ available: [SONNET], authedProviders: ["anthropic"], model: AUTO_SELECTION });
+	const refuse = (refused: string) => {
+		const drawn = new Map<string, string | undefined>();
+		const ctx = {
+			...base.ctx,
+			ui: {
+				...base.ctx.ui,
+				setStatus: (key: string, text: string | undefined) => {
+					if (key === refused) throw new Error(`the host will not take ${key}`);
+					drawn.set(key, text);
+				},
+			},
+		} as unknown as ExtensionContext;
+		return { ctx, drawn };
+	};
+
+	const noModelLine = refuse(ROLE_MODEL_STATUS_KEY);
+	await pi.fire("session_start", { reason: "startup" }, noModelLine.ctx);
+	expect(noModelLine.drawn.get(ROLE_STATUS_KEY)).toBe("[normal]");
+	expect(pi.route()(makeRequest(), noModelLine.ctx)).toMatchObject({ model: SONNET });
+
+	const noRoleLine = refuse(ROLE_STATUS_KEY);
+	await pi.fire("session_start", { reason: "resume" }, noRoleLine.ctx);
+	expect(noRoleLine.drawn.get(ROLE_MODEL_STATUS_KEY)).toBe("claude-sonnet-4-5");
+	expect(pi.route()(makeRequest(), noRoleLine.ctx)).toMatchObject({ model: SONNET });
+
+	// A footer the host will not take is a footer, not a failure: nothing reaches the session as an error.
+	expect(pi.errors).toEqual([]);
 });
 
 // The badge and the request record are two reports, and only the first one is drawn on the terminal. A

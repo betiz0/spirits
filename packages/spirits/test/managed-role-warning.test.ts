@@ -13,7 +13,7 @@ import { expect, test } from "bun:test";
 
 import { COMMAND_SPIRITS_ROLE } from "../src/constants.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
-import { roleSettingWarning } from "../src/commands/role.ts";
+import { roleSettingWarning, strongSettingWarning } from "../src/commands/role.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
 import { fakeCommandContext, FakePi } from "./routing/fake-pi.ts";
 
@@ -133,6 +133,58 @@ test("stays quiet on a change that asks for nothing", async () => {
 // The wording function is pure, which is what lets both halves be said at once without either one
 // swallowing the other.
 test("says both halves when both are true", () => {
-	const warning = roleSettingWarning({ setStrong: true, strongUnresolved: true, physicalModelSelected: true });
+	const warning = roleSettingWarning({
+		setStrong: true,
+		strongUnresolved: true,
+		physicalModelSelected: true,
+		scoped: false,
+		interactive: true,
+	});
 	expect(warning).toBeDefined();
+	expect(warning).toContain("strong has no usable model");
+	expect(warning).toContain("routing is off");
+});
+
+// spec "managed-commands / 物理モデル選択中の設定変更は振り分けが働いていないことを伝える": the procedure has
+// to be one the session can actually carry out, which is a question about its model scope, and a session
+// nobody is watching has no operation to be handed — not a keystroke, not a slash command, and not an edit of
+// a settings file either. Four states, because both halves vary.
+test("names a procedure the session can run", () => {
+	const base = { setStrong: false, strongUnresolved: false, physicalModelSelected: true };
+
+	const terminal = roleSettingWarning({ ...base, scoped: false, interactive: true })!;
+	expect(terminal).toContain("select spirits/auto with /model");
+
+	const scopedTerminal = roleSettingWarning({ ...base, scoped: true, interactive: true })!;
+	// The fact first, then both ways out, since either one reaches the model from a scope that excludes it.
+	expect(scopedTerminal).toContain("spirits/auto is not in this session's model scope");
+	expect(scopedTerminal).toContain("Tab");
+	expect(scopedTerminal).toContain("/scoped-models");
+
+	// Off a terminal there is nobody to tell, so the two remaining states state the fact and stop there: what
+	// the session would have to do is a fact about the routing model's selection, not an instruction.
+	const headless = roleSettingWarning({ ...base, scoped: false, interactive: false })!;
+	expect(headless).toContain("spirits/auto is not the model this session selected");
+
+	const scopedHeadless = roleSettingWarning({ ...base, scoped: true, interactive: false })!;
+	expect(scopedHeadless).toContain("spirits/auto is not in this session's model scope");
+
+	// No session that is not being watched is told to press something, to run a command of the terminal's, or
+	// to edit the settings file that holds the scope.
+	for (const warning of [headless, scopedHeadless]) {
+		expect(warning).not.toContain("Tab");
+		expect(warning).not.toContain("/model");
+		expect(warning).not.toContain("/scoped-models");
+		expect(warning).not.toContain("enabledModels");
+		expect(warning).not.toContain("settings file");
+	}
+});
+
+// The routing-off sentence is one statement about the session, and the list already puts it in front of
+// every row, so the warning the rows carry holds only the strong half (spec `managed-commands` /
+// 設定時の警告は書き込んだ値で判定し、一覧では行の説明で伝える).
+test("says the strong half on its own for a row that leads with the routing being off", () => {
+	expect(strongSettingWarning(true, true)).toContain("strong has no usable model");
+	expect(strongSettingWarning(true, false)).toBeUndefined();
+	expect(strongSettingWarning(false, true)).toBeUndefined();
 });

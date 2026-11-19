@@ -15,9 +15,10 @@
  * so a test can drive the whole surface without pi.
  */
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { AutocompleteItem } from "../types/host.ts";
 import { readIgnoredSettings, readRoutingSettings } from "../config.ts";
+import { globalSettingsPath, readSettingsFile } from "./settings-store.ts";
 import type { RoutingSettings } from "../config.ts";
 import {
 	CLEAR_ENTRY_TYPE,
@@ -26,21 +27,33 @@ import {
 	MODEL_ROLES,
 	MODEL_ROLE_STRONG,
 	ROLE_ENTRY_TYPE,
-	ROUTING_MODEL_ID,
-	ROUTING_PROVIDER_ID,
+	ROLE_SAVE_WORD,
+	EXTENSION_MODE_PRINT,
+	EXTENSION_MODE_TUI,
+	ROUTING_MODEL_REFERENCE,
+	INPUT_SOURCE_INTERACTIVE,
+	STEP_CONFIRM_CANCEL,
+	STEP_CONFIRM_CONTINUE,
+	STEP_CONFIRM_TIMEOUT_MS,
+	STEP_CONFIRM_TIMEOUT_SLACK_MS,
 	STEP_DEFINITIONS,
 	STEP_ENTRY_TYPE,
 	THINKING_LEVELS,
+	isRoutingModel,
 } from "../constants.ts";
 import type { RoutingPhase } from "../routing/phase.ts";
-import { spiritsStepEntry } from "../routing/phase.ts";
+import { stepEntryDisposition } from "../routing/phase.ts";
 import { resolveRequestRole } from "../routing/router.ts";
-import { latestSuccessfulModel } from "../routing/resolve.ts";
+import { latestSuccessfulModel, modelKey } from "../routing/resolve.ts";
 import { alreadyCleared, boundaryCompactionResult, clearedMessageCount } from "./clear.ts";
+import type { InputEvent } from "@earendil-works/pi-coding-agent";
 import {
+	createRoleBadge,
 	formatModelKey,
 	formatRoleStatus,
-	roleBadgeText,
+	routingModelGuide,
+	roleBadgeLines,
+	roleBadgeState,
 	roleResolutionLines,
 	roleSettingWarning,
 	resolveModelTarget,
@@ -53,9 +66,22 @@ import {
 	type RoleStatusReport,
 } from "./role.ts";
 import { RolePanel, missingStartersFor, modelChoices, openRolePanel } from "./role-panel.ts";
-import { applyRoleLock, applyRoleSetting, strongIsUsable, type RoleWriteDeps } from "./role-write.ts";
-import { patchGlobalSettings, patchGlobalSettingsPath, writePathValue } from "./settings-store.ts";
-import type { SettingsPatch, SettingsPath } from "./settings-store.ts";
+import {
+	applyRoleLock,
+	applyRoleSave,
+	applyRoleSetting,
+	strongIsUsable,
+	type RoleWriteDeps,
+	type SessionSelection,
+	type SettingChange,
+} from "./role-write.ts";
+import {
+	patchGlobalSettings,
+	patchGlobalSettingsIfChanged,
+	patchGlobalSettingsPath,
+	writePathValue,
+} from "./settings-store.ts";
+import type { SettingsPatch, SettingsPatchDecider, SettingsPath } from "./settings-store.ts";
 
 /** What the command surface needs from the host. */
 export interface ManagedCommandsDeps {
@@ -63,7 +89,20 @@ export interface ManagedCommandsDeps {
 	 * The step methods the command surface reads and ends. `beginSession` and `handleInput` belong to the
 	 * routing layer that owns the phase, so this surface never reaches for them.
 	 */
-	phase: Pick<RoutingPhase, "current" | "lock" | "setRole" | "restoreLock" | "restoreStep" | "step" | "endStep">;
+	phase: Pick<
+		RoutingPhase,
+		| "current"
+		| "lock"
+		| "setRole"
+		| "restoreLock"
+		| "restoreStep"
+		| "step"
+		| "endStep"
+		| "undoInput"
+		| "undoToken"
+		| "rejectStep"
+		| "stepStartedByInput"
+	>;
 	/** Footer badge, shared with the route's role reporting. A test can leave it out. */
 	badge?: RoleBadge;
 	/** The last request the routing answered, for `status`. */
@@ -77,6 +116,28 @@ export interface ManagedCommandsDeps {
 	 */
 	patchSettings?: (patch: SettingsPatch) => void;
 	patchSettingsPath?: (path: SettingsPath, value: unknown) => void;
+	/**
+	 * The conditional write `save` performs: compare the global file against the session under the file's
+	 * own lock and write the difference once. A test replaces it to watch what the save decided without
+	 * touching a file.
+	 */
+	saveSettings?: (decide: SettingsPatchDecider) => Record<string, unknown> | undefined;
+	/**
+	 * The read of pi's global settings file behind the `save` row's preview.
+	 *
+	 * A test seam, not a production switch: the default is `globalSettingsPath()`'s real file, injected for
+	 * the same reason the two writers are — a test drives the preview without pointing the extension at a
+	 * real agent directory. Withdraw it once a test can isolate the agent dir for a whole file (design
+	 * Decision 5).
+	 */
+	readGlobalSettings?: () => Record<string, unknown>;
+	/**
+	 * The clocks of the step-start confirmation, in milliseconds.
+	 *
+	 * The defaults are the wait the product promises; a test hands a pair of its own so the boundary between
+	 * "the wait ran out" and "the user closed it" is measured in tens of milliseconds rather than ten seconds.
+	 */
+	stepConfirmClock?: { timeoutMs: number; slackMs: number };
 }
 
 /** The usage line shown for a line the grammar cannot read, and for an item that needs one. */
@@ -84,11 +145,11 @@ export interface ManagedCommandsDeps {
 // and its model after the run, so a user who wonders why the answers stayed strong has to be told the
 // way out at the moment the command refuses their line.
 const USAGE =
-	"use /spirits-role <normal|strong> to lock, /spirits-role <role> model <provider/id>, /spirits-role <role|step> thinking <level>, /spirits-role <step> role <role>, unset to clear, or status. a step ends on a role lock, on /spirits-clear, or when another step starts.";
+	"use /spirits-role <normal|strong> to lock, /spirits-role <role> model <provider/id>, /spirits-role <role|step> thinking <level>, /spirits-role <step> role <role>, /spirits-role save (it takes no item or value), unset to clear, or status. a step ends on a role lock, on /spirits-clear, or when another step starts.";
 
 /** Register the managed commands and the context handlers. */
 export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsDeps): void {
-	const badge = deps.badge ?? { update: (role: string, ctx: ExtensionCommandContext) => ctx.ui.setStatus("spirits", roleBadgeText(role)) };
+	const badge = deps.badge ?? createRoleBadge();
 	const readSettings = deps.readSettings ?? (() => readRoutingSettings(pi.getSettings()));
 
 	/** The writes the command and the list share, so neither can have a settings file of its own. */
@@ -102,6 +163,7 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 		},
 		patchSettings: deps.patchSettings ?? patchGlobalSettings,
 		patchSettingsPath: deps.patchSettingsPath ?? patchGlobalSettingsPath,
+		saveSettings: deps.saveSettings ?? patchGlobalSettingsIfChanged,
 	};
 
 	/**
@@ -121,10 +183,26 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 				ctx.ui.notify(formatRoleStatus(statusReport(ctx)), "info");
 				return;
 			}
+			case "save": {
+				// A save writes a file and nothing else: no lock, no model change, no thinking change, no
+				// session record, and no reload. A reload would re-read the project defaults over the lock and
+				// the step this session holds, and the host refuses one while a response is running, so the
+				// command reports and stops (spec `managed-commands` / save はディスク上の結果と実効状態を区別する).
+				const write = applyRoleSave(writes, selectionOf(ctx), ctx.modelRegistry);
+				// The notice's kind follows the outcome: a write that landed and a file that already agreed are
+				// both information, and only a refusal is an error.
+				ctx.ui.notify(write.message, write.failure ? "error" : "info");
+				if (!write.saved) return;
+				warnAfterChange({ askingForStrong: false, wrote: write.wrote }, ctx);
+				return;
+			}
 			case "panel": {
 				// `hasUI` is true in RPC mode too, where `custom()` returns nothing at all, so the mode is
 				// what decides whether the list can open (design Decision 11).
-				if (ctx.mode !== "tui") {
+				if (ctx.mode !== EXTENSION_MODE_TUI) {
+					// print is the one mode that must stay silent: its stdout is the model's answer, and an
+					// argumentless `/spirits-role` has no answer to add to it (design Decision 9).
+					if (ctx.mode === EXTENSION_MODE_PRINT) return;
 					ctx.ui.notify(formatRoleStatus(statusReport(ctx)), "info");
 					return;
 				}
@@ -135,7 +213,7 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 				const write = applyRoleLock(writes, command.role);
 				// The badge follows the lock at once: the reload below redraws it on the new runtime, and a
 				// reload that never happens must not leave the old runtime showing the previous role.
-				badge.update(command.role, ctx);
+				drawBadge(ctx, command.role);
 				ctx.ui.notify(write.message, write.saved ? "info" : "error");
 				if (!write.saved) return;
 				warnAfterChange({ askingForStrong: command.role === MODEL_ROLE_STRONG, wrote: write.wrote }, ctx);
@@ -177,31 +255,108 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 	 * the values from before the write until the reload, so `/spirits-role strong model <ref>` would
 	 * otherwise be told that the target it just wrote does not exist (design Decision 4).
 	 */
+	/**
+	 * pi's global settings file for the `save` row's preview, or the reason it could not be read.
+	 *
+	 * Read on every draw, the same way the rest of the snapshot is: another process can save between two
+	 * redraws, and the preview has to be the one the file supports. A failure is carried as a reason rather
+	 * than raised, because the ordinary rows read through the host and must stay usable.
+	 */
+	function globalPreview(): { globalSettings: Record<string, unknown> } | { globalSettingsError: string } {
+		try {
+			return { globalSettings: (deps.readGlobalSettings ?? (() => readSettingsFile(globalSettingsPath())))() };
+		} catch (error) {
+			return { globalSettingsError: error instanceof Error ? error.message : String(error) };
+		}
+	}
+
+	/**
+	 * What this session selects, in the two facts `save` writes.
+	 *
+	 * The lock is the phase's, not the running step's role: a step's role is temporary and making it a
+	 * default would be making a side effect permanent (design Decision 4). The model is the host's
+	 * selection, which may be the routing model or nothing at all.
+	 */
+	function selectionOf(ctx: ExtensionCommandContext): SessionSelection {
+		const model = ctx.model;
+		return {
+			role: deps.phase.lock(),
+			...(model?.provider !== undefined && model.id !== undefined ? { model: { provider: model.provider, id: model.id } } : {}),
+		};
+	}
+
 	function warnAfterChange(
-		change: { askingForStrong: boolean; wrote?: { path: SettingsPath; value: unknown } },
+		change: { askingForStrong: boolean; wrote: readonly SettingChange[] },
 		ctx: ExtensionCommandContext,
 	): void {
-		const settings = change.wrote
-			? readRoutingSettings(writePathValue(pi.getSettings(), change.wrote.path, change.wrote.value))
-			: readSettings();
+		// A change now lands on more than one key — `save` writes the role and the model pair together — so
+		// the fold is over a list. An empty list is a write that changed nothing, which reads the settings as
+		// they stand.
+		const settings =
+			change.wrote.length > 0
+				? readRoutingSettings(
+						change.wrote.reduce<unknown>(
+							(current, part) => writePathValue(current, part.path, part.value),
+							pi.getSettings(),
+						),
+					)
+					: readSettings();
+		const physicalModelSelected = isPhysicalSelection(ctx);
 		const warning = roleSettingWarning({
 			setStrong: change.askingForStrong,
 			strongUnresolved: change.askingForStrong && !strongIsUsable(settings, ctx.modelRegistry),
-			physicalModelSelected: isPhysicalSelection(ctx),
+			physicalModelSelected,
+			// Scope matters only for the instruction attached to a physical selection. A save on the routing
+			// model must leave the host's scope entirely outside the operation (spec `managed-commands` /
+			// save はモデルスコープを変更しない).
+			scoped: physicalModelSelected && routingModelOutOfScope(ctx),
+			interactive: ctx.mode === EXTENSION_MODE_TUI,
 		});
 		if (warning) ctx.ui.notify(warning, "warning");
 	}
 
 	/**
-	 * The role the badge shows: the one the next request would run on.
+	 * Draw the badge from the state the session is in right now. This is the badge's only writing point.
 	 *
-	 * `phase.current()` folds in only the step list's default role, so a step whose role comes from
-	 * `models.steps.<name>.role` would draw the lock while the route sent something else. The badge and
-	 * the route have to read the same resolution (spec `dual-model-routing` / 再読み込みをまたぐ…:
-	 * ステップ設定のロールを badge に出す).
+	 * The value is the same resolution the route, the list, and `status` read, taken at the moment of
+	 * drawing — the settings, the lock, the running step, and the session's model. Nothing writes a role the
+	 * route reported, so a session that sends no request still reads the truth and the line cannot promise a
+	 * role the next request will not use (spec `managed-commands` /
+	 * badge は状態の射影を決められた時点で描き直す).
+	 *
+	 * `lockedRole` overrides the phase's role for the one caller that cannot wait for a re-read: the list
+	 * draws the badge right after applying a lock, and the read that would confirm the lock is the read that
+	 * may just have failed (d-verify5 W-1).
 	 */
-	function badgeRole(): string {
-		return resolveRequestRole(deps.phase.step(), readSettings(), deps.phase.current());
+	function drawBadge(ctx: ExtensionContext, lockedRole?: string): void {
+		const role = lockedRole ?? deps.phase.current();
+		// Read first and outside the try: the session's model is a property rather than a call, so the one
+		// fact the fallback below needs is the one fact it can still have.
+		const physical = isPhysicalSelection(ctx);
+		try {
+			const step = deps.phase.step();
+			const previous = latestSuccessfulModel(ctx.sessionManager.getBranch(), ctx.modelRegistry).model;
+			badge.update(
+				roleBadgeLines(
+					roleBadgeState({
+						routingEnabled: !physical,
+						settings: readSettings(),
+						phaseRole: role,
+						...(step ? { step } : {}),
+						lookup: ctx.modelRegistry,
+						...(ctx.thinkingLevel ? { sessionThinkingLevel: ctx.thinkingLevel } : {}),
+						...(previous ? { previous } : {}),
+					}),
+				),
+				ctx,
+			);
+		} catch {
+			// A projection reads the host, and the host can refuse one in the middle of a change — the settings
+			// file that went unreadable right after the write landed. The line still has to agree with what the
+			// session holds, and the lock it holds is the one fact that needs no read: draw the role alone and
+			// let the model come back with the next draw (d-verify5 W-1).
+			badge.update(roleBadgeLines(physical ? { kind: "off" } : { kind: "role", role }), ctx);
+		}
 	}
 
 	/** Whether a settings change asks for strong: a step set to strong, and nothing else. */
@@ -221,8 +376,12 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 		// The same targets the route would resolve, the last successful response included: a report that
 		// read the settings instead would call an unusable target the answer.
 		const targets = roleResolutionLines(settings, ctx.modelRegistry, { ...(previous ? { previous } : {}), ignored });
+		const physical = isPhysicalSelection(ctx);
 		return {
-			routingEnabled: !isPhysicalSelection(ctx),
+			routingEnabled: !physical,
+			sessionModel: physical && ctx.model ? modelKey(ctx.model) : ROUTING_MODEL_REFERENCE,
+			routingModelInScope: !routingModelOutOfScope(ctx),
+			interactive: ctx.mode === EXTENSION_MODE_TUI,
 			lock: deps.phase.lock(),
 			...(step
 				? { step: { name: step.name, continuing: step.continuing, role: resolveRequestRole(step, settings, deps.phase.current()) } }
@@ -262,18 +421,28 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 					...(last ? { last } : {}),
 					...(previous ? { previous } : {}),
 					routingOff: isPhysicalSelection(ctx),
+					...(ctx.model ? { currentModel: modelKey(ctx.model) } : {}),
 					ignored,
 					// The command completion cannot see the catalog and so cannot offer models; this screen
-					// can, and it is where a user who typed a reference wrong comes to fix it.
+					// can, and it is where a user who typed a reference wrong comes to fix it. The candidates are
+					// every model that can answer: the session's model scope is no part of the choice, because the
+					// routing and the command line never limit a target by it, and a scope of `spirits/auto` alone
+					// would leave the row nothing to offer — not even the way back to `unset`.
 					modelChoices: modelChoices(ctx.modelRegistry.getAvailable()),
 					missingStarters: missingStartersFor(pi.getCommands()),
+					// The `save` row previews the file, not the effective settings, and the host's read is the
+					// wrong one for it: `pi.getSettings()` merges the trusted project file the save never writes
+					// to. A file that will not read costs the preview and not the screen.
+					...globalPreview(),
+					saveSelection: selectionOf(ctx),
 				};
 			},
 			writes,
 			// A lock is a lock wherever it came from, so the list draws the badge the command draws it —
-			// including when the settings file refused to save it. The badge reads the phase directly, so a
-			// settings read that fails mid-redraw leaves the running lock drawn (d-verify5 W-1).
-			{ lockDrawn: (role) => badge.update(role, ctx), sessionLock: () => deps.phase.lock() },
+			// including when the settings file refused to save it. The role the list hands over is the lock it
+			// applied, which is the one fact the draw can use even when its own re-read is what failed
+			// (d-verify5 W-1).
+			{ lockDrawn: (role) => drawBadge(ctx, role), sessionLock: () => deps.phase.lock() },
 		);
 	}
 
@@ -293,9 +462,10 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 				return;
 			}
 			pi.appendEntry(CLEAR_ENTRY_TYPE, { at: Date.now() });
-			// Clearing ends the running step: the conversation it belonged to is out of the context.
+			// Clearing ends the running step: the conversation it belonged to is out of the context. The
+			// badge follows the phase back down.
 			deps.phase.endStep();
-			badge.update(deps.phase.current(), ctx);
+			drawBadge(ctx);
 			ctx.ui.notify("conversation cleared from the model context", "info");
 		},
 	});
@@ -319,35 +489,189 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 	// registers first); redraw the badge for that phase, because nothing else fires on a move (design
 	// Decision 12).
 	pi.on("session_tree", (_event, ctx) => {
-		badge.update(badgeRole(), ctx);
+		drawBadge(ctx);
+	});
+
+	// The host owns the session's model and thinking level and spirits writes neither, so a change made
+	// through `/model` or `/thinking` reaches this surface only as an event. Without these two the badge
+	// would go on describing the resolution of a model the session has left (spec `managed-commands` /
+	// モデル切り替えで badge が従う, thinking レベルの切り替えで badge が従う).
+	pi.on("model_select", (_event, ctx) => {
+		drawBadge(ctx);
+	});
+
+	pi.on("thinking_level_select", (_event, ctx) => {
+		// pi fires this only when the resolved level really changed, a model switch's rounding included. A
+		// change that leaves the level alone fires nothing, and the badge is already right.
+		drawBadge(ctx);
+	});
+
+	// A run ending is a state change like the two above, and the routing layer's own handler closes a step
+	// that does not continue on this same event. Without a redraw here the line would go on naming the step's
+	// role after the phase had come back to the lock, which is the same disagreement between the line and the
+	// next request this surface exists to close (spec `managed-commands` /
+	// badge は状態の射影を決められた時点で描き直す: ステップの終了時).
+	pi.on("agent_settled", (_event, ctx) => {
+		drawBadge(ctx);
 	});
 
 	pi.on("session_start", (event, ctx) => {
 		// This handler runs after the routing layer's own start handler, which put the default role on the
 		// phase. A session with a record of its own — one this surface wrote, or one an older spirits wrote
-		// — takes that lock back, because `models.role` is a default and not a session's state. On a reload only, the
-		// step that was still running comes back too: the record says whether one was, and a step that
-		// ended appended the record that says it did not (design Decision 12).
+		// — takes that lock back, because `models.role` is a default and not a session's state. The running
+		// step comes back from the branch's records on every kind of start, so a session reopened in the
+		// middle of a step continues on it instead of on the lock, which is the same misunderstanding about
+		// what the session was doing that this whole surface exists to close (design Decision 10).
+		// A start writes nothing about a step it puts back: the records already say what runs on this branch,
+		// and writing "no step" on a branch the user merely reopened would make the next reload believe the
+		// step had ended. The one start that does write is the rejection of a step it refuses to put back.
 		const branch = ctx.sessionManager.getBranch();
-		// A step that ended must always leave a record of ending, and the phase's own `end()` only sees the
-		// step this process holds. Quit in the middle of a continuing step, then open that session in a new
-		// process: nothing is in memory, so nothing gets written, and the next settings write reloads the
-		// runtime onto a record that still says the step is running. Every start that is not a reload closes
-		// an open record for that reason (design Decision 12).
-		if (event.reason !== "reload" && spiritsStepEntry(branch)) pi.appendEntry(STEP_ENTRY_TYPE, { step: null });
 		const inherited = inheritedRole(branch);
 		if (inherited) deps.phase.restoreLock(inherited);
-		if (event.reason === "reload") {
-			const step = spiritsStepEntry(branch);
-			if (step) deps.phase.restoreStep(step);
+		const disposition = stepEntryDisposition(branch, event.reason);
+		if (disposition?.kind === "restore") {
+			deps.phase.restoreStep(disposition.step);
+		} else if (disposition?.kind === "reject") {
+			// The one start that does write. A record left open by a step that ends with its run says the run
+			// was interrupted, and an interrupted run returns to the lock — but the open record would stay the
+			// newest thing the branch says, and the next reload replaces the runtime rather than the
+			// conversation, so it would put that step back. Recording the rejection is what keeps the answer
+			// (design Decision 10).
+			deps.phase.rejectStep();
 		}
-		badge.update(badgeRole(), ctx);
+		// The badge is drawn from the state that came back, so a session reopened in the middle of a strong
+		// step reads as that step rather than as the lock it started on.
+		drawBadge(ctx);
 	});
+
+	pi.on("input", async (event, ctx) => {
+		// Registered after the routing layer's own `input` handler — `src/index.ts` registers routing first —
+		// which is what lets this one read the step the input just opened. An idle input on a step's starter
+		// changes the state the badge projects, and the line has to follow it before the run rather than wait
+		// for a request to report one.
+		// The token is read before anything is waited for: it names this input, and it is the only thing the
+		// rollback below may act on. Another extension's input that starts a step of its own, or a move between
+		// branches while the confirmation is open, is a change this ask has no claim on (design Decision 7).
+		const token = deps.phase.undoToken();
+		if (await stepStartDeclined(event, ctx)) {
+			// The input is taken back, and with it the step it opened — while nothing else has moved the phase:
+			// the phase goes back where the input found it, so the next request runs on the role the session was
+			// on before the line was typed (spec `managed-commands` / 中止すれば入力前に戻る).
+			deps.phase.undoInput(token);
+			drawBadge(ctx);
+			return { action: "handled" as const };
+		}
+		drawBadge(ctx);
+	});
+
+	/**
+	 * Whether the user stopped an input that was about to start a step the routing cannot honour.
+	 *
+	 * A step set to a role is a wish about which model answers, and a session on a physical model answers
+	 * without asking spirits. That is the one place this surface refuses to be silent about a setting it is
+	 * about to ignore, and the one place it is allowed to make the user wait (spec `managed-commands` /
+	 * ステップ開始時に振り分けが無効なら確認してから進める).
+	 */
+	async function stepStartDeclined(event: InputEvent, ctx: ExtensionContext): Promise<boolean> {
+		// Only a person at a terminal is asked, and only once per step start: an input that joined a run
+		// already going asks nothing, and an input an extension sent has no one behind it to answer.
+		if (ctx.mode !== EXTENSION_MODE_TUI || event.source !== INPUT_SOURCE_INTERACTIVE) return false;
+		if (isPhysicalSelection(ctx) === false || !deps.phase.stepStartedByInput()) return false;
+		const step = deps.phase.step();
+		if (!step || !stepIsWorthConfirming(step.name)) return false;
+
+		// The two clocks: the host's own countdown on the dialog, and one of ours a little earlier, which is
+		// the only way to tell a dialog that ran out from one the user closed. A confirmation this surface
+		// cannot read is a confirmation it must not wait for, so a host that refuses the dialog lets the input
+		// through (spec `managed-commands` / 確認を出せなければ待たずに進む).
+		const wait = stepConfirmWait(deps.stepConfirmClock);
+		let answer: string | undefined;
+		try {
+			answer = await ctx.ui.select(
+				`${step.name} would run on ${expectedRole(step)}, and routing is off, so it answers on ${ctx.model ? modelKey(ctx.model) : "a model this session selected"}. ${routingModelGuide({ scoped: routingModelOutOfScope(ctx), interactive: true })}. Run it anyway?`,
+				[STEP_CONFIRM_CONTINUE, STEP_CONFIRM_CANCEL],
+				{ timeout: wait.timeout, signal: wait.signal },
+			);
+		} catch {
+			return false;
+		} finally {
+			wait.stop();
+		}
+		// No choice is two facts: the host's dialog closes with nothing chosen when it runs out and when the
+		// user presses Esc, and only one of those is an answer.
+		if (answer === undefined) return !wait.timedOut();
+		return answer === STEP_CONFIRM_CANCEL;
+	}
+
+	/**
+	 * The role the step was set to, which is the one the user is being told is not used.
+	 *
+	 * A step with only a thinking level set still expects a role, and it is the one the phase carries; a step
+	 * with a role set expects that one (spec `managed-commands` / 既定ロールのあるステップでも確認する).
+	 */
+	function expectedRole(step: NonNullable<ReturnType<RoutingPhase["step"]>>): string {
+		return resolveRequestRole(step, readSettings(), deps.phase.current());
+	}
+
+	/**
+	 * Whether a step carries a role someone chose, which is what makes the wait worth asking for.
+	 *
+	 * A step that follows the lock asks nothing of the routing, so stopping it would be stopping the user
+	 * over a setting they never set (spec `managed-commands` / 期待されるロールの無いステップでは確認しない).
+	 */
+	function stepIsWorthConfirming(name: string): boolean {
+		const entry = readSettings().steps?.[name];
+		if (entry?.role !== undefined || entry?.thinking !== undefined) return true;
+		return STEP_DEFINITIONS.find((step) => step.name === name)?.defaultRole !== undefined;
+	}
 }
 
-/** Whether the session runs on a model spirits does not route. */
-function isPhysicalSelection(ctx: ExtensionCommandContext): boolean {
-	return !(ctx.model?.provider === ROUTING_PROVIDER_ID && ctx.model.id === ROUTING_MODEL_ID);
+/**
+ * The two clocks one confirmation runs.
+ *
+ * The dialog gets the full wait so its countdown reads as the wait the settings name, and this surface's own
+ * timer goes {@link STEP_CONFIRM_TIMEOUT_SLACK_MS} earlier and aborts the dialog. A dialog closed by that
+ * abort is a timeout and lets the input through; a dialog closed before it is the user's answer and stops it.
+ */
+function stepConfirmWait(clock?: { timeoutMs: number; slackMs: number }): { timeout: number; signal: AbortSignal; timedOut(): boolean; stop(): void } {
+	const timeout = clock?.timeoutMs ?? STEP_CONFIRM_TIMEOUT_MS;
+	const controller = new AbortController();
+	let expired = false;
+	const timer = setTimeout(() => {
+		expired = true;
+		controller.abort();
+	}, timeout - (clock?.slackMs ?? STEP_CONFIRM_TIMEOUT_SLACK_MS));
+	return {
+		timeout,
+		signal: controller.signal,
+		timedOut: () => expired,
+		stop: () => clearTimeout(timer),
+	};
+}
+
+/**
+ * Whether the session runs on a model spirits does not route.
+ *
+ * The comparison itself is {@link isRoutingModel}, shared with the child-model resolution, so the badge,
+ * the list, `status`, and the warnings cannot disagree about whether a session is routed.
+ */
+export function isPhysicalSelection(ctx: Pick<ExtensionContext, "model">): boolean {
+	// A session that selected nothing is not a physical selection: it is the absence of one, and the
+	// routing-off notice is about a model the user chose (spec `managed-commands` /
+	// save はディスク上の結果と実効状態を区別する: モデル未選択のセッションを物理モデルの選択として扱わない).
+	return ctx.model !== undefined && !isRoutingModel(ctx.model);
+}
+
+/**
+ * Whether the session limits its models to a scope that leaves the routing model out.
+ *
+ * A scope is the host's own list, and a model outside it cannot be selected by name, so this is what tells
+ * a warning between "pick it in the selector" and "the selector does not hold it" (spec
+ * `managed-commands` / スコープ外の手順を名指す).
+ */
+export function routingModelOutOfScope(ctx: Pick<ExtensionContext, "scopedModels">): boolean {
+	const scope = ctx.scopedModels;
+	return scope.length > 0 && !scope.some((entry) => isRoutingModel(entry.model));
 }
 
 /** A completion candidate, always with the `label` pi renders and re-reads (`undefined` crashes it). */
@@ -377,6 +701,8 @@ export function roleCompletions(argumentPrefix: string): AutocompleteItem[] | nu
 	if (level === 0) {
 		return show([
 			item("status", "how the routing is running"),
+			// `save` is a word of the first level and has no second one, so it appears here and nowhere below.
+			item(ROLE_SAVE_WORD, "write this session's selection to pi's global settings"),
 			...MODEL_ROLES.map((role) => item(role, "lock the session role")),
 			...STEP_DEFINITIONS.map((step) => item(step.name, "step settings")),
 		]);
