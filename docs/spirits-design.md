@@ -71,6 +71,7 @@ spirits は、エージェント型コーディングツール **Pi**(`earendil-
 │  packages/spirits (拡張 bundle、本プロジェクトの中核)    │
 │  ├─ repl/   永続 TS REPL(Bun.Transpiler + node:vm)      │
 │  ├─ rlm/    子エージェント起動(SDK createAgentSession)  │
+│  ├─ guard/  bash 実行の分類と遮断(案内のみ)             │
 │  ├─ harness/ goal / memory / skill CRUD / code-mode      │
 │  ├─ routing/ spirits/auto の role 振り分け               │
 │  └─ managed-pi/ update/ (導入・検証・自己更新)          │
@@ -83,6 +84,8 @@ spirits は、エージェント型コーディングツール **Pi**(`earendil-
 
 - **ホスト(公式 Pi + spirits 拡張)**: プロバイダ呼び出し、セッション永続化、子エージェントのライフサイクル、深度制限、コスト集計、権威ある状態の保持
 - **REPL(モデルに見える実行面)**: 作業用変数・状態の保持、ホスト提供関数の呼び出し、標準出力の捕捉
+
+実行面は 4 つに分かれ、行き先を規則が 1 か所ずつ決める。`read` / `edit` / `write` はファイルの面、`bash` は 1 回の起動で終わり出力を自分で読む面、`tsrepl` は出力をコードで扱う処理と使い捨てのコードの面、python は実行面として置かない。選び方の基準は tsrepl の `promptGuidelines`(pi が `<rules>` に並べる 4 項目)に置き、コードモードのプロンプトは同じ配列をそのまま埋め込む。`guard/` は `bash` の呼び出しを `tool_call` で受け取り、分類に該当すればその呼び出しを実行せずに理由を返す。理由は分類 ID、行き先の 1 文、`SPIRITS_ACTION_GUARD=warn|off` で切り替えられる旨を含める。プロンプトへの注入、メッセージの破棄、後続ツールの取り下げはしない。判定の語彙と実測の詳細は `packages/spirits/README.md` のガードの節に置く。
 
 Prime Agent ではホスト(どもの TS)とカーネル(Python)間を Jupyter comm の RPC で接続していたが、spirits では同一 Bun プロセス内のため、**RPC 層は廃し、REPL の vm コンテキストへ async 関数を直接注入**する。
 
@@ -276,6 +279,12 @@ spirits は Pi をフォークしない。ホストは公式配布物であり�
 │     │  ├─ rlm/
 │     │  │  ├─ spawn.ts        createAgentSession ラッパ(同期)
 │     │  │  └─ depth.ts        深度制限伝播
+│     │  ├─ guard/
+│     │  │  ├─ lex.ts          シェル字句・パイプ段数・ラッパ
+│     │  │  ├─ rules.ts        分類(S1/S2/S3・P1/P2/P3)と S2 の読み取り例外
+│     │  │  ├─ messages.ts     ブロック理由の行き先
+│     │  │  ├─ metrics.ts      verdict / category 集計
+│     │  │  └─ register.ts     tool_call フック(記録・誘導・再分類)
 │     │  ├─ harness/
 │     │  │  ├─ install.ts      配線(registerTool / before_agent_start)
 │     │  │  ├─ memory.ts       note / メモリ要約

@@ -68,7 +68,7 @@ test("one entry per decision", async () => {
 test("nested flags the record", async () => {
 	const { pi, decide } = guarded({ [ENV_ACTION_GUARD]: "enforce" });
 	await decide("python3 -c 'print(1)'", "cell-1");
-	expect(guardEntries(pi)[0]).toEqual({ category: ["P1"], mode: "enforce", blocked: true, nested: true });
+	expect(guardEntries(pi)[0]).toEqual({ category: ["P1", "P3"], mode: "enforce", blocked: true, nested: true });
 });
 
 test("中身を含めない コマンド本文・出力・引数の値", async () => {
@@ -79,6 +79,16 @@ test("中身を含めない コマンド本文・出力・引数の値", async (
 	for (const needle of ["secret-token", "secret-argument", "python3", "-c", "/tmp/"]) {
 		expect(recorded, needle).not.toContain(needle);
 	}
+});
+
+// 分類 P3(Python の実行)は P 系の一員として記録できる。ID を増やした型が通ることを見せるのはここ。
+test("P3 を記録する", () => {
+	expect(buildGuardEntry({ categories: ["P3"], mode: "enforce", blocked: true, nested: true })).toEqual({
+		category: ["P3"],
+		mode: "enforce",
+		blocked: true,
+		nested: true,
+	});
 });
 
 test("中身を含めない 分類 ID 以外の文字列を含まない", () => {

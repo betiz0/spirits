@@ -68,6 +68,32 @@ test("existing cell unaffected by rlm", async () => {
 	expect(result.value).toBe("1");
 });
 
+// spec "未提供のホストグローバルへの参照の提案": 提案はルートと子のどちらでも同じ文である。
+test("child session suggests the same replacement", async () => {
+	const childCells: Parameters<SpawnFn>[0]["childTool"][] = [];
+	const spawn: SpawnFn = async (params) => {
+		childCells.push(params.childTool);
+		return completedResult("ok");
+	};
+	const tool = makeRlmTool(spawn);
+	await executeCell(tool, 'return await rlm("x")');
+	const child = childCells[0];
+	if (child === undefined) throw new Error("the spawn captured no child tool");
+
+	const childResult = await child.execute("cell", { code: "return process.env.HOME" }, undefined, undefined, makeToolContext({ model: MODEL }));
+	const rootResult = await executeCell(tool, "return process.env.HOME");
+	expect(childResult.isError).toBe(true);
+	const childSuggestion = suggestionOf(childResult.details.error ?? "");
+	expect(childSuggestion).toContain('use("node:');
+	expect(childSuggestion).not.toContain("globalThis.process =");
+	expect(childSuggestion).toBe(suggestionOf(rootResult.error ?? ""));
+});
+
+/** The `提案:` line of a formatted cell error. */
+function suggestionOf(errorText: string): string {
+	return errorText.split("\n").find((line) => line.startsWith("提案:")) ?? "";
+}
+
 test("extra host fn rejected when duplicate", () => {
 	const makeEntry = (name: string): HostFnEntry => ({ name, description: "", create: () => () => {} });
 	expect(() => createTsreplTool({ hostFns: [makeEntry("print")] })).toThrow();

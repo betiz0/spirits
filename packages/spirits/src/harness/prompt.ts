@@ -23,7 +23,8 @@ import { promptOverridePath } from "./paths.ts";
 /** Built-in code-mode prompt. Not exported: resolution goes through `resolveCodeModePrompt`. */
 const DEFAULT_CODE_MODE_PROMPT = [
 	"## spirits code-mode",
-	// One copy of the rule: the same bullets pi lists in `<rules>` as the tsrepl guidelines.
+	// One copy of the rule: the same 4 bullets pi lists in `<rules>` as the tsrepl guidelines. The
+	// destinations a blocked command gets pointed to are written by the guard, not here.
 	`- ツール選択の基準: ${TSREPL_PROMPT_GUIDELINES.join(" / ")}`,
 	"- セルをまたいで残るのは `globalThis` への代入だけで、`const` / `let` / `function` はセル内に閉じる。値を返したセルの値は次のセルで `_` として読める。",
 	"- `tool()` はエラー扱いの結果でも、そのツールが `outputSchema` を宣言していれば構造化結果を返す。bash の非ゼロ終了は例外ではなく `exit_code` に乗るため、成否は `exit_code` で確認する。",
@@ -34,9 +35,9 @@ const DEFAULT_CODE_MODE_PROMPT = [
 	'const hits = await sh("rg -n TODO src");',
 	"return { code: hits.exit_code, lines: hits.output.split(\"\\n\").slice(0, 10) };",
 	"",
-	'// JSON: 必要なキーだけ読む',
-	'const pkg = await sh("cat package.json");',
-	"return { code: pkg.exit_code, version: JSON.parse(pkg.output).version };",
+	'// ファイルの内容は bash の cat で読まない。`await use("node:fs/promises")` か read で読む',
+	'const fs = await use("node:fs/promises");',
+	"return JSON.parse(await fs.readFile(\"package.json\", \"utf8\")).version;",
 	"",
 	"// テスト: 加工はセルの中で行う。パイプに切らせた末尾の exit_code は末尾コマンドのものになる",
 	'const run = await sh("bun test 2>&1");',
@@ -50,7 +51,7 @@ const DEFAULT_CODE_MODE_PROMPT = [
 	"return { code: raw.exit_code, skills: listed.skills.length };",
 	"```",
 	"- セルの値は `return <式>` または `out(<式>)` で返し、複数行の出力は `print(...)` を使います。",
-	"- `use()` で import できるのは `node:` / `bun:` の組込と、セッション cwd 配下の `./` / `../` 相対パスだけです。",
+	"- import は `await use(\"node:fs\")` のように `await` 付きで書きます。使えるのは `node:` / `bun:` の組込と、セッション cwd 配下の `./` / `../` 相対パスだけです。",
 	"- 文脈量の多い調査や独立した実装は `rlm(prompt)` で子エージェントへ委譲します。使いどころ、深度上限、ツール呼び出し上限、直列化、timeout の注意は tsrepl のツール説明の `rlm` の項を参照してください(上限値はここに書きません)。",
 	"- 子セッションにはメモリ要約・スキル・この code-mode プロンプト・`goal` / `note` は自動で渡りません。子に必要な情報は `rlm` の prompt に含めてください。",
 	"- 次のセッションでも役立つ事実は `note(text)` でメモリへ残します。一度きりの出力や探索ログは書かず、再利用できる知識に絞ります。",

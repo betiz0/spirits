@@ -151,7 +151,7 @@ test("a cell reaching for another language is blocked with the reason", async ()
 	);
 	expect(result.isError).toBe(false);
 	expect(String(result.value)).toContain("P1");
-	expect(guardRecords()[0]).toEqual({ category: ["P1"], mode: "enforce", blocked: true, nested: true });
+	expect(guardRecords()[0]).toEqual({ category: ["P1", "P3"], mode: "enforce", blocked: true, nested: true });
 });
 
 test("a shell loop inside a cell still runs", async () => {
@@ -162,7 +162,30 @@ test("a shell loop inside a cell still runs", async () => {
 	expect(guardRecords()).toEqual([]);
 });
 
-// spec "ガードはセキュリティ境界ではない": the guard sits on the bash tool, not on the cell.
+// spec "分類の適用範囲": the shell's `-c` string is read with the reach of the call that carried it.
+test("a nested bash -c runs a loop but not Python", async () => {
+	const { runCell, guardRecords } = session("enforce");
+	const loop = await runCell('const r = await sh("bash -c \'for i in a b; do printf %s $i; done\'"); return [r.exit_code, r.output]');
+	expect(loop.isError).toBe(false);
+	expect(String(loop.value)).toContain("ab");
+	expect(guardRecords()).toEqual([]);
+
+	const python = await runCell('await sh("bash -c \'python3 x.py\'"); return 1');
+	expect(python.isError).toBe(true);
+	expect(python.text).toContain("P3");
+	expect(guardRecords()[0]).toEqual({ category: ["P3"], mode: "enforce", blocked: true, nested: true });
+});
+
+// spec "分類 P3 Python の実行": a project's own test runner is a Python run like any other.
+test("the project's own python test runner is blocked from a cell", async () => {
+	const { runCell, guardRecords } = session("enforce");
+	const result = await runCell('await sh("pytest -q"); return 1');
+	expect(result.isError).toBe(true);
+	expect(result.text).toContain("P3");
+	expect(guardRecords()[0]).toEqual({ category: ["P3"], mode: "enforce", blocked: true, nested: true });
+});
+
+// spec "ガードの対象外とする迂回": the guard sits on the bash tool, not on the cell.
 test("迂回を塞がない: a cell that imports node:child_process is left alone", async () => {
 	const { runCell, guardRecords } = session("enforce");
 	const result = await runCell(

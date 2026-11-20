@@ -99,6 +99,76 @@ test("host frames removed", () => {
 	expect(text).toContain("globalThis.missing");
 });
 
+// spec "未提供のホストグローバルへの参照の提案": `process` / `Bun` / `require` は代入では取り戻せない。
+test("未提供のホストグローバルは use() を提案する", () => {
+	const convertedCode = "(async () => {\n  return 1;\n})();\n";
+	const reference = (name: string) => ({
+		name: "ReferenceError",
+		message: `${name} is not defined`,
+		stack: `ReferenceError: ${name} is not defined\n    at <anonymous> (tsrepl-cell.js:2:3)`,
+	});
+
+	const processText = formatRuntimeError(reference("process"), convertedCode);
+	expect(processText).toContain("process");
+	expect(processText).toContain('use("node:');
+	expect(processText).not.toContain("globalThis.process =");
+
+	const bunText = formatRuntimeError(reference("Bun"), convertedCode);
+	expect(bunText).toContain('use("node:');
+	expect(bunText).toContain("sh(");
+	expect(bunText).toContain("ルートのセッション");
+	expect(bunText).not.toContain("globalThis.Bun =");
+
+	const requireText = formatRuntimeError(reference("require"), convertedCode);
+	expect(requireText).toContain('await use("node:');
+	expect(requireText).not.toContain("globalThis.require =");
+});
+
+// 差し戻し C-3: 専用提案は vm が投けた形だけ。メッセージに文字列として含まれるだけでは出さない。
+test("未提供の提案はエラー種別と識別子全体で照合する", () => {
+	const convertedCode = "(async () => {\n  return 1;\n})();\n";
+	const suggestion = (error: { name: string; message: string }): string =>
+		formatRuntimeError({ ...error, stack: "" }, convertedCode).split("提案: ")[1] ?? "";
+
+	// 設定エラーが同じ語を言っていても `use("node:process")` にはしない。
+	const configuration = suggestion({
+		name: "Error",
+		message: "process is not defined by this configuration",
+	});
+	expect(configuration).not.toContain('use("node:');
+
+	// `$process` は `process` ではない。
+	const dollar = suggestion({ name: "ReferenceError", message: "$process is not defined" });
+	expect(dollar).not.toContain('use("node:');
+	expect(dollar).toContain("$process");
+
+	// 実セルの `require("fs")` は TypeError になる。この形は専用提案の対象のまま。
+	const called = suggestion({
+		name: "TypeError",
+		message: `require is not a function. (In 'require("fs")', 'require' is undefined)`,
+	});
+	expect(called).toContain('await use("node:');
+
+	// 別の型エラーが語を/includes していても出さない。
+	const other = suggestion({
+		name: "TypeError",
+		message: "Cannot read properties of undefined (reading 'process is not defined')",
+	});
+	expect(other).not.toContain('use("node:');
+});
+
+test("それ以外の未定義の識別子は globalThis への代入を勧める", () => {
+	const text = formatRuntimeError(
+		{
+			name: "ReferenceError",
+			message: "notDefinedAnywhere is not defined",
+			stack: "ReferenceError: notDefinedAnywhere is not defined\n    at <anonymous> (tsrepl-cell.js:2:3)",
+		},
+		"(async () => {\n  return 1;\n})();\n",
+	);
+	expect(text).toContain("globalThis.notDefinedAnywhere =");
+});
+
 test("console suggestion", () => {
 	const convertedCode = "(async () => {\n  console.log(\"x\");\n})();\n";
 	const error = {

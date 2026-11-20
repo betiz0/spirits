@@ -32,7 +32,7 @@ Pi 拡張として「永続 TypeScript REPL ツール」を単体で動作させ
 - `repl/cell.ts`: セル評価パイプライン(下記)
 - `repl/format.ts`: 戻り値・print 出力・エラーの整形、truncate
 - `tools.ts`: `pi.registerTool("tsrepl", ...)` 登録
-- 注入関数: ビルトインが `out(v)`, `print(...args)`, `use(spec)`, `tool(name, args)`。`sh(command, options?)` はビルトインではなく root の tsrepl 登録が渡す関数で、`tool("bash", { command, ...options })` と同じ結果を返す(`rlm` の子は bash を持たないので持たない)
+- 注入関数: ビルトインが `out(v)`, `print(...args)`, `use(spec)`(Promise を返すので `await use("node:fs")` の形で使う), `tool(name, args)`。`sh(command, options?)` はビルトインではなく root の tsrepl 登録が渡す関数で、`tool("bash", { command, ...options })` と同じ結果を返す(`rlm` の子は bash を持たないので持たない)
 - node:vm ESM 系(`vm.SourceTextModule`, `importModuleDynamically`)の実機スパイク
 
 やらない:
@@ -63,7 +63,7 @@ Pi 拡張として「永続 TypeScript REPL ツール」を単体で動作させ
    - 構造: `(async (require) => { <変換済みコード> })()` を `vm.Script`(ファイル名 `tsrepl-cell.js`)化し `runInContext` 実行。IIFE の `require` 引数は未指定なので undefined になり、Bun.Transpiler の `typeof require` 畳み込みを打ち消す
    - 戻り値の扱い: セル内で `return <expr>` または `out(<expr>)` を使った場合、その値を結果とする。どちらも無ければ value は undefined(printed のみ返る)。**最終式の自動捕捉はしない**(M5 の採否対象)
    - 永続の範囲: セルをまたいで残るのは `globalThis` への代入(`globalThis.x = ...` または宣言なしの代入 `x = ...`)だけ。加えて、value を返して成功したセルの値を REPL が `globalThis._` へ代入する(value 無しセルと error セルは `_` を変えず、`reset` で消える)。IIFE 内の `const` / `let` / `function` / `class` はセル内に閉じる。この規則はツール説明でもモデルに示す
-3. `use(spec)`: `node:` / `bun:` の組込と、セッション cwd を基準に解決して cwd 配下に収まる `./` / `../` 相対パスだけを許可し、動的 `import()` する。ベア指定子(同梱依存)・絶対パス・cwd 外・リモート URL は拒否し、理由を含む例外をセルへ投げる。M1 では URL 開放の opt-in を設けない(ベア指定子は M2 以降で検討)
+3. `await use(spec)`: Promise を返すので `await` が要る(実測で `await` 漏れの `ReferenceError` が繰り返し出ており、ツール説明・コードモード・エラー提案のすべてで `await` 付きの例を示す)。`node:` / `bun:` の組込と、セッション cwd を基準に解決して cwd 配下に収まる `./` / `../` 相対パスだけを許可し、動的 `import()` する。ベア指定子(同梱依存)・絶対パス・cwd 外・リモート URL は拒否し、理由を含む例外をセルへ投げる。M1 では URL 開放の opt-in を設けない(ベア指定子は M2 以降で検討)
 4. `tool(name, args)`: `ctx.executeTool` で呼び出せるツール(direct ツール、codemode ツール、deferred ツール)から `tsrepl` 自身を除いたものを実行する。`outputSchema` の宣言を見るのはエラー扱いのときだけである。成功時は宣言にかかわらず、`structuredContent` があればそれを、無ければテキストを返す。エラー扱い(`isError`)のときは、そのツールが `outputSchema` を宣言していて結果に `structuredContent` が含まれる場合だけ例外にせず構造化結果を返すため、bash の非ゼロ終了はデータとして読める(成否は `exit_code` で確認する)。例外になるのは、構造化結果の無い失敗・`outputSchema` を宣言しないツールの失敗・存在しないツール・呼び出せないツール・`tsrepl` 自身の指定で、いずれもツールのエラーテキストを含む例外としてセル内に投げ、セル内で catch できる
 5. `sh(command, options?)`: 上記 `tool("bash", ...)` と同じ経路(`executeTool` と同じ結果規則)で bash を 1 回実行する短縮形で、`repl/hostfns.ts` の `createShHostFn()` が作る。ビルトインではないため子セッションには届かず、cell 組み込みの名簿にも入らない。セルログ(`tsrepl_cell` の `toolCalls`)には `name: "bash"` として載る
 6. 出力捕捉: `print()` は 1 行としてバッファへ追記し、結果の printed として返す。整形後の結果テキスト全体には §6 の出力上限(51200 文字と全文ファイル)が掛かる。`out(v)` は value を設定する。コンテキストのホストグローバルは `setTimeout` / `clearTimeout` / `fetch` / `URL` / `TextEncoder` / `TextDecoder` / `structuredClone` だけとし、`process` / `Bun` / `require` / `console` は提供しない(console 参照は print に誘導)
@@ -72,7 +72,7 @@ Pi 拡張として「永続 TypeScript REPL ツール」を単体で動作させ
 
 ## 6. エラー整形方針(format.ts)
 
-- 実行時エラー: 例外の種類とメッセージ + 行番号 + その行の抜粋 + 「次に試すべきこと」の提案 1 文。行番号は `tsrepl-cell.js` のフレーム行番号から 1 を引いた値(元のセル行に対応)で、抜粋は変換後コードの該当行。`console` の参照には `print` を、未定義参照(宣言を後続セルへ持ち越そうとした場合)には `globalThis` への代入を案内する
+- 実行時エラー: 例外の種類とメッセージ + 行番号 + その行の抜粋 + 「次に試すべきこと」の提案 1 文。行番号は `tsrepl-cell.js` のフレーム行番号から 1 を引いた値(元のセル行に対応)で、抜粋は変換後コードの該当行。`console` の参照には `print` を、意図的に無い名前(`context.ts` の `MISSING_GLOBALS` に並ぶ `process` / `Bun` / `require`)にはそれぞれの `await use("node:...")` を、それ以外の未定義参照(宣言を後続セルへ持ち越そうとした場合)には `globalThis` への代入を案内する。プロンプトへ代入を勧める文言はないため、代入で取り戻せない名前を提案が誤爆することはない。子セッションも同じ `format.ts` を通るので同じ提案になる
 - トランスパイルエラー: `Bun.Transpiler` のエラー位置(`position.line - 1`)と `lineText` を提示し、コードは実行しない
 - スタックトレースは `tsrepl-cell.js` のフレームだけを使い、ホスト側内部情報(REPL 実装ファイル、テスト)を含めない
 - 出力上限: 整形後の結果テキスト全体(成功時は value / printed、失敗時は error)に 1 回適用。51200 文字を超えたら先頭 30720 + 末尾 20480 を残して中間を切り捨て、切り捨てた文字数を明記する。単位は JavaScript の文字列長(bash の 50KB と同じオーダー)。切り捨てたときは全文を `os.tmpdir()` の `spirits-tsrepl-<hex>.txt`(モード 0600)へ保存し、結果テキストにそのパスを書く。保存に失敗してもセルの成否は変えず、パスの代わりに保存できなかった旨を書く(bash と同じ寿命で、削除は OS の tmp 掃除に任せる)
@@ -96,7 +96,7 @@ Pi 拡張として「永続 TypeScript REPL ツール」を単体で動作させ
 | 4 | 構文エラーのセル | 実行されず、行番号付きエラー |
 | 5 | 実行時例外 | セル内行番号 + 提案付きエラー、コンテキストは生存 |
 | 6 | timeout 超過セル | 打ち切りメッセージ |
-| 7 | `use("node:fs")` 許可 / `use("https://...")` 拒否 | allowlist 動作 |
+| 7 | `await use("node:fs")` 許可 / `await use("https://...")` 拒否 | allowlist 動作 |
 | 8 | `reset:true` | 変数が消えている |
 | 9 | print 大量出力 | truncate 動作と文字数明記 |
 

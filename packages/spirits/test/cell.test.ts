@@ -19,6 +19,24 @@ test("persists globalThis", async () => {
 	expect(result.details.value).toBe("1");
 });
 
+// spec "未提供のホストグローバルへの参照の提案": 実行時エラーの 1 文で行き先を示す。
+test("process / Bun / require の参照は use() を提案する", async () => {
+	const nodeUse = "use(\"node:";
+	for (const [code, needles, forbidden] of [
+		["return process.env.HOME", [nodeUse, "process"], "globalThis.process ="],
+		["return Bun.version", [nodeUse, "sh(", "ルートのセッション"], "globalThis.Bun ="],
+		["const fs = require(\"fs\"); return 1", [`await ${nodeUse}`], "globalThis.require ="],
+	] as const) {
+		const result = await newRepl().run({ code }, makeToolContext());
+		expect(result.isError, code).toBe(true);
+		for (const needle of needles) expect(result.text, `${code}: ${needle}`).toContain(needle);
+		expect(result.text, code).not.toContain(forbidden);
+	}
+	// その他の未定義名は従来どおり `globalThis` への代入を勧める。
+	const other = await newRepl().run({ code: "return notDefinedAnywhere" }, makeToolContext());
+	expect(other.text).toContain("globalThis.notDefinedAnywhere =");
+});
+
 test("undeclared assignment persists", async () => {
 	const repl = newRepl();
 	const ctx = makeToolContext();

@@ -74,15 +74,18 @@
 ### code-mode システムプロンプト
 
 - 既定は `src/harness/prompt.ts` の TS 定数としてバイナリに同梱する(repo の `prompts/spirits/` は作らない)
-- `before_agent_start` で `systemPromptOptions.sections` に `spirits` を追加する(forceSystemPrompt は使わず、Pi 既定のプロンプト・ツール一覧・規則を保つ。tsrepl は `promptSnippet` でツール一覧に、`promptGuidelines` で規則の 3 項目を宣言し、`rlm` の子が作る tsrepl は guidelines を空にする(子は bash を持たない)。子の `<tools>` には snippet が載る)
+- `before_agent_start` で `systemPromptOptions.sections` に `spirits` を追加する(forceSystemPrompt は使わず、Pi 既定のプロンプト・ツール一覧・規則を保つ。tsrepl は `promptSnippet` でツール一覧に、`promptGuidelines` で規則の 4 項目を宣言し、`rlm` の子が作る tsrepl は guidelines を空にする(子は bash を持たない)。子の `<tools>` には snippet が載る)
 - 上書きは `<agentDir>/prompts/spirits/code-mode.md`。`prompts/` の直下を避けてテンプレート探索と衝突させない
 - 骨格:
-  1. ツール選択の基準に沿って tsrepl を使うこと(bash は 1 回の起動で終わり出力をそのまま読むコマンドに限定し、`&&` 連結と許可フィルタだけの短いパイプは許す。分岐・繰り返し・出力の解析や集計は tsrepl で TypeScript として書く。調査・集計・検証用の使い捨てコードもセルで書き、python や `node -e` などのインラインコードとスクラッチスクリプトを bash から実行しない。対象プロジェクト自身の実行・テストコマンドは除く)。1 項目目の許可フィルタの一覧は `constants.ts` の `BASH_PIPE_ALLOW_FILTERS` から組み立て、ガードが通すパイプと 同じ一覧にする
-  2. rlm の使いどころと深度上限の存在(数値は書かず、値は tsrepl のツール説明の `rlm` の項を参照させる)
-  3. note / スキル保存の基準(「次のセッションでも役立つ事実か」で判断)と、子へ渡す情報は prompt に含めること
-  4. Phase 1 のセル評価ルール(return / out、use の許可範囲)
-  5. `sh(command, options?)` の使用例と、エラー扱いのツール結果でも構造化結果が返り `exit_code` を確認する必要があること(`sh` は `tool("bash", { command, ...options })` と同じ結果を返す短縮形)
-- 分担: ツールを選ぶ基準は tsrepl の `promptGuidelines`(`tools.ts` の宣言。Pi 既定の規則に併記される)をビルトインのプロンプトでも同じ文言で引用し、`sh` を使った使用例はビルトインのプロンプト側にある。上書きファイルがある場合、効かなくなるのはビルトイン側の使用例だけで、基準はツール宣言に残る
+  1. ツール選択の基準: `tools.ts` の `TSREPL_PROMPT_GUIDELINES` の 4 項目を一字一句そのまま埋め込む(別の書き回しをしない)。bash の項目の許可フィルタは `constants.ts` の `BASH_PIPE_ALLOW_FILTERS` から組み立て、ガードが通すパイプと同じ一覧にする
+  2. セルをまたいで残るもの(`globalThis` への代入と `_`)と、セル内に閉じる宣言
+  3. `tool()` はエラー扱いの結果でも構造化結果を返すこと、成否は `exit_code` で確認すること
+  4. `sh(command, options?)` が `tool("bash", { command, ...options })` と同じ結果を返す短縮形であることと、bash 以外のツールは `tool(name, args)` で呼ぶ決まり
+  5. `sh` を使った使用例(`rg` の検索、テスト出力の加工)と `tool("bash", ...)` の例、bash 以外のツールを呼ぶ例。ファイルの内容を `cat` で読む例と python を実行する例は載せず、ファイルは `await use("node:fs/promises")` で読む例にする
+  6. Phase 1 のセル評価ルール(return / out、`print`)と import の許可範囲(`await use(...)` の形)
+  7. rlm の使いどころと深度上限の存在(数値は書かず、値は tsrepl のツール説明の `rlm` の項を参照させる)
+  8. note / スキル保存の基準(「次のセッションでも役立つ事実か」で判断)と、子へ渡す情報は prompt に含めること
+- 分担: 変更 `rebalance-action-surface-guidance` で、ツールを選ぶ基準は tsrepl の `promptGuidelines`(Pi 既定の規則に併記される)に 4 項目として置き、コードモードのプロンプトはその配列をそのまま埋め込むだけにした(実測で基準は 3 か所に書かれていた)。遮られたときの行き先は guard の block reason が書く(ガードが 1 回ブロックして修正コマンドを 4 本出した例で、修正の向きを 1 か言えない誘導が 3 本あった)。上書きファイルがある場合、効かなくなるのはコードモード側の使用例だけで、基準はツール宣言に残る
 - codemode ツールはモデルへ宣言されないため、名前と引数は `goal` / `note` の `HostFnEntry.description`(tsrepl のツール説明に連結)で案内する(`await tool(name, args)` での呼び出しを必須とする)。`spirits` セクションを上書きしてもこの案内は残る
 
 ### 子セッションへの memory 注入ポリシー(本フェーズで決定)

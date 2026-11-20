@@ -8,6 +8,7 @@
 
 import type { TranspileFailure } from "./transpile.ts";
 import { isRecord } from "./guards.ts";
+import { MISSING_GLOBALS, type MissingGlobal } from "./context.ts";
 
 /**
  * Output limit of one cell result, in JavaScript string length, with the head and tail it keeps.
@@ -132,16 +133,52 @@ export function findCellFrame(stack: string): { line: number; column: number } |
 	return { line: Number(match[1]), column: Number(match[2]) };
 }
 
+/** A name the vm does not carry, read whole: `$process` is a different name from `process`. */
+const MISSING_REFERENCE = /^([A-Za-z_$][\w$]*) is not defined$/;
+/** The same name as a call spells it: `require("fs")` fails as `'require' is undefined`. */
+const MISSING_CALL = /'([A-Za-z_$][\w$]*)' is undefined\b/;
+
+/**
+ * The absent global a message names, if it names one.
+ *
+ * Only the two shapes the vm throws answer here, and each is read from its own error kind: a bare
+ * reference is a `ReferenceError` whose message is `X is not defined`, and calling the absent name is
+ * a `TypeError` that quotes it. An `Error` that merely says "process is not defined by this
+ * configuration", and a reference to `$process`, are not the vm reporting a host global.
+ */
+function unprovidedGlobal(errorName: string, message: string): MissingGlobal | undefined {
+	const named = missingName(errorName, message);
+	if (named === undefined) return undefined;
+	return MISSING_GLOBALS.find((entry) => entry.name === named);
+}
+
+/** The absent name, from the error kind's own spelling of it. */
+function missingName(errorName: string, message: string): string | undefined {
+	if (errorName === "ReferenceError") return MISSING_REFERENCE.exec(message)?.[1];
+	if (errorName === "TypeError") return MISSING_CALL.exec(message)?.[1];
+	return undefined;
+}
+
+
+/**
+ * The one line that tells the model what to change.
+ *
+ * A name the vm leaves out on purpose answers with its own replacement (`await use("node:...")`) from
+ * `MISSING_GLOBALS`, because the generic advice below would send the model to assign a host global it
+ * cannot have.
+ */
 function suggestFix(name: string, message: string): string {
+	const unprovided = unprovidedGlobal(name, message);
+	if (unprovided !== undefined) return unprovided.suggestion;
 	if (name === "ReferenceError") {
 		if (/\bconsole\b/.test(message)) {
 			return "`console` は提供していません。文字列は `print(...)` で出力してください。";
 		}
-		const missing = /(\w[\w$]*) is not defined/.exec(message);
-		if (missing !== null) {
-			return `セルをまたいで値を残すには \`globalThis.${missing[1]} = ...\` のように \`globalThis\` へ代入してください。`;
+		const missing = MISSING_REFERENCE.exec(message)?.[1];
+		if (missing === undefined) {
+			return "参照名の綴りを確認し、セルをまたぐ値は `globalThis` へ代入してください。";
 		}
-		return "参照名の綴りを確認し、セルをまたぐ値は `globalThis` へ代入してください。";
+		return `セルをまたいで値を残すには \`globalThis.${missing} = ...\` のように \`globalThis\` へ代入してください。`;
 	}
 	if (name === "TypeError") {
 		return "対象の値が想定した型か確認し、必要なら null / undefined をガードしてください。";

@@ -78,6 +78,16 @@ return await rlm("Summarize the rows and return JSON.");
 
 Details, limits, and constraints are in [`packages/spirits/README.md`](packages/spirits/README.md).
 
+## 実行面の振り分けとガード
+
+モデルは 4 つの実行面のどれかを選ぶ。ファイルは `read` / `edit` / `write`、1 回の起動で終わり出力をそのまま読むコマンドは `bash`、出力をコードで扱う処理と使い捨てのコードは `tsrepl` のセル、そして `python` は実行面として置かない。選び方の基準はシステムプロンプトの規則に、遮られたときの行き先はガードのブロック理由に書く。
+
+- 実装が python を通じて行われることを避ける。ここで禁じるのは実行方法としての python で、python で書かれたライブラリを使うことまで禁じない。実行者として `python` / `python3` / `pip` / `uv` / `pytest` を呼ぶのは対象プロジェクト自身の実行・テストでも止まり(`P3`)、他のランタイムから呼ばれる処理の中身は検査しない。ビルドもテストも python 実行になるプロジェクトでは、spirits は推奨しない。
+- ガードは `bash` の呼び出しを `tool_call` で分類し、該当があれば block と 1 文の書き換え先を返すだけで、プロンプトへの注入・メッセージの破棄・後続ツールの取り下げはしない。利用者は `SPIRITS_ACTION_GUARD=warn`(記録だけ)または `off` で切り替える。
+- この振り分けは実測に基づいている。直近 7 日のセッションログ 22 本・5,393 回の bash 呼び出しを数え、ガードを追加したときと同じ条件で分類し直して、見逃し・過検出・モデルの修正行動を測った結果を反映している。追加したもの: python 実行の禁止(`P3`)、`sed -n '<範囲>p'` による行範囲の表示を通し、シェルの `-c` と `eval` の中身の再分類、コマンド名と `nohup` のようなラッパの読み飛ばし。修正したもの: ブロック理由が行き先(read / edit / write / bash / tsrepl)を 1 文で言うようにした。
+
+判定の条件と分類表は [`packages/spirits/README.md`](packages/spirits/README.md) のガードの節に置く。
+
 ## Bundled skills
 
 spirits ships with skills that are available right after install. They are written at startup to `<agentDir>/bundled-skills/<spirits version>/` and handed to pi's skill search; they are never placed in `<agentDir>/skills/`.

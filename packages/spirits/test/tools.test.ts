@@ -54,9 +54,9 @@ test("tool prompt snippet and guidelines", () => {
 	expect(tool.promptSnippet).not.toContain("\n");
 
 	const guidelines = tool.promptGuidelines ?? [];
-	// 変更 add-action-surface-guard で 3 項目(使い捨てコードの規則が加わった)。内容の検査は下の
-	// 「prompt guidelines are the three rules of the action surface」。
-	expect(guidelines.length).toBe(3);
+	// 変更 rebalance-action-surface-guidelines で 4 項目(読み書きの行き先が加わった)。内容の検査は
+	// 下の「prompt guidelines are the four destinations of the action surface」。
+	expect(guidelines.length).toBe(4);
 	expect(guidelines.join("\n")).toContain("bash");
 	expect(guidelines.join("\n")).toContain("tsrepl");
 });
@@ -292,19 +292,51 @@ test("dev log disabled", async () => {
 	expect(lines).toEqual([]);
 });
 
-// change add-action-surface-guard: the rule set and the `sh` host function.
-test("prompt guidelines are the three rules of the action surface", () => {
+// change rebalance-action-surface-guidance: 規則は意図ごとの 4 項目。合計の目安は現行 3 項目
+// (356 文字)の 1.5 倍で、システムプロンプトの規則の節が膨らむ見え方を作るための上限制限。
+const GUIDELINE_CHAR_BUDGET = 534;
+
+test("prompt guidelines are the four destinations of the action surface", () => {
 	const guidelines = createTsreplTool().promptGuidelines ?? [];
-	expect(guidelines).toHaveLength(3);
-	// 1 項目目の許可フィルタは guard が通す一覧そのもの(2 か所に書かない)。
-	for (const filter of BASH_PIPE_ALLOW_FILTERS) {
-		expect(guidelines[0]).toContain(filter);
+	expect(guidelines).toHaveLength(4);
+	// 1 項目目: ファイルの読み書きは read / edit / write へ向ける。
+	expect(guidelines[0]).toContain("read");
+	expect(guidelines[0]).toContain("edit / write");
+	expect(guidelines[0]).toContain("sed -i");
+	// 2 項目目の許可フィルタは guard が通す一覧そのもの(2 か所に書かない)。
+	expect(guidelines[1]).toContain("1 回の起動");
+	expect(guidelines[1]).toContain("出力を自分で読む");
+	// spec 「規則のフィルタ一覧はガードと一致する」: 列挙されたフィルタの集合が許可一覧と同じこと。
+	const runs = guidelines[1].match(/[a-z]+(?: \/ [a-z]+)+/g) ?? [];
+	expect(runs).toEqual([BASH_PIPE_ALLOW_FILTERS.join(" / ")]);
+	// 3 項目目: 出力をコードで扱う処理と使い捨てのコードは tsrepl。
+	expect(guidelines[2]).toContain("出力をコードで扱う処理");
+	expect(guidelines[2]).toContain("シェルの制御構文");
+	expect(guidelines[2]).toContain("awk / jq / xargs");
+	expect(guidelines[2]).toContain("使い捨てのコード");
+	// 4 項目目: python は対象プロジェクトの実行も含めて実行しない。
+	expect(guidelines[3]).toContain("python");
+	expect(guidelines[3]).toContain("対象プロジェクトの実行も含めて一切実行しない");
+});
+
+test("prompt guidelines stay inside the character budget", () => {
+	const total = (createTsreplTool().promptGuidelines ?? []).join("").length;
+	expect(total).toBeLessThanOrEqual(GUIDELINE_CHAR_BUDGET);
+});
+
+// spec "ツール説明の use() の書き方": 指定子を言った例はすべて `await` 付き。
+test("tool description awaits use() and names what a cell lacks", () => {
+	const description = createTsreplTool().description;
+	expect(description).toContain('await use("node:');
+	expect(description).toContain('await use("bun:');
+	expect(description).toContain('await use("./');
+	for (const match of [...description.matchAll(/use\("/g)]) {
+		const before = description.slice(Math.max(0, (match.index ?? 0) - 6), match.index);
+		expect(before, description.slice(Math.max(0, (match.index ?? 0) - 30), (match.index ?? 0) + 20)).toBe("await ");
 	}
-	expect(guidelines[0]).toContain("1 回の起動");
-	expect(guidelines[1]).toContain("シェルの制御構文");
-	expect(guidelines[1]).toContain("awk / jq / xargs");
-	expect(guidelines[2]).toContain("使い捨てコード");
-	expect(guidelines[2]).toContain("python");
+	for (const name of ["process", "Bun", "require"]) {
+		expect(description, name).toContain(name);
+	}
 });
 
 test("sh host fn is described", () => {

@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promptOverridePath } from "../src/harness/paths.ts";
 import { resolveCodeModePrompt } from "../src/harness/prompt.ts";
+import { BASH_PIPE_ALLOW_FILTERS } from "../src/constants.ts";
+import { SH_HOST_FN_NAME } from "../src/repl/hostfns.ts";
 import { TSREPL_PROMPT_GUIDELINES } from "../src/tools.ts";
 
 async function makeAgentDir(): Promise<string> {
@@ -56,10 +58,12 @@ test("default states the tool selection rule", async () => {
 	const prompt = await resolveCodeModePrompt(await makeAgentDir());
 	expect(prompt).toContain("bash");
 	expect(prompt).toContain("tsrepl");
-	// 選択基準は tsrepl のツール宣言(promptGuidelines)と同じ文言で、2 か所に手書きしない。
-	for (const guideline of TSREPL_PROMPT_GUIDELINES) {
-		expect(prompt).toContain(guideline);
-	}
+	// bash に残る形をこのセクション自身が列挙する。許可フィルタは guard と同じ一覧から作る。
+	// spec 「規則の文面の単一出典」: 基準は promptGuidelines の 4 項目と一字一句一致し、別の書き回しを
+	// 含めない。フィルタ一覧は guard と同じ `BASH_PIPE_ALLOW_FILTERS` から作る。
+	expect(prompt).toContain(`- ツール選択の基準: ${TSREPL_PROMPT_GUIDELINES.join(" / ")}`);
+	expect(prompt.match(/ツール選択の基準/g)?.length).toBe(1);
+	expect(prompt).toContain(BASH_PIPE_ALLOW_FILTERS.join(" / "));
 	// pi の既定では `bash` がファイル操作の実行面。spirits のセクションが tsrepl を唯一または最優先の
 	// 位置に置く文言に戻していないこと。
 	expect(prompt).not.toMatch(/主要な.*実行面|最優先|唯一/);
@@ -90,15 +94,38 @@ test("override removal restores default", async () => {
 	expect(await resolveCodeModePrompt(agentDir)).toContain("tsrepl");
 });
 
-// change add-action-surface-guard: the tool-selection rule is one copy in `TSREPL_PROMPT_GUIDELINES`.
-test("prompt rules match the tsrepl guidelines", async () => {
+// change rebalance-action-surface-guidance: code-mode の例は bash を呼ぶ最短形と `await use()` を示す。
+// 遮られたときの行き先は guard の block reason が書き、ここでは繰り返さない。
+test("code-mode prompt shows the sh shortcut and awaited use", async () => {
 	const prompt = await resolveCodeModePrompt(await makeAgentDir());
-	expect(TSREPL_PROMPT_GUIDELINES).toHaveLength(3);
-	expect(prompt).toContain(`- ツール選択の基準: ${TSREPL_PROMPT_GUIDELINES.join(" / ")}`);
+	expect(TSREPL_PROMPT_GUIDELINES).toHaveLength(4);
+	// guard のブロック理由をここへ写さない。
+	for (const phrase of ["bash ガード", "このコマンドは実行しません", "記録のみ"] as const) {
+		expect(prompt, phrase).not.toContain(phrase);
+	}
 	// bash を呼ぶ最短形として `sh` を使わせ、`tool("bash", ...)` と `exit_code` の説明は残す。
 	expect(prompt).toContain(`await sh(`);
 	expect(prompt).toContain('tool("bash", { command, ...options })');
 	expect(prompt).toContain("exit_code");
+	expect(prompt).toContain(`${SH_HOST_FN_NAME}(command, options?)`);
+	expect(prompt).toContain("tool(name, args)");
+	// import の例は `await use(...)` の形(実測で `await` 漏れの `ReferenceError` が出ていた)。
+	expect(prompt).toContain('await use("node:');
+	expect(prompt).not.toMatch(/(?:^|[^t] )use\("/);
+});
+
+// spec 「ファイルを sh で読む例と python の例を載せない」
+test("code-mode examples do not read files with cat or run python", async () => {
+	const prompt = await resolveCodeModePrompt(await makeAgentDir());
+	const code = prompt
+		.split("```")
+		.filter((_part, index) => index % 2 === 1)
+		.join("\n");
+	expect(code).not.toContain('sh("cat ');
+	expect(code).not.toContain('command: "cat ');
+	expect(code).not.toContain("python");
+	// 置き換え後の例は `await use("node:fs/promises")` でファイルを読む。
+	expect(code).toContain('await use("node:fs/promises")');
 });
 
 // change add-action-surface-guard (S-2): the code block shows all three call shapes, not only `sh`.

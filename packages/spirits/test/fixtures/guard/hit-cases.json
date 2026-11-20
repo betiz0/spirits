@@ -1,5 +1,5 @@
 {
-	"comment": "Bash commands taken from real spirits session logs, with the home directory, the account name, session ids, long hex runs, and mail addresses replaced. Every case is a command the guard classifies, and `expect` is the category id read from the spec for that shape: S1 shell control syntax or a function definition, S2 awk / jq / xargs, a sed that is not a line-range print, or a pipeline whose stages behind the first are not all allow-listed filters, S3 a heredoc written out to a file, P1 inline code in another language, P2 a non-TypeScript script under a temporary directory. Paths are read against the project working directory /work/project/spirits.",
+	"comment": "Bash commands taken from real spirits session logs, with the home directory, the account name, session ids, long hex runs, and mail addresses replaced. Every case is a command the guard classifies, and `expect` is the category id read from the spec for that shape: S1 shell control syntax or a function definition, S2 awk / jq / xargs, a sed that is not a script of print commands, or a pipeline whose stages behind the first are not all allow-listed filters, S3 a heredoc written out to a file, P1 inline code in another language, P2 a non-TypeScript script under a temporary directory, P3 a command that starts Python by name (python, pip, uv, pytest, a `.py` file). One command can hit several, so a `python3 -c` reads as P1 and P3. Paths are read against the project working directory /work/project/spirits.",
 	"cases": [
 		{
 			"command": "for p in 292072 292075; do echo \"=== $p status ===\"; grep -E \"^(Name|State|TracerPid|Pid|PPid|Threads|SigBlk|SigIgn|SigCgt|voluntary|nonvoluntary)\" /proc/$p/status 2>&1; echo \"--- wchan/syscall ---\"; cat /proc/$p/wchan 2>&1; echo; cat /proc/$p/syscall 2>&1; echo \"--- cwd ---\"; ls -l /proc/$p/cwd 2>&1; done",
@@ -196,37 +196,43 @@
 		{
 			"command": "cd /work/project/spirits && openspec status --change \"add-product-identity\" --json 2>&1 | python3 -c \"import json,sys; d=json.load(sys.stdin); print([(a['id'],a['status']) for a in d['artifacts']])\"",
 			"expect": [
-				"P1"
+				"P1",
+				"P3"
 			]
 		},
 		{
 			"command": "cd /work/project/spirits && openspec instructions specs --change \"add-product-identity\" --json 2>&1 | python3 -c \"import json,sys; d=json.load(sys.stdin); print('OUTPUT:', d['outputPath']); print('INSTRUCTION:'); print(d['instruction']); print('TEMPLATE:'); print(d['template']); print('DEPS:', d.get('dependencies'))\"",
 			"expect": [
-				"P1"
+				"P1",
+				"P3"
 			]
 		},
 		{
 			"command": "cd /work/project/spirits && openspec status --change \"add-product-identity\" --json 2>&1 | python3 -c \"import json,sys; d=json.load(sys.stdin); print([(a['id'],a['status']) for a in d['artifacts']]); print('complete:', d['isComplete'])\"",
 			"expect": [
-				"P1"
+				"P1",
+				"P3"
 			]
 		},
 		{
 			"command": "cd /work/project/spirits && openspec status --change \"add-self-update\" --json | python3 -c \"import json,sys; d=json.load(sys.stdin); print([{a['id']: a['status']} for a in d['artifacts']]); print(d['nextSteps'])\" && echo \"=== validate help ===\" && openspec validate --help 2>&1 | head -30",
 			"expect": [
-				"P1"
+				"P1",
+				"P3"
 			]
 		},
 		{
 			"command": "cd /work/project/spirits && openspec status --change \"add-self-update\" --json | python3 -c \"import json,sys; d=json.load(sys.stdin); print([{a['id']: a['status']} for a in d['artifacts']]); print('planningComplete:', d['isPlanningComplete'], 'complete:', d['isComplete'])\" && echo \"=== validate ===\" && openspec validate add-self-update --strict --no-interactive 2>&1 | tail -20",
 			"expect": [
-				"P1"
+				"P1",
+				"P3"
 			]
 		},
 		{
 			"command": "cd /work/project/spirits && git status --short && echo \"---\" && find openspec/changes/add-self-update -type f | sort && echo \"---\" && openspec status --change add-self-update --json | python3 -c \"import json,sys; d=json.load(sys.stdin); [print(f\\\"{a['id']}: {a['status']}\\\") for a in d['artifacts']]\"",
 			"expect": [
-				"P1"
+				"P1",
+				"P3"
 			]
 		},
 		{
@@ -250,13 +256,15 @@
 		{
 			"command": "cd /work/project/spirits && python3 /tmp/opsx-sync-add-self-update.py && echo \"--- validate ---\" && openspec validate --help 2>&1 | head -30",
 			"expect": [
-				"P2"
+				"P2",
+				"P3"
 			]
 		},
 		{
 			"command": "cd /work/project/spirits && python3 /tmp/opsx-verify-sync.py && echo \"=== validate all strict ===\" && openspec validate --all --strict --no-interactive 2>&1 | tail -30",
 			"expect": [
-				"P2"
+				"P2",
+				"P3"
 			]
 		},
 		{
@@ -269,6 +277,20 @@
 			"command": "cd /work/project/spirits && node /tmp/verify-sync.mjs",
 			"expect": [
 				"P2"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && bun scripts/build-binaries.ts --version 0.0.0-14 2>&1 | tail -1 && bash -c '\ncd /tmp/s14-work\nfor a in \"list\" \"install foo\" \"config\" \"auth status\"; do\n  printf \"\\n=== spirits %s\\n\" \"$a\"\n  out=$($B $a 2>&1); printf \"rc=%s\\n%s\\n\" \"$?\" \"$(printf \"%s\\n\" \"$out\" | head -4)\"\ndone\n$B --version; printf \"rc=%s\\n\" \"$?\"'",
+			"expect": [
+				"S1"
+			]
+		},
+		{
+			"command": "cd /tmp && cat > /tmp/sess.py <<'PY'\nimport json, os, re, glob\nroot=os.path.expanduser('~/.spirits/agent/sessions')\nfor f in sorted(glob.glob(root+'/*/*.jsonl')):\n    print(f)\nPY\npython3 /tmp/sess.py",
+			"expect": [
+				"S3",
+				"P2",
+				"P3"
 			]
 		}
 	]

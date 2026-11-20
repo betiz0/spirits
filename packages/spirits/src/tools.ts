@@ -11,6 +11,7 @@ import { defineTool } from "@earendil-works/pi-coding-agent";
 import type { AgentToolResult, ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { BuiltTool } from "./types/host.ts";
 import { BASH_PIPE_ALLOW_FILTERS, TSREPL_CELL_ENTRY_TYPE } from "./constants.ts";
+import { MISSING_GLOBALS } from "./repl/context.ts";
 import { DEFAULT_SYNC_WATCHDOG, MAX_TIMEOUT, MIN_TIMEOUT, Repl } from "./repl/cell.ts";
 import { OUTPUT_LIMIT } from "./repl/format.ts";
 import type { CellMetrics } from "./repl/metrics.ts";
@@ -22,7 +23,10 @@ export const TSREPL_DESCRIPTION = [
 	"永続 TypeScript REPL のセルを実行します。",
 	"- セルをまたいで残るのは `globalThis` への代入(`globalThis.x = ...` または宣言なしの `x = ...`)だけです。`const` / `let` / `function` / `class` はセル内に閉じます。",
 	"- 値は `return <式>` または `out(<式>)` で返します。文字列の出力には `print(...)` を使ってください(`console` は提供していません)。",
-	'- `use("node:fs")` / `use("bun:ffi")` の組込と、cwd 相対の `use("./m.ts")` を import できます。それ以外は拒否されます。',
+	'- `await use("node:fs")` / `await use("bun:ffi")` の組込と、cwd 相対の `await use("./m.ts")` を import できます。`use()` は Promise を返すので `await` が要ります。それ以外は拒否されます。',
+	// The names come from the same list the runtime error suggests from, so the description and the
+	// proposal cannot disagree about what a cell does not have.
+	`- セルに無いもの: ${MISSING_GLOBALS.map((entry) => `\`${entry.name}\``).join(" / ")}。代わりはそれぞれ \`await use("node:...")\` で、実行時エラーの提案にも同じ文が出ます。`,
 	"- `tool(name, args)` で他のツールを呼べます(`tsrepl` 自身は呼べません)。",
 	"- 実行時エラーの行番号と抜粋は、TypeScript を JavaScript へ変換した後のコード基準です。",
 	"- `tool(name, args)` の結果は、非ゼロ終了などのエラー扱いでも、そのツールが `outputSchema` を宣言していれば構造化結果として返ります。bash なら `exit_code` を確認してください。例外になるのは構造化結果の無い失敗だけです。",
@@ -34,22 +38,26 @@ export const TSREPL_DESCRIPTION = [
 
 /** One-line entry in the system prompt's tool list. pi omits a custom tool without it. */
 export const TSREPL_PROMPT_SNIPPET =
-	"永続 TypeScript REPL。連続実行・出力の加工・結果を次の手順で使う場合に使う";
+	"永続 TypeScript REPL。出力をコードで扱う処理と使い捨てのコードに使う";
 
 /**
  * Guideline bullets pi appends to the system prompt's rules while tsrepl is active.
  *
- * Three rules, read as one split of the action surface: bash stays a single start whose output is
- * read as-is, anything that branches, repeats, or parses output is a cell, and throwaway code is a
- * cell too. The permitted filters of the first rule are the same list the guard lets through a short
- * pipe, so the rule the model reads and the verdict it meets are built from one source.
+ * Four bullets, one per destination, split by who reads the output: a file goes to read / edit / write,
+ * a single start whose output is read as-is stays bash, anything that extracts, aggregates, branches,
+ * repeats, or waits is a cell, and Python is not an destination at all. Reading the measured blocks is
+ * what moved the split from three bullets to four: the misses happened at the choice before the block,
+ * and the missing bullet was the one that points at read / edit / write.
  *
- * pi's own "Use bash for file operations like ls, rg, find" stays in place above these.
+ * The permitted filters of the bash bullet are the same list the guard lets through a short pipe, so
+ * the rule the model reads and the verdict it meets are built from one source. pi's own "Use bash for
+ * file operations like ls, rg, find" stays in place above these.
  */
 export const TSREPL_PROMPT_GUIDELINES: readonly string[] = [
-	`bash は 1 回の起動で終わり出力をそのまま読むコマンドに使う(&& での連結と、${BASH_PIPE_ALLOW_FILTERS.join(" / ")} だけで絞り込むパイプを含む)`,
-	"分岐・繰り返し・出力の解析や集計・結果を次の手順へ渡す処理は tsrepl で TypeScript として書く。bash にシェルの制御構文、awk / jq / xargs、行範囲の print 以外の sed を書かない",
-	"調査・集計・検証用の使い捨てコードは tsrepl のセルで書く。python や node -e などのインラインコードとスクラッチスクリプトを bash から実行しない(対象プロジェクト自身の実行・テストコマンドは除く)",
+	"ファイルを読むときは read、作成・書き換えるときは edit / write を使う。sed -i、ヒアドキュメント、スクリプトでファイルを書き換えない",
+	`bash は 1 回の起動で終わり出力を自分で読むコマンドに使う(&& での連結、${BASH_PIPE_ALLOW_FILTERS.join(" / ")} だけで絞り込むパイプ、sed -n の範囲表示、複数のファイルを引数で渡す形を含む)`,
+	"出力をコードで扱う処理(値の抽出・集計・分岐・繰り返し・待機)と使い捨てのコードは tsrepl で TypeScript として書く。bash にシェルの制御構文、awk / jq / xargs、node -e などのインラインコードを書かない。process や Bun が必要で tsrepl に書けないときだけ、一時ディレクトリの .ts を bun で実行してよい",
+	"python(python3、pip、uv、pytest を含む)は、対象プロジェクトの実行も含めて一切実行しない。JSON の読み取りと集計は tsrepl、ファイルの書き換えは edit を使う",
 ];
 
 const parameters = Type.Object({

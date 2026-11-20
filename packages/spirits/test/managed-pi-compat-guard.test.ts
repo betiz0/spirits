@@ -71,16 +71,17 @@ const CASES: readonly { tool: string; arguments: Record<string, unknown>; comman
 /**
  * What the guard must do to those four.
  *
- * `S1` is a shell control-syntax command, `P1` an inline interpreter, the third call is free, and the
- * fourth is the `tsrepl` cell that calls `bash` through the tool surface: pi gives that call a nested
- * id, and the guard must use it to apply the process families. These are the verdicts the fork route
- * measured before it was removed; the expectation is theirs, the measurement is the host's.
+ * `S1` is a shell control-syntax command, `P1` and `P3` an inline Python one (inline code and the
+ * Python name both hit), the third call is free, and the fourth is the `tsrepl` cell that calls
+ * `bash` through the tool surface: pi gives that call a nested id, and the guard must use it to apply
+ * the process families. These were the fork route's verdicts up to `P1`; `P3` is this change's own
+ * expectation, so the first and fourth pairs are no longer a measurement the fork handed over.
  */
 const EXPECTED: Verdict[] = [
 	{ blocked: true, categories: ["S1"], nested: false },
-	{ blocked: true, categories: ["P1"], nested: false },
+	{ blocked: true, categories: ["P1", "P3"], nested: false },
 	{ blocked: false, categories: [], nested: false },
-	{ blocked: true, categories: ["P1"], nested: true },
+	{ blocked: true, categories: ["P1", "P3"], nested: true },
 ];
 
 /**

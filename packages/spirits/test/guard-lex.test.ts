@@ -138,6 +138,21 @@ test("部分展開の語はdynamicとして印を付ける", () => {
 	expect(command(result).words[1].text).toBe("$(echo hi)");
 });
 
+// 差し戻し S-1: 外側のシェルが展開する語と、引用で固定された語を区別する。
+test("外側で展開される語は expands、単一引用とエスケープは違う", () => {
+	const double = lex(`bash -c "echo $X; pytest"`);
+	const single = lex(`bash -c 'echo $X; pytest'`);
+	const escaped = lex(`bash -c "echo \\$X; pytest"`);
+	const substitution = lex("bash -c '$(cat cmd.txt)'");
+	// words[0] は `bash`、words[1] は `-c`、words[2] がコマンド文字列。
+	expect(command(double).words[2].expands).toBe(true);
+	expect(command(single).words[2].expands).toBe(false);
+	expect(command(escaped).words[2].expands).toBe(false);
+	// 単一引用の中のコマンド置換はここで展開されない。値は読めないが、同じ段では展開ではない。
+	expect(command(substitution).words[2].expands).toBe(false);
+	expect(command(double).words[2].text).toBe("echo $X; pytest");
+});
+
 test("部分展開内の引用符で閉じたと誤認しない", () => {
 	const result = lex(`echo "$(printf 'a)b')" after`);
 	expect(result.parseError).toBe(false);

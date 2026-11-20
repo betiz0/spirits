@@ -12,8 +12,13 @@ import { ENV_ACTION_GUARD, GUARD_CATEGORY_GUIDANCE, type GuardCategoryId } from 
 /** How the guard is turned off, stated once at the end of every reason. */
 const MODE_NOTE = `このガードは利用者が環境変数 ${ENV_ACTION_GUARD}=warn(記録だけ)または off で切り替えます。`;
 
-/** The shortest form of a bash call from inside a cell, named so the example reads as reachable. */
-const CELL_NOTE = "同じ処理は tsrepl のセルに書いてください(bash を呼ぶ最短形は `sh(command)`)。";
+/**
+ * How to reach bash from a cell, stated once at the end of every reason.
+ *
+ * It names no destination on purpose: which tool to use instead is the per-category line's job, and a
+ * general "write it in tsrepl" would send a file read to the wrong place.
+ */
+const CELL_NOTE = "セルから bash を呼ぶ最短形は `sh(command)`。";
 
 /**
  * Build the block reason for the categories one command hit.

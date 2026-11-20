@@ -1,5 +1,5 @@
 {
-	"comment": "Bash commands taken from real spirits session logs, with the home directory, the account name, long hex ids, and mail addresses replaced. Every case is a command the guard must let through: no shell control syntax, no programmable filter, no heredoc, no other-language interpreter, and no pipeline longer than two stages unless the stages behind the first are all allow-listed filters. `firstWords` is the first word of each simple command, in source order.",
+	"comment": "Bash commands taken from real spirits session logs, with the home directory, the account name, long hex ids, and mail addresses replaced. Every case is a command the guard must let through: no shell control syntax, no programmable filter, no heredoc, no interpreter started at all (Python is caught by name under P3, so nothing here runs python, pip, uv, or pytest), and no pipeline longer than two stages unless the stages behind the first are all allow-listed filters. `firstWords` is the first word of each simple command, in source order.",
 	"cases": [
 		{
 			"command": "cd /work/project/spirits && openspec list --json 2>&1 | head -50",
@@ -292,6 +292,27 @@
 				"ps",
 				"grep",
 				"grep"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits && sed -n '/^## 7\\./,/^## 8\\./p' openspec/changes/example-change/tasks.md",
+			"firstWords": [
+				"cd",
+				"sed"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits/packages/spirits && sed -n '100,140p;195,215p' test/todo-tool.test.ts",
+			"firstWords": [
+				"cd",
+				"sed"
+			]
+		},
+		{
+			"command": "cd /work/project/spirits/packages/spirits && sed -n '/^const SYNTAX_WORDS/,/^};/p' src/guard/lex.ts",
+			"firstWords": [
+				"cd",
+				"sed"
 			]
 		}
 	]

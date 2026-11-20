@@ -34,6 +34,14 @@ export interface LexedWord {
 	quoted: boolean;
 	/** True when the word contains a `$( )` or backtick substitution whose value the lexer cannot know. */
 	dynamic: boolean;
+	/**
+	 * True when the shell reading this level expands part of the word: a `$`, `${ … }`, `$( … )`, or
+	 * backtick that is not inside single quotes and not escaped.
+	 *
+	 * Every dynamic word expands, and a plain `$NAME` expands without being dynamic. A word that
+	 * expands carries text the guard never sees, so a judgement about its contents is a guess.
+	 */
+	expands: boolean;
 }
 
 /** One redirection of a simple command. */
@@ -103,6 +111,9 @@ export interface LexResult {
 /** Characters that end a word and carry meaning of their own. */
 const WORD_END_CHARACTERS = " \t\r\n|&;()<>";
 
+/** The character a variable or command expansion starts with. */
+const DOLLAR = "$";
+
 /** How a reserved word at command position cuts the command string. */
 type SyntaxKind = "prefix" | "record" | "group-open" | "group-close" | "function";
 
@@ -155,8 +166,14 @@ interface PendingHeredoc {
 	stripTabs: boolean;
 }
 
-function makeWord(raw: string, text: string, quoted: boolean, dynamic: boolean): LexedWord {
-	return { raw, text, quoted, dynamic };
+function makeWord(
+	raw: string,
+	text: string,
+	quoted: boolean,
+	dynamic: boolean,
+	expands: boolean,
+): LexedWord {
+	return { raw, text, quoted, dynamic, expands };
 }
 
 function makeCommand(stage: number, pipeline: number): LexedCommand {
@@ -589,6 +606,7 @@ class Lexer {
 		let text = "";
 		let quoted = false;
 		let dynamic = false;
+		let expands = false;
 		while (this.#i < this.#src.length) {
 			const character = this.#src[this.#i];
 			if (isWordEnd(character)) break;
@@ -608,6 +626,7 @@ class Lexer {
 				const read = this.#readDoubleQuoted();
 				text += read.text;
 				dynamic = dynamic || read.dynamic;
+				expands = expands || read.expanded;
 				if (this.#reason !== "") break;
 				continue;
 			}
@@ -632,6 +651,7 @@ class Lexer {
 				if (this.#reason !== "") break;
 				text += substitution;
 				dynamic = true;
+				expands = true;
 				continue;
 			}
 			if (character === "$" && this.#src[this.#i + 1] === "(") {
@@ -639,28 +659,32 @@ class Lexer {
 				if (this.#reason !== "") break;
 				text += substitution;
 				dynamic = true;
+				expands = true;
 				continue;
 			}
 			// `$NAME` and `${NAME}` stay as written: a path under `$TMPDIR` is still recognizable.
+			// They still expand at this level, which is what tells a written name from a value the shell fills in.
+			if (character === DOLLAR) expands = true;
 			text += character;
 			this.#i += 1;
 		}
-		const word = makeWord(this.#src.slice(start, this.#i), text, quoted, dynamic);
+		const word = makeWord(this.#src.slice(start, this.#i), text, quoted, dynamic, expands);
 		this.#lastWord = word;
 		this.#lastWordEnd = this.#i;
 		return word;
 	}
 
 	/** Read a double quoted run. Inside, a backslash only escapes `$`, `` ` ``, `"`, `\`, newline. */
-	#readDoubleQuoted(): { text: string; dynamic: boolean } {
+	#readDoubleQuoted(): { text: string; dynamic: boolean; expanded: boolean } {
 		let text = "";
 		let dynamic = false;
+		let expanded = false;
 		this.#i += 1;
 		while (this.#i < this.#src.length) {
 			const character = this.#src[this.#i];
 			if (character === '"') {
 				this.#i += 1;
-				return { text, dynamic };
+				return { text, dynamic, expanded };
 			}
 			if (character === "\\") {
 				const next = this.#src[this.#i + 1];
@@ -675,23 +699,26 @@ class Lexer {
 			}
 			if (character === "`") {
 				const substitution = this.#readBacktick();
-				if (this.#reason !== "") return { text, dynamic };
+				if (this.#reason !== "") return { text, dynamic, expanded };
 				text += substitution;
 				dynamic = true;
+				expanded = true;
 				continue;
 			}
 			if (character === "$" && this.#src[this.#i + 1] === "(") {
 				const substitution = this.#readSubstitution();
-				if (this.#reason !== "") return { text, dynamic };
+				if (this.#reason !== "") return { text, dynamic, expanded };
 				text += substitution;
 				dynamic = true;
+				expanded = true;
 				continue;
 			}
+			if (character === DOLLAR) expanded = true;
 			text += character;
 			this.#i += 1;
 		}
 		this.#fail("unterminated double quote");
-		return { text, dynamic };
+		return { text, dynamic, expanded };
 	}
 
 	/** Read `$( ... )` and hand back its source. The contents are never scanned. */

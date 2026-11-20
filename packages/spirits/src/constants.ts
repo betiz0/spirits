@@ -198,13 +198,18 @@ export const ACTION_GUARD_MODES: readonly ActionGuardMode[] = [
 ];
 
 /** Identifier of one guard classification. Reported in the block reason and in the measurement. */
-export type GuardCategoryId = "S1" | "S2" | "S3" | "P1" | "P2";
+export type GuardCategoryId = "S1" | "S2" | "S3" | "P1" | "P2" | "P3";
 
 /** Categories that stop a model-issued bash call only; a nested call is left alone. */
 export const SHELL_PROGRAMMING_CATEGORIES: readonly GuardCategoryId[] = ["S1", "S2", "S3"];
 
-/** Categories that stop a model-issued bash call and a nested one alike. */
-export const SCRATCH_CODE_CATEGORIES: readonly GuardCategoryId[] = ["P1", "P2"];
+/**
+ * Categories that stop a model-issued bash call and a nested one alike.
+ *
+ * P3 sits here because the ban on Python is about the language running, not about how the call was
+ * issued: a cell that shells out to Python is the same action as the model typing it into bash.
+ */
+export const SCRATCH_CODE_CATEGORIES: readonly GuardCategoryId[] = ["P1", "P2", "P3"];
 
 /** What one category stops, and the one-line tsrepl form it should become. */
 export interface GuardCategoryGuidance {
@@ -221,21 +226,28 @@ export const GUARD_CATEGORY_GUIDANCE: Readonly<Record<GuardCategoryId, GuardCate
 		example: 'for (const f of (await sh("ls src")).output.split("\\n")) { print(f) }',
 	},
 	S2: {
-		description: "awk / jq / xargs、行範囲の print 以外の sed、許可フィルタ以外を含む長いパイプ",
+		description:
+			"awk / jq / xargs、表示コマンドだけの形ではない sed、許可フィルタ以外を含む長いパイプ。部分の読み取りは read、書き換えは edit、出力の加工は tsrepl のセル",
 		example:
 			'const files = (await sh("rg -n TODO src")).output.split("\\n").map((line) => line.split(":")[0])',
 	},
 	S3: {
-		description: "ヒアドキュメントでファイル内容を生成する書き込み",
-		example: 'const fs = await use("node:fs/promises"); await fs.writeFile("/tmp/body.txt", text)',
+		description: "ヒアドキュメントでファイル内容を生成する書き込み。作成は write、書き換えは edit",
+		example: '作成は write("notes.md", body)、既存ファイルの書き換えは edit("notes.md", before, after)',
 	},
 	P1: {
-		description: "python -c / node -e などの他言語のインラインコード",
-		example: 'const version = JSON.parse((await sh("cat package.json")).output).version',
+		description: "他言語(python、node、bun など)のインラインコード",
+		example:
+			'const tag = JSON.parse((await sh("gh release list --json tagName --limit 1")).output)[0].tagName',
 	},
 	P2: {
 		description: "一時ディレクトリ配下の TypeScript 以外のスクリプト実行",
-		example: '使い捨てスクリプトはセル本体に書く: return (await sh("python3 scripts/check.py")).exit_code',
+		example: '使い捨てスクリプトはセル本体に書く: return (await sh("bun /tmp/probe.ts")).exit_code',
+	},
+	P3: {
+		description:
+			"Python の実行(python 系コマンド・pip / uv 系のツール・*.py の直接実行)。対象プロジェクトのスクリプトやテストも含め、どの形も例外はありません",
+		example: '処理は tsrepl のセルに書く: const data = JSON.parse(await (await use("node:fs/promises")).readFile("out.json", "utf8"))',
 	},
 };
 

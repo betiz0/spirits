@@ -21,6 +21,38 @@ export const ALLOWED_GLOBALS = [
 	"structuredClone",
 ] as const;
 
+/** A host global a cell cannot reach, and the one line that says what to write instead. */
+export interface MissingGlobal {
+	/** The name the cell reached for, as the `ReferenceError` message spells it. */
+	readonly name: string;
+	/** The suggestion the error's 提案 line shows. It names the `use()` form, never an assignment. */
+	readonly suggestion: string;
+}
+
+/**
+ * The globals the vm leaves out on purpose, with their replacement.
+ *
+ * One list serves two readers: `suggestFix` in `format.ts` quotes it back in the error, and
+ * `tools.ts` builds the tool description's "what a cell does not have" line from the names. Before
+ * this existed the error told everyone to assign the name to `globalThis`, which is not a way to get
+ * `process` or `Bun` back — it only hides the mistake.
+ */
+export const MISSING_GLOBALS: readonly MissingGlobal[] = [
+	{
+		name: "process",
+		suggestion: '`process` は提供していません。`const process = await use("node:process")` で取り出してください。',
+	},
+	{
+		name: "Bun",
+		suggestion:
+			'`Bun` は提供していません。ファイルなどは `await use("node:...")` を使い、コマンドの実行は `sh(command)` または `tool("bash", ...)` です(`sh()` はルートのセッションでだけ使えます)。',
+	},
+	{
+		name: "require",
+		suggestion: '`require` は提供していません。`const fs = await use("node:fs/promises")` のように `await use("node:...")` を使ってください。',
+	},
+];
+
 export interface ReplContextOptions {
 	registry: HostFnRegistry;
 	/** Resolve the callable bound to the current cell, or undefined outside a cell. */
