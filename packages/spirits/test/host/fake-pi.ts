@@ -363,13 +363,21 @@ export function fakeTheme(): Theme {
 export function fakeCustomScreen(options: {
 	/** Where to record each component the factory built, in call order. */
 	components: unknown[];
+	/**
+	 * Where to record each close the component asked for, in call order. A screen that stays open — a save
+	 * the session declined, a write the file refused — never appears here, which is the only way a test can
+	 * tell "the reason is still on screen" from "the screen closed and said it elsewhere".
+	 */
+	closes?: unknown[];
 	/** Runs after the screen is built, standing for the edits the user makes in it. */
 	onCustom?: (component: unknown) => void;
 	/** What the closed screen reports. */
 	customResult?: unknown;
 }): ExtensionUIContext["custom"] {
 	return asHost<ExtensionUIContext["custom"]>((factory: (tui: unknown, theme: unknown, keybindings: unknown, done: (result: unknown) => void) => unknown) => {
-		options.components.push(factory({}, { fg: (_color: string, text: string) => text }, {}, () => {}));
+		options.components.push(
+			factory({}, { fg: (_color: string, text: string) => text }, {}, (result: unknown) => options.closes?.push(result)),
+		);
 		options.onCustom?.(options.components.at(-1));
 		return Promise.resolve(options.customResult);
 	});

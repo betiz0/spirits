@@ -14,7 +14,8 @@
 
 import { expect, test } from "bun:test";
 import { getKeybindings, type KeyId, KeybindingsManager, setKeybindings, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { asExtensionApi, fakeModel, fakeModelRegistry, fakeTheme, slashCommandInfo } from "./host/fake-pi.ts";
@@ -26,6 +27,7 @@ import {
 	MODEL_ROLE_STRONG,
 	ROLE_SAVE_ROW,
 	ROLE_SAVE_WORD,
+	SETTINGS_FILE_NAME,
 	ROLE_ENTRY_TYPE,
 	ROLE_MODEL_STATUS_KEY,
 	ROLE_STATUS_KEY,
@@ -40,7 +42,6 @@ import {
 	openRolePanel,
 	RolePanel,
 	SEPARATOR_ROW,
-	useRowId,
 	rowSetting,
 	rowSubmenu,
 	selectListTheme,
@@ -49,7 +50,7 @@ import {
 	type PanelRead,
 } from "../src/commands/role-panel.ts";
 import type { RolePanelSnapshot } from "../src/commands/role-panel.ts";
-import type { RoleWriteDeps } from "../src/commands/role-write.ts";
+import type { RoleWriteDeps, SessionSelection } from "../src/commands/role-write.ts";
 import type { SettingsPath } from "../src/commands/settings-store.ts";
 import { writePathValue } from "../src/commands/settings-store.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
@@ -62,6 +63,16 @@ const FAKE_MODEL: PiModel = fakeModel("compat-fake", "fake-model", { api: "opena
 const FAKE_STRONG: PiModel = fakeModel("compat-fake", "fake-strong", { api: "openai" });
 /** pi lists the routing entry among the available models, so every candidate list has to drop it. */
 const AUTO: PiModel = fakeModel("spirits", "auto", { api: "pi-virtual" });
+/**
+ * A physical catalog entry that spells the routing model's name.
+ *
+ * An extension's provider namespace is not reserved, so a catalog can hold a real model at `spirits/auto`.
+ * Only the virtual kind makes the routing model the routing model, and a surface that compared the name
+ * alone would call this one the routing.
+ */
+const PHYSICAL_AUTO: PiModel = fakeModel("spirits", "auto", { api: "openai" });
+/** The `save` row's pointer to the report, spelled the way the row spells it. */
+const STATUS_POINTER = "run /spirits-role status for the procedure, or the reason there is none";
 
 const SETTINGS: RoutingSettings = {
 	defaultProvider: "compat-fake",
@@ -138,10 +149,10 @@ test("rows carry every required field", () => {
 	const { panel } = panelOf();
 	const rows = panel.rows();
 
-	// The two use rows, the save row, its separator, the lock, the two roles' model and thinking, and one
-	// row for every listed step: a step is a pair of settings shown as one setting, not two rows (spec
-	// 一覧のステップの行は 2 段で選ぶ).
-	expect(rows).toHaveLength(2 + 2 + 1 + 2 * 2 + STEP_DEFINITIONS.length);
+	// The save row, its separator, the lock, the two roles' model and thinking, and one row for every listed
+	// step: a step is a pair of settings shown as one setting, not two rows (spec 一覧のステップの行は 2 段で選ぶ).
+	// The list starts with save and the separator (spec `managed-commands` / 一覧の開閉).
+	expect(rows).toHaveLength(1 + 1 + 1 + 2 * 2 + STEP_DEFINITIONS.length);
 	for (const row of rows) {
 		expect(row.id.length).toBeGreaterThan(0);
 		// The separator is the one row with nothing on it at all, and the action rows are the ones with
@@ -155,7 +166,7 @@ test("rows carry every required field", () => {
 		}
 		expect(row.label.length).toBeGreaterThan(0);
 		expect(row.description.length).toBeGreaterThan(0);
-		if (row.id === ROLE_SAVE_ROW || row.id.startsWith("use:")) {
+		if (row.id === ROLE_SAVE_ROW) {
 			expect(row.currentValue).toBe("");
 			continue;
 		}
@@ -171,10 +182,10 @@ test("rows carry every required field", () => {
 			expect(rowSetting(row.id)).toBeDefined();
 		}
 	}
-	// The two use rows, the save row, and the separator are the first four, and none names a setting.
-	const leading = rows.slice(0, 4).map((row) => row.id);
-	expect(leading).toEqual([useRowId(MODEL_ROLE_NORMAL), useRowId(MODEL_ROLE_STRONG), ROLE_SAVE_ROW, SEPARATOR_ROW]);
-	for (const row of rows.slice(0, 4)) {
+	// The save row and the separator are the first two, and neither names a setting.
+	const leading = rows.slice(0, 2).map((row) => row.id);
+	expect(leading).toEqual([ROLE_SAVE_ROW, SEPARATOR_ROW]);
+	for (const row of rows.slice(0, 2)) {
 		expect(rowSetting(row.id)).toBeUndefined();
 	}
 
@@ -599,21 +610,25 @@ test("a row follows the write it just made", () => {
 
 // --- the save row ----------------------------------------------------------------------------
 
-// spec scenario "操作行の並び": the two `use` rows lead, `save` follows them, and the blank row follows
-// `save`; the settings keep the order they had behind the four.
-test("the action rows lead the list and a blank row follows save", async () => {
+// spec scenario "一覧の開閉": `save` leads, the blank row follows it, and the settings keep their order behind them.
+test("the rows are save, separator, lock, roles, steps", async () => {
 	const run = await driveScreen(() => {});
 	const shown = run.text();
 
-	// The two use rows are the first two lines, save is third and the separator fourth, and the lock is the
-	// fifth — the rows the spec names, in the order it names them.
+	// Save is the first line and the separator the second, then the lock, both roles' model and thinking,
+	// and the step settings — the rows the spec names, in the order it names them. No line offers to use a
+	// role, because the state it existed to create is the state in which save writes nothing.
 	const lines = shown.split("\n");
-	expect(lines[0]).toContain(`use ${MODEL_ROLE_NORMAL}`);
-	expect(lines[1]).toContain(`use ${MODEL_ROLE_STRONG}`);
-	expect(lines[2]).toContain(ROLE_SAVE_WORD);
-	expect(lines[3]!.trim()).toBe("");
-	expect(lines[4]).toContain("role lock");
-	expect(lines[5]).toContain("normal model");
+	expect(lines[0]).toContain(ROLE_SAVE_WORD);
+	expect(lines[1]!.trim()).toBe("");
+	expect(lines[2]).toContain("role lock");
+	expect(lines[3]).toContain("normal model");
+	expect(lines[4]).toContain("normal thinking");
+	expect(lines[5]).toContain("strong model");
+	expect(lines[6]).toContain("strong thinking");
+	expect(lines[7]).toContain("opsx-propose");
+	expect(shown).not.toContain(`use ${MODEL_ROLE_NORMAL}`);
+	expect(shown).not.toContain(`use ${MODEL_ROLE_STRONG}`);
 
 	// The separator carries no value and no description. The description area only ever shows the selected
 	// row's, so the way to see that the separator has none is to stand on it.
@@ -624,185 +639,321 @@ test("the action rows lead the list and a blank row follows save", async () => {
 	expect(onSeparator.text()).not.toContain("nothing to save");
 });
 
-// spec scenario "操作行の並び" and "use strong は確認 Enter だけで作動する": the two use rows are action
-// rows with a lock and a save preview, and they answer only the Enter this session confirms with.
-test("the use rows state the lock and the save preview", () => {
-	const { panel } = panelOf({
-		globalSettings: { defaultProvider: "compat-fake", defaultModel: "fake-model", models: { normal: "compat-fake/fake-model" } },
-	});
-	const normal = rowOf(panel, useRowId(MODEL_ROLE_NORMAL));
-	expect(normal.description).toContain("Locks this session to normal");
-	expect(normal.description).toContain("saves");
-	expect(normal.description).toContain("default model");
+// spec requirement "`save` の見送りは一覧の行と通知に出す" and scenario "一覧の save 行で見送る": the row a user reads before
+// pressing and the row they read after pressing say the same thing, the screen stays open on a decline, and
+// the file is never asked. The screen is driven with a physical model selected, which is what makes the save
+// a decline.
+test("a declined save stays open and says why on the row", async () => {
+	// The preview, before anything is pressed, on a session sitting on a physical model.
+	const opened = await driveScreen(
+		(list) => {
+			list.selectItem(ROLE_SAVE_ROW);
+		},
+		{ model: FAKE_MODEL },
+	);
+	const preview = opened.text().replace(/\s*\n\s*/g, " ");
+	expect(preview).toContain("save declined");
+	expect(preview).toContain("a physical model is selected");
+	expect(preview).toContain(STATUS_POINTER);
+	expect(opened.saveWrites()).toBe(0);
 
-	const strong = rowOf(panel, useRowId(MODEL_ROLE_STRONG));
-	expect(strong.description).toContain("Locks this session to strong");
-	expect(strong.description).toContain("saves");
-	expect(strong.currentValue).toBe("");
-	expect(strong.values).toEqual([""]);
-});
-
-// spec scenario "use strong は確認 Enter だけで作動する": Space and a click reach the same activation the
-// action row answers to, and must not be taken for it. The Enter this session confirms with is the one
-// gesture that locks and saves, and it closes with both results in a notice.
-test("the use rows act on Enter only and close with their result", async () => {
-	const file = { defaultProvider: "compat-fake", defaultModel: "fake-model", models: { normal: "compat-fake/fake-model" } };
-	for (const role of [MODEL_ROLE_NORMAL, MODEL_ROLE_STRONG]) {
-		// Space and a click: no candidate list, no lock, no save, and no file.
-		for (const act of [
-			(list: ScreenList) => list.handleInput(" "),
-			(list: ScreenList) => activateByMouse(list),
-		]) {
-			const refused = await driveScreen(
-				(list) => {
-					list.selectItem(useRowId(role));
-					act(list);
-					expect(screenText(list)).not.toContain("back to unset");
-				},
-				{ file: { ...file } },
-			);
-			expect(refused.phase.current()).toBe(MODEL_ROLE_NORMAL);
-			expect(refused.saveWrites()).toBe(0);
-			expect(refused.file()).toEqual(file);
-			expect(refused.reloads).toBe(0);
-		}
-
-		// Enter: the lock, then the save, then the close and the notice.
-		const run = await driveScreen(
-			(list) => {
-				list.selectItem(useRowId(role));
-				list.handleInput(ENTER);
-			},
-			{ file: { ...file } },
-		);
-		expect(run.phase.current()).toBe(role);
-		expect(run.saveWrites()).toBe(1);
-		expect(run.file()).toEqual({
-			defaultProvider: "spirits",
-			defaultModel: "auto",
-			models: { normal: "compat-fake/fake-model", role },
-		});
-		// The lock is an ordinary settings change, so closing reloads once even when the save had no part
-		// to write.
-		expect(run.reloads).toBe(1);
-		expect(run.notices).toHaveLength(1);
-		expect(run.notices[0]).toContain(`role locked to ${role}`);
-		expect(run.notices[0]).toContain("saved");
-		expect(run.notifications[0]?.type).toBe("info");
-	}
-});
-
-// spec scenario "use strong は確認 Enter だけで作動する" for a session that moved the confirm key: the
-// use rows answer the literal Enter too, so a moved binding leaves them to the command sequence.
-test("a moved confirm key leaves the use rows to the commands", async () => {
-	const moved = useConfirmKey("ctrl+y");
-	try {
-		const run = await driveScreen(
-			(list) => {
-				list.selectItem(useRowId(MODEL_ROLE_STRONG));
-				list.handleInput(ENTER);
-				list.handleInput("\x19");
-			},
-			{ file: { models: { normal: "compat-fake/fake-model" } } },
-		);
-		expect(run.phase.current()).toBe(MODEL_ROLE_NORMAL);
-		expect(run.saveWrites()).toBe(0);
-		expect(run.file()).toEqual({ models: { normal: "compat-fake/fake-model" } });
-	} finally {
-		moved.restore();
-	}
-});
-
-// spec scenario "ロックの失敗では閉じない": the record that makes the lock resumable fails. The phase took
-// the lock before the append, so the session and the badge agree on it, but the save stage is not run and
-// nothing was written to the file.
-test("a use row whose lock cannot be recorded does not save", async () => {
 	const run = await driveScreen(
 		(list) => {
-			list.selectItem(useRowId(MODEL_ROLE_STRONG));
+			list.selectItem(ROLE_SAVE_ROW);
 			list.handleInput(ENTER);
 		},
-		{ failAppend: true, file: { models: { normal: "compat-fake/fake-model" } } },
+		{ model: FAKE_MODEL, file: { models: { normal: "compat-fake/fake-model" } } },
 	);
 
-	expect(run.phase.current()).toBe(MODEL_ROLE_STRONG);
+	// The words are the preview's and not a write's result, and the file was never asked.
+	const shown = run.text().replace(/\s*\n\s*/g, " ");
+	expect(shown).toContain("save declined");
+	expect(shown).toContain(STATUS_POINTER);
+	expect(shown).not.toContain("not saved");
 	expect(run.saveWrites()).toBe(0);
 	expect(run.file()).toEqual({ models: { normal: "compat-fake/fake-model" } });
-	// The screen stayed open with the reason on the row it was pressed on.
-	expect(run.text()).toContain("read-only volume");
-	// No successful write was folded, so there is nothing for a reload to read.
+	// The screen is still open: the component never asked the host to close it, so there is no notice, and
+	// no reload for a write that never happened.
+	expect(run.closes()).toBe(0);
+	expect(run.notices).toEqual([]);
+	expect(run.reloads).toBe(0);
+	expect(run.phase.current()).toBe(MODEL_ROLE_NORMAL);
+});
+
+// spec scenario "一覧の save 行で見送る" read against the rest of the screen: a decline belongs to the one row
+// that was pressed, so every other row — the lock row and each ordinary setting row — reads exactly as it did
+// before the Enter. The description area only ever shows the selected row's, so the comparison stands the
+// cursor on each row in turn and reads the whole line, and the two runs are the same wiring with and without
+// the Enter.
+test("a declined save leaves the ordinary rows and the lock row unchanged", async () => {
+	// The file disagrees with the session on the role, so an unchanged screen is not a screen that had
+	// nothing to write: the decline is what keeps the difference unwritten.
+	const wiring = { model: FAKE_MODEL, file: { models: { role: MODEL_ROLE_STRONG, normal: "compat-fake/fake-model" } } };
+	const rowIds = ["lock", "normal.model", "normal.thinking", "strong.model", "strong.thinking", "step:opsx-propose"];
+	const capture = async (pressEnter: boolean) => {
+		const lines: string[] = [];
+		const run = await driveScreen((list) => {
+			list.selectItem(ROLE_SAVE_ROW);
+			if (pressEnter) {
+				list.handleInput(ENTER);
+				expect(screenText(list).replace(/\s*\n\s*/g, " ")).toContain("save declined");
+			}
+			for (const id of rowIds) {
+				list.selectItem(id);
+				lines.push(screenText(list).replace(/\s*\n\s*/g, " "));
+			}
+		}, wiring);
+		return { lines, run };
+	};
+
+	const before = await capture(false);
+	const after = await capture(true);
+
+	// Every row's value column and description, taken with the cursor on it, is byte-for-byte what it was
+	// before the Enter.
+	after.lines.forEach((line, index) => expect(line).toBe(before.lines[index]));
+	// The lock row is the session's lock and not the file's, and the decline left the file's disagreement alone.
+	expect(after.lines[0]).toContain("role lock");
+	expect(after.lines[0]).not.toContain("saved");
+	expect(after.run.file()).toEqual({ models: { role: MODEL_ROLE_STRONG, normal: "compat-fake/fake-model" } });
+	expect(after.run.saveAttempts()).toBe(0);
+	expect(after.run.closes()).toBe(0);
+});
+
+// spec scenario "一覧は手順を名指さず status を示す": the row hands the procedure to the report. Naming an
+// operation here would put a selector tutorial on one row of a twelve-row window, and the key that reaches
+// it belongs to the host to draw.
+test("the save row points to status instead of naming a key", async () => {
+	const run = await driveScreen(
+		(list) => {
+			list.selectItem(ROLE_SAVE_ROW);
+		},
+		{ model: FAKE_MODEL, scoped: [FAKE_MODEL] },
+	);
+	const plain = run.text().replace(/\s*\n\s*/g, " ");
+
+	expect(plain).toContain("run /spirits-role status");
+	// Not the selector, not its scope switch, not the scope command, not the key bound to either, and not the
+	// scope's own diagnosis — all of which `status` carries.
+	expect(plain).not.toContain("/scoped-models");
+	expect(plain).not.toContain("model scope");
+	expect(plain).not.toContain("Tab");
+	expect(plain).not.toContain("press");
+});
+
+// spec requirement "`save` の見送りは一覧の行と通知に出す" (見送りのために再読み込みを行ってはならない): the decline adds no write to the list's own
+// changes, so a screen whose only action was a declined save closes with nothing to read back.
+// spec scenario "一覧は手順を名指さず status を示す" read against "振り分け用モデルが未登録なら手順を名指さない": a row
+// that promised "the way to turn it on" would be promising a procedure this session may not have. The pointer
+// names the report and the two things it can hold, and it is the same sentence whether or not the catalog
+// ever registered the routing model — which is what keeps the promise off the row.
+test("the save row's pointer promises the report and not a procedure", () => {
+	const selection: SessionSelection = { role: MODEL_ROLE_NORMAL, model: { provider: "compat-fake", id: "fake-model" } };
+	// The two catalogs, in the only spelling a row can tell them apart by: what `getAll()` holds.
+	const registered = panelOf({
+		routingOff: true,
+		currentModel: "compat-fake/fake-model",
+		saveSelection: selection,
+		lookup: registry([AUTO, FAKE_MODEL, FAKE_STRONG]),
+	});
+	const neverRegistered = panelOf({
+		routingOff: true,
+		currentModel: "compat-fake/fake-model",
+		saveSelection: selection,
+		lookup: registry([FAKE_MODEL, FAKE_STRONG]),
+	});
+
+	const pointer = rowOf(registered.panel, ROLE_SAVE_ROW).description;
+	// One sentence for both catalogs.
+	expect(rowOf(neverRegistered.panel, ROLE_SAVE_ROW).description).toBe(pointer);
+	expect(pointer).toContain("save declined");
+	expect(pointer).toContain(STATUS_POINTER);
+	// Neither the selector, nor its scope switch, nor the scope command, nor a key bound to either, nor the
+	// scope's own diagnosis.
+	for (const named of ["/model", "/scoped-models", "model scope", "Tab", "press", "enabledModels"]) {
+		expect(pointer).not.toContain(named);
+	}
+});
+
+// spec scenario "一覧は手順を名指さず status を示す": the report is where the two off states part. A scope that
+// leaves the routing model out gets an operation to run; a catalog that never registered it gets the reason
+// there is none. Both answers are read off the host the list ran on.
+test("status answers the pointer with the procedure or with the reason there is none", async () => {
+	// The routing model is registered, and the session's scope is what keeps it out of reach.
+	const registered = await driveScreen(
+		(list) => {
+			list.selectItem(ROLE_SAVE_ROW);
+		},
+		{ model: FAKE_MODEL, scoped: [FAKE_MODEL] },
+	);
+	const registeredReport = await statusLine(registered.pi, {
+		model: FAKE_MODEL,
+		scopedModels: [{ model: FAKE_MODEL }],
+		authedProviders: ["compat-fake"],
+	});
+	expect(registeredReport).toContain("/model");
+	expect(registeredReport).not.toContain("model catalog");
+
+	// The routing model is nowhere in the catalog, so no selector reaches it and no operation can be named.
+	const missing = await driveScreen(
+		(list) => {
+			list.selectItem(ROLE_SAVE_ROW);
+		},
+		{ model: PHYSICAL_AUTO, available: [PHYSICAL_AUTO, FAKE_MODEL, FAKE_STRONG] },
+	);
+	const missingReport = await statusLine(missing.pi, {
+		model: PHYSICAL_AUTO,
+		available: [PHYSICAL_AUTO, FAKE_MODEL, FAKE_STRONG],
+		authedProviders: ["compat-fake"],
+	});
+	expect(missingReport).toContain("is not in this session's model catalog");
+	expect(missingReport).not.toContain("to enable: select");
+});
+
+test("a declined save alone reloads nothing on close", async () => {
+	const run = await driveScreen(
+		(list) => {
+			list.selectItem(ROLE_SAVE_ROW);
+			list.handleInput(ENTER);
+		},
+		{ model: FAKE_MODEL },
+	);
+
+	expect(run.text()).toContain("save declined");
 	expect(run.reloads).toBe(0);
 });
 
-// spec scenario "ロックは成立して保存が失敗したら閉じない": the first half landed and the second refused.
-// The lock and `models.role` stay, the model keys stay out, the row says why, and the landed lock still
-// earns the one close-time reload.
-test("a use row whose save fails keeps the lock and stays open", async () => {
+// spec scenario "一覧の save 行で見送る": an ordinary edit still earns the one close-time
+// reload, and a decline beside it neither adds one nor takes one away.
+test("a declined save keeps the one close-time reload for earlier edits", async () => {
 	const run = await driveScreen(
 		(list) => {
-			list.selectItem(useRowId(MODEL_ROLE_STRONG));
+			list.selectItem("normal.thinking");
+			list.handleInput(ENTER);
+			list.handleInput(UP);
+			// The level list closes itself when it hands its choice back, so no Escape — which asks the whole
+			// screen to close — is needed to get back to the rows.
+			list.handleInput(ENTER);
+			list.selectItem(ROLE_SAVE_ROW);
 			list.handleInput(ENTER);
 		},
-		{ failSave: true, file: { defaultProvider: "compat-fake", defaultModel: "fake-model", models: { normal: "compat-fake/fake-model" } } },
+		{ model: FAKE_MODEL },
 	);
 
-	expect(run.phase.current()).toBe(MODEL_ROLE_STRONG);
-	expect(run.file()).toEqual({
-		defaultProvider: "compat-fake",
-		defaultModel: "fake-model",
-		models: { normal: "compat-fake/fake-model", role: MODEL_ROLE_STRONG },
-	});
+	expect(run.text()).toContain("save declined");
 	expect(run.saveWrites()).toBe(0);
-	expect(run.text()).toContain("read-only");
-	// The lock is a successful ordinary write, so the close that follows reloads once for it.
+	// The decline asked the screen to close nothing: the only close request is the one the earlier edit
+	// leaves behind, and here the earlier edit closes nothing either — it is the close-time reload that
+	// belongs to it.
+	expect(run.closes()).toBe(0);
 	expect(run.reloads).toBe(1);
-	// The refusal is on the row, not in a notice claiming the save landed.
-	expect(run.notices).toEqual([]);
 });
 
-// spec scenario "モデルの保存を見送っても閉じて理由を通知する": the lock and the role land, the model keys
-// stay out because no global normal resolves, and the close notice carries the reason.
-test("a use row closes when the model is skipped and says why", async () => {
+// spec scenario "見送りの理由は予告を置き換える": the lead and the decline are two
+// sentences about one state, and the row says each once. Counted in plain text, because each half is styled
+// differently and a test of wording is a test of words.
+test("a declined save says routing is off once on the row", async () => {
 	const run = await driveScreen(
 		(list) => {
-			list.selectItem(useRowId(MODEL_ROLE_STRONG));
+			list.selectItem(ROLE_SAVE_ROW);
+		},
+		{ model: FAKE_MODEL },
+	);
+	const plain = run.text().replace(/\s*\n\s*/g, " ");
+
+	expect(plain.split("routing is off").length - 1).toBe(1);
+	expect(plain).toContain("compat-fake/fake-model is selected");
+	// The row holds no procedure and no scope diagnosis, which are the report's (spec
+	// 一覧は手順を名指さず status を示す).
+	expect(plain).not.toContain("/model");
+	expect(plain).not.toContain("/scoped-models");
+	expect(plain).not.toContain("model scope");
+});
+
+// spec scenario "global が読めないときも見送り理由が行に出る": the decline outranks the read failure, because the
+// file was never the thing that stopped the write.
+test("the save row declines even when the global settings cannot be read", async () => {
+	// The preview reads the global file, and that read is what fails here. The row still leads with the
+	// decline, because the file is not the reason nothing is written.
+	const preview = await driveScreen(
+		(list) => {
+			list.selectItem(ROLE_SAVE_ROW);
+		},
+		{ model: FAKE_MODEL, failSaveRead: true },
+	);
+	expect(preview.text()).toContain("save declined");
+	expect(preview.text()).not.toContain("nothing to preview");
+
+	const run = await driveScreen(
+		(list) => {
+			list.selectItem(ROLE_SAVE_ROW);
 			list.handleInput(ENTER);
 		},
-		{ file: { models: { role: MODEL_ROLE_NORMAL } } },
+		{ model: FAKE_MODEL, failSaveRead: true },
 	);
 
-	expect(run.phase.current()).toBe(MODEL_ROLE_STRONG);
+	expect(run.text()).toContain("save declined");
+	expect(run.text()).not.toContain("nothing to preview");
+	// The count that matters is the request, not the rewrite: a no-op rewrites nothing and a decline is never
+	// asked, and only the request separates them.
+	expect(run.saveAttempts()).toBe(0);
+	expect(run.saveWrites()).toBe(0);
+	expect(run.closes()).toBe(0);
+});
+
+// spec `物理モデルを選択中は save が global 設定を見送る` (振り分け用と認めるには識別子と仮想モデルの種別の両方が一致
+// しなければならない): a physical catalog entry that spells `spirits/auto` is a physical model, so the row
+// declines it exactly as it declines any other. An identifier-only test would write this session's selection
+// into the global defaults behind a routing that never ran.
+test("a physical model named spirits/auto is declined by the save row", async () => {
+	const wiring = { model: PHYSICAL_AUTO, available: [PHYSICAL_AUTO, FAKE_MODEL, FAKE_STRONG], file: { models: { role: MODEL_ROLE_STRONG } } };
+
+	const preview = await driveScreen(
+		(list) => {
+			list.selectItem(ROLE_SAVE_ROW);
+		},
+		wiring,
+	);
+	const shownPreview = preview.text().replace(/\s*\n\s*/g, " ");
+	expect(shownPreview).toContain("save declined");
+	expect(shownPreview).not.toContain("saves role");
+
+	const run = await driveScreen(
+		(list) => {
+			list.selectItem(ROLE_SAVE_ROW);
+			list.handleInput(ENTER);
+		},
+		wiring,
+	);
+	expect(run.text().replace(/\s*\n\s*/g, " ")).toContain("save declined");
+	expect(run.saveAttempts()).toBe(0);
+	expect(run.saveWrites()).toBe(0);
 	expect(run.file()).toEqual({ models: { role: MODEL_ROLE_STRONG } });
-	expect(run.reloads).toBe(1);
-	expect(run.notices[0]).toContain(`role locked to ${MODEL_ROLE_STRONG}`);
-	expect(run.notices[0]).toContain("models.normal");
-	expect(run.notices[0]).not.toContain("default model spirits/auto");
-	expect(run.notices[0]).not.toContain("default model compat-fake");
-	// A skipped model is information, never an error.
-	expect(run.notifications[0]?.type).toBe("info");
+	expect(run.closes()).toBe(0);
+	expect(run.reloads).toBe(0);
 });
 
-// spec scenario "保存する乖離が無い" for a use row: the lock is still written, the save finds nothing, and
-// the close notice is the no-op information rather than an error.
-test("a use row with nothing left to save still closes as information", async () => {
-	const file = {
-		defaultProvider: "spirits",
-		defaultModel: "auto",
-		models: { role: MODEL_ROLE_NORMAL, normal: "compat-fake/fake-model" },
-	};
+// spec scenario "見送りの理由は再描画の失敗で失われない": the decline the row carried into a refresh that could
+// not read the session is still on the row, with the ordinary rows marked stale beside it.
+test("a declined save keeps its reason when the redraw fails", async () => {
 	const run = await driveScreen(
 		(list) => {
-			list.selectItem(useRowId(MODEL_ROLE_NORMAL));
+			list.selectItem(ROLE_SAVE_ROW);
 			list.handleInput(ENTER);
+			expect(screenText(list)).toContain("save declined");
+			list.selectItem("normal.model");
+			expect(screenText(list)).toContain("not redrawn:");
+			list.selectItem(ROLE_SAVE_ROW);
 		},
-		{ file: { ...file, models: { ...file.models } } },
+		{ model: FAKE_MODEL, failRead: 3 },
 	);
 
-	expect(run.saveWrites()).toBe(0);
-	expect(run.file()).toEqual(file);
-	expect(run.reloads).toBe(1);
-	expect(run.notices[0]).toContain("nothing to save");
-	expect(run.notifications[0]?.type).toBe("info");
+	const shown = run.text().replace(/\s*\n\s*/g, " ");
+	expect(shown).toContain("save declined");
+	expect(shown).toContain(STATUS_POINTER);
+	expect(run.closes()).toBe(0);
+	expect(run.notices).toEqual([]);
+	expect(run.reloads).toBe(0);
 });
 
 // spec scenario "区行は操作を受け付けない": Enter, Space, and a click are the three ways to activate a row,
@@ -902,7 +1053,7 @@ test("the save row stays blank after a refused key", async () => {
 	expect(saveLine?.trimEnd()).toBe(`\u2192 ${ROLE_SAVE_WORD}`);
 });
 
-// spec scenario "保存結果は再描画の失敗で失われない": the save's result is held by the panel, so a redraw
+// spec scenario "見送りの理由は再描画の失敗で失われない": the decline is held by the panel, so a redraw
 // that cannot read the session keeps the result rather than falling back to the preview.
 test("the save row keeps its result when the redraw fails", async () => {
 	// Read 1 builds the screen, read 2 is the save's own read, read 3 is the redraw that follows it.
@@ -973,10 +1124,12 @@ test("the save row states what it would write and what it skips", async () => {
 	const off = await driveScreen(() => {}, { model: FAKE_MODEL, file: { models: { role: "normal" } } });
 	expect(off.text().match(/routing is off/g)).toHaveLength(1);
 
-	// Nothing differs and nothing was skipped: the row says so and leaves the file alone.
+	// Nothing differs and nothing was skipped: the row says so and leaves the file alone. The routing model is
+	// selected here because a physical one declines before it ever compares the file (spec
+	// 物理モデルを選択中は `save` が global 設定を見送る).
 	const settled = await driveScreen(() => {}, {
 		file: { models: { role: "normal" }, defaultProvider: "compat-fake", defaultModel: "fake-model" },
-		model: FAKE_MODEL,
+		model: AUTO,
 	});
 	expect(settled.text().replace(/\s*\n\s*/g, " ")).toContain("nothing to save");
 
@@ -1032,7 +1185,10 @@ test("a failed save keeps the session and says why on the row", async () => {
 	expect(only.file()).toEqual({});
 	expect(only.phase.current()).toBe("normal");
 	expect(only.phase.step()).toBeUndefined();
-	// The screen stayed open under a refused key — the host calls `handleInput` without a try.
+	// The screen stayed open under a refused key — the host calls `handleInput` without a try. The rendered
+	// text is not the evidence here: the fake host renders a component it has already been told to close, so
+	// "still readable" and "still open" are different claims and only `done()` tells them apart.
+	expect(only.closes()).toBe(0);
 	expect(only.text()).toContain("role lock");
 	// Nothing reached the file, so closing costs no runtime restart.
 	expect(only.reloads).toBe(0);
@@ -1094,6 +1250,8 @@ test("a closing save reports its result as information", async () => {
 	expect(landed.notices).toHaveLength(1);
 	expect(landed.notices[0]).toContain("saved");
 	expect(landed.notifications[0]?.type).toBe("info");
+	// The positive control for the decline tests: a save that lands is the screen asking to close, once.
+	expect(landed.closes()).toBe(1);
 	// A save alone writes the next session's defaults and asks for no reload.
 	expect(landed.reloads).toBe(0);
 
@@ -1107,32 +1265,19 @@ test("a closing save reports its result as information", async () => {
 	expect(unchanged.saveWrites()).toBe(0);
 	expect(unchanged.notices[0]).toContain("nothing to save");
 	expect(unchanged.notifications[0]?.type).toBe("info");
+	// A no-op closes too: there is nothing on the row a reader still needs.
+	expect(unchanged.closes()).toBe(1);
 });
 
-// spec scenario "応答中の再読み込み拒否は保存失敗ではない": the lock and save are already in place when the
-// host refuses the close-time reload, so the refusal is reported apart from the result and nothing is
-// retried or rolled back. A save alone never reaches the reload, so a refusal cannot touch it.
-test("a rejected reload does not turn a landed save into a failure", async () => {
-	const use = await driveScreen(
-		(list) => {
-			list.selectItem(useRowId(MODEL_ROLE_STRONG));
-			list.handleInput(ENTER);
-		},
-		{ file: { models: { normal: "compat-fake/fake-model" } }, reloadError: "a response is running" },
-	);
-	expect(use.reloads).toBe(1);
-	expect(use.phase.current()).toBe(MODEL_ROLE_STRONG);
-	expect(use.file().defaultModel).toBe("auto");
-	expect(use.notices.at(-1)).toContain("saved");
-	expect(use.notices.at(-1)).toContain("reload did not finish");
-	expect(use.notifications.at(-1)?.type).toBe("warning");
-
+// spec scenario "成立した保存は一覧を閉じて通知する": a landed save closes with its result in a notice and
+// does not trigger a reload.
+test("a landed save closes and notifies without reloading", async () => {
 	const save = await driveScreen(
 		(list) => {
 			list.selectItem(ROLE_SAVE_ROW);
 			list.handleInput(ENTER);
 		},
-		{ file: { models: { normal: "compat-fake/fake-model" } }, reloadError: "a response is running" },
+		{ file: { models: { normal: "compat-fake/fake-model" } } },
 	);
 	expect(save.reloads).toBe(0);
 	expect(save.notices.at(-1)).toContain("saved");
@@ -1228,6 +1373,133 @@ test("global saves leave effective project values alone", async () => {
 	expect(run.written).toEqual([]);
 });
 
+// spec scenario "一覧を開いた後に global が変わる", driven against pi's real settings file through the list's own
+// save path. The decision is made again on the file's content under the file's lock, so a change that landed
+// between the preview and the Enter is a change this row does not rewrite — and a write that turns out to
+// change nothing costs the file neither its bytes nor its modification time.
+/**
+ * Land an update from a separate process, the way another pi session's save does.
+ *
+ * The claim this case rests on is that the bytes on disk changed after the preview was built, and a write
+ * from this process cannot stand in for that: the extension's own read under its lock runs in this process,
+ * so an in-process write proves the decision reads the file and says nothing about a writer that is not us.
+ */
+function writeFromAnotherProcess(path: string, contents: string): void {
+	const result = spawnSync("/bin/sh", ["-c", 'printf "%s" "$SPIRITS_OTHER_WRITER" > "$1"', "sh", path], {
+		env: { ...process.env, SPIRITS_OTHER_WRITER: contents },
+		stdio: "ignore",
+	});
+	if (result.status !== 0) throw new Error(`the other writer exited ${String(result.status)}`);
+}
+
+test("a save entered after another writer lands the same default writes nothing", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "spirits-save-race-"));
+	const settingsPath = join(dir, SETTINGS_FILE_NAME);
+	// The role already matches the lock and the file resolves normal on its own, so the one thing the preview
+	// can promise is the default model.
+	writeFileSync(settingsPath, JSON.stringify({ models: { role: "normal", normal: "compat-fake/fake-model" }, theme: "dark" }, null, 2), "utf-8");
+	// Another writer lands exactly that default, plus an unrelated key of its own.
+	const otherWriter = JSON.stringify(
+		{ models: { role: "normal", normal: "compat-fake/fake-model" }, defaultProvider: "spirits", defaultModel: "auto", theme: "light" },
+		null,
+		2,
+	);
+	let otherWriterMtime = 0;
+	try {
+		const run = await driveScreen((list) => {
+			// The screen opened on the file's old default and promised the routing model in its place.
+			expect(screenText(list).replace(/\s*\n\s*/g, " ")).toContain("default model unset \u2192 spirits/auto");
+			writeFromAnotherProcess(settingsPath, otherWriter);
+			otherWriterMtime = statSync(settingsPath).mtimeMs;
+
+			list.selectItem(ROLE_SAVE_ROW);
+			list.handleInput(ENTER);
+			// The row re-decided on the file rather than repeating the preview it opened with, against bytes a
+			// separate process put there.
+			expect(screenText(list).replace(/\s*\n\s*/g, " ")).toContain("nothing to save");
+		}, { model: AUTO, realGlobalDir: dir });
+
+		// Neither the default model's two keys nor the key this operation does not own were rewritten, and a
+		// write that found nothing to change left the modification time alone.
+		expect(readFileSync(settingsPath, "utf-8")).toBe(otherWriter);
+		expect(statSync(settingsPath).mtimeMs).toBe(otherWriterMtime);
+		expect(run.reloads).toBe(0);
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+// spec scenario "信頼済み project が global を上書きする": the list's save writes pi's global file, and the ordinary
+// rows and the report go on answering with the project's settings — before the write, after the close-time
+// notice, and after a reload that re-reads both files.
+//
+// What is observed here and what is built by hand are different things, and this is where they part: the
+// fake host keeps whatever settings it was handed, so the merge of the global file and the trusted project
+// file is composed by the test with the same primitive the settings writer uses, not read out of a running
+// host. The save, the close-time notice, the rows, and the report all run for real against a temp global
+// file and the injected merge; only the host's own merge step is stood in for.
+test("a trusted project still answers after the save and the reload", async () => {
+	// The global file says `strong` and resolves normal on `compat-fake/fake-strong`. The trusted project
+	// overrides the defaults with `normal` on `compat-fake/fake-model`, and that is what the session runs on.
+	const globalFile = { models: { role: MODEL_ROLE_STRONG, normal: "compat-fake/fake-strong" } };
+	const project = { defaultProvider: "compat-fake", defaultModel: "fake-model", models: { role: MODEL_ROLE_NORMAL, normal: "compat-fake/fake-model" } };
+	const normalRow = (text: string) => text.split("\n").find((line) => line.includes("normal model")) ?? "";
+
+	const saved = await driveScreen(
+		(list) => {
+			// Before the write, the row reports the project's target.
+			expect(normalRow(screenText(list))).toContain("compat-fake/fake-model");
+			list.selectItem(ROLE_SAVE_ROW);
+			list.handleInput(ENTER);
+			expect(normalRow(screenText(list))).toContain("compat-fake/fake-model");
+		},
+		{ file: { ...globalFile }, settings: mergeSettingsPatch(globalFile, project) },
+	);
+	// The save closed the screen and told the user once, as information, and asked for no reload.
+	expect(saved.closes()).toBe(1);
+	expect(saved.notices).toHaveLength(1);
+	expect(saved.notices[0]).toContain("saved");
+	expect(saved.notifications[0]?.type).toBe("info");
+	expect(saved.reloads).toBe(0);
+
+	// The global file holds the session's selection now, and only the keys `save` owns.
+	expect(saved.file()).toEqual({
+		models: { role: MODEL_ROLE_NORMAL, normal: "compat-fake/fake-strong" },
+		defaultProvider: "spirits",
+		defaultModel: "auto",
+	});
+
+	// The report on the wiring that just saved still answers with the project's target: the save wrote the
+	// file, and nothing reloaded the merged settings the host holds.
+	const reportBeforeReload = await statusLine(saved.pi, { model: AUTO, authedProviders: ["compat-fake"] });
+	expect(reportBeforeReload).toMatch(/normal: compat-fake\/fake-model/);
+	expect(reportBeforeReload).not.toContain("compat-fake/fake-strong");
+
+	// A reload re-reads pi's settings from the two files, and the project still wins. The ordinary rows report
+	// that merge, and a normal edit is what earns the one reload — the save alone earns none.
+	const afterReload = mergeSettingsPatch(saved.file(), project);
+	const reloaded = await driveScreen(
+		(list) => {
+			list.selectItem("normal.thinking");
+			list.handleInput(ENTER);
+			list.handleInput(UP);
+			list.handleInput(ENTER);
+			list.handleInput(ESCAPE);
+		},
+		{ file: saved.file(), settings: afterReload },
+	);
+	expect(reloaded.reloads).toBe(1);
+	expect(normalRow(reloaded.text())).toContain("compat-fake/fake-model");
+
+	// The report reads the same merge and names the same target, so the two surfaces still agree on the
+	// project's answer after the defaults the save wrote are on disk. `afterReload` is the merge the test
+	// composes (see the header above): what is observed is that both surfaces follow whatever merge the host
+	// hands them, not that a real host produces this one.
+	saved.pi.getSettings = () => afterReload;
+	const report = await statusLine(saved.pi, { model: AUTO, authedProviders: ["compat-fake"] });
+	expect(report).toMatch(/normal: compat-fake\/fake-model/);
+});
+
 /**
  * Activate the row under the cursor the way a terminal's click does.
  *
@@ -1308,7 +1580,7 @@ test("every row leads with the routing being off and answers in the conditional"
 	// has no description, the action rows describe the lock and the settings file rather than a request.
 	// They still state the routing being off once when it is off, which is the next case's business.
 	for (const row of panel.rows()) {
-		if (row.id === ROLE_SAVE_ROW || row.id === SEPARATOR_ROW || row.id.startsWith("use:")) continue;
+		if (row.id === ROLE_SAVE_ROW || row.id === SEPARATOR_ROW) continue;
 		expect(row.description.startsWith("routing is off while compat-fake/fake-model is selected;")).toBe(true);
 	}
 
@@ -1551,6 +1823,15 @@ interface ScreenRun {
 	file: () => Record<string, unknown>;
 	/** How many times the conditional write rewrote the file. */
 	saveWrites: () => number;
+	/**
+	 * How many times the screen asked for the conditional write at all.
+	 *
+	 * A decline and a no-op both leave {@link saveWrites} at zero, so "the file was never asked" is a claim
+	 * this counts and not that one.
+	 */
+	saveAttempts: () => number;
+	/** How many times the screen asked the host to close it. */
+	closes: () => number;
 	text: () => string;
 }
 
@@ -1582,12 +1863,17 @@ async function driveScreen(
 		failSave?: boolean;
 		/** Leave the preview's read of the global file at its production default, which is the real file. */
 		defaultGlobalRead?: boolean;
+		/**
+		 * Run the whole `save` path against a real pi agent dir, which holds the real `settings.json`.
+		 *
+		 * The seam is left out for both halves — the preview's read and the conditional write — so a test sees
+		 * the file's bytes and modification time instead of an in-memory stand-in.
+		 */
+		realGlobalDir?: string;
 		/** Raise from the preview's read of the global file, which costs the preview and not the screen. */
 		failSaveRead?: boolean;
 		/** Refuse the session record write, the one outside the settings file's own guard. */
 		failAppend?: boolean;
-		/** Refuse the close-time reload, the way the host does while a response is running. */
-		reloadError?: string;
 		/**
 		 * Raise from this `pi.getSettings()` call on, which is how a settings file that goes unreadable
 		 * mid-screen behaves. The rows are read once to build the screen and again after every edit, so 2 is
@@ -1627,35 +1913,43 @@ async function driveScreen(
 	let file: Record<string, unknown> = options.file ?? {};
 	/** How many times the conditional write actually rewrote the file, as opposed to being asked. */
 	let saveWrites = 0;
+	/** How many times the conditional write was asked, whether or not it rewrote anything. */
+	let saveAttempts = 0;
 	const phase = createRoutingPhase();
 	registerManagedCommands(asExtensionApi(pi), {
 		phase,
 		patchSettings: (patch) => {
 			if (options.failLock) throw new Error("EACCES: the settings file is read-only");
-			// The lock row and a `use` row write `models.role` through here, before the save stage, so the
-			// file has to carry that half for the failure cases to read it.
+			// The lock row writes `models.role` through here, before the save stage, so the file has to carry
+			// that half for the failure cases to read it.
 			file = mergeSettingsPatch(file, patch);
 		},
 		patchSettingsPath: (path, value) => {
 			if (options.fail?.(path)) throw new Error("EACCES: the settings file is read-only");
 			written.push({ path, value });
 		},
-		...(options.defaultGlobalRead
+		// A real agent dir stands for both halves of the `save` path; anything else keeps the seams.
+		...(options.realGlobalDir
 			? {}
 			: {
-					readGlobalSettings: () => {
-						if (options.failSaveRead) throw new Error("the global settings file is unreadable");
+					...(options.defaultGlobalRead
+						? {}
+						: {
+								readGlobalSettings: () => {
+									if (options.failSaveRead) throw new Error("the global settings file is unreadable");
+									return file;
+								},
+						  }),
+					saveSettings: (decide) => {
+						saveAttempts += 1;
+						if (options.failSave) throw new Error("EACCES: the settings file is read-only");
+						const patch = decide(file);
+						if (patch === undefined) return undefined;
+						saveWrites += 1;
+						file = mergeSettingsPatch(file, patch);
 						return file;
 					},
 				}),
-		saveSettings: (decide) => {
-			if (options.failSave) throw new Error("EACCES: the settings file is read-only");
-			const patch = decide(file);
-			if (patch === undefined) return undefined;
-			saveWrites += 1;
-			file = mergeSettingsPatch(file, patch);
-			return file;
-		},
 	});
 	const context = fakeCommandContext({
 		available: options.available ?? [AUTO, FAKE_MODEL, FAKE_STRONG],
@@ -1663,11 +1957,19 @@ async function driveScreen(
 		model: options.noModel ? undefined : (options.model ?? AUTO),
 		mode: options.mode ?? "tui",
 		...(options.scoped ? { scopedModels: options.scoped.map((model) => ({ model })) } : {}),
-		...(options.reloadError ? { reloadError: options.reloadError } : {}),
 		onCustom: (component) => keystrokes(component as ScreenList),
 	});
 
-	await pi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("", context.ctx);
+	// The production global path is the agent dir's `settings.json`, so pointing the env var at a temp dir
+	// is what makes the run read and write a real file.
+	const previousAgentDir = process.env[ENV_AGENT_DIR];
+	if (options.realGlobalDir !== undefined) process.env[ENV_AGENT_DIR] = options.realGlobalDir;
+	try {
+		await pi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("", context.ctx);
+	} finally {
+		if (previousAgentDir === undefined) delete process.env[ENV_AGENT_DIR];
+		else process.env[ENV_AGENT_DIR] = previousAgentDir;
+	}
 
 	return {
 		pi,
@@ -1679,6 +1981,8 @@ async function driveScreen(
 		reloads: context.reloads(),
 		file: () => file,
 		saveWrites: () => saveWrites,
+		saveAttempts: () => saveAttempts,
+		closes: () => context.custom.closes.length,
 		text: () => (context.custom.components[0] as ScreenList).render(100).join("\n"),
 	};
 }

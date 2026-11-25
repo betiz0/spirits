@@ -43,8 +43,18 @@ export interface RoleWrite {
 	message: string;
 	/** True when the file holds the change, which is what makes a reload worth doing. */
 	saved: boolean;
-	/** Why the file refused, when it refused. */
+	/** Why the file refused, when it refused. A refusal is not a decline: see {@link declined}. */
 	failure?: string;
+	/**
+	 * Why the operation wrote nothing by choice, when it did.
+	 *
+	 * A decline is neither a failure nor a no-op: the file was never asked, and the notice's kind and the
+	 * row's lead are different for it (spec `managed-commands` / 物理モデルを選択中は `save` が global 設定を
+	 * 見送る). The text is the reason only — it names no procedure, because what a session can be told to
+	 * run is a fact about its mode and its catalog, which only the surfaces know (design Decision 5).
+	 * Never set together with {@link failure}.
+	 */
+	declined?: string;
 	/**
 	 * Where the change landed and what went there (`undefined` deleted it).
 	 *
@@ -61,15 +71,6 @@ export interface RoleWrite {
 	 * with no normal target — and the reason travels with the write that did land rather than replacing it.
 	 */
 	skipped?: string;
-	/**
-	 * True when `wrote` landed even though the operation as a whole failed.
-	 *
-	 * A `use` row is two writes: a lock that can land and a save that can refuse after it. The screen has
-	 * to stay open on that failure, but the lock is in the session and the settings file, so the close-time
-	 * reload is still owed to it. This is what tells the panel to fold the landed half without pretending
-	 * the whole operation succeeded.
-	 */
-	partial?: boolean;
 }
 
 /** The side effects one change needs. Both surfaces inject these; neither writes a file itself. */
@@ -142,7 +143,7 @@ function saveFile(write: () => void, applied: string, what: string): Omit<RoleWr
  */
 export interface SessionSelection {
 	role: string;
-	model?: { provider: string; id: string };
+	model?: { provider: string; id: string; api?: string };
 }
 
 /** A default model reference in the two keys pi reads it from. */
@@ -160,6 +161,8 @@ interface DefaultModel {
  * this session merely happens to agree with (design Decision 5).
  */
 interface SaveDecision {
+	/** Why nothing is written at all, when the selection is one `save` declines. */
+	declined?: string;
 	/** The patch that would land, absent when the object already holds the selection. */
 	patch?: SettingsPatch;
 	/** The keys the patch touches, in the order they read as a sentence. */
@@ -179,6 +182,10 @@ interface SaveDecision {
  * routing model's safety check below necessary.
  */
 export function decideSave(selection: SessionSelection, current: Record<string, unknown>, lookup: ModelLookup): SaveDecision {
+	const declined = saveDeclination(selection);
+	// The decline reads the selection and nothing else, so the file is never consulted for it — which is
+	// what lets a missing or unreadable file decline the same way an ordinary one does.
+	if (declined !== undefined) return { writes: [], declined };
 	const settings = readRoutingSettings(current);
 	const model = saveableModel(selection.model, current, lookup);
 	const writes: SettingChange[] = [];
@@ -208,10 +215,55 @@ export function decideSave(selection: SessionSelection, current: Record<string, 
 const NO_MODEL_REASON = "no model is selected, so nothing was saved as the default model";
 
 /**
+ * Why `save` declines while the session holds a physical model.
+ *
+ * A session on a physical model answers without asking spirits, so its selection is not what the routing
+ * would run on, and copying it into the global defaults would hand the off state to every session that
+ * starts afterwards. The sentence leads with what did not happen — a decline is not the file refusing,
+ * so it does not take the list's `not saved:` lead — and it names no procedure, because what a session
+ * can be told to run is a fact about its mode and its catalog, which only the surfaces know.
+ */
+const PHYSICAL_SELECTION_DECLINE =
+	"save declined: a physical model is selected, and save writes only what the routing runs on";
+
+/**
+ * Why `save` declines while the session holds a virtual model that is not the routing one.
+ *
+ * The physical sentence would be false for this selection: another extension's virtual model does ask its
+ * own extension to route, and a reader told "a physical model is selected" would go looking for a model the
+ * selector does not show them. The honest fact is that the model in front of them is not the one spirits
+ * routes, so the sentence names it (spec `managed-commands` / 物理モデルを選択中は `save` が global 設定を
+ * 見送る: 他拡張の仮想モデルも振り分け用ではない).
+ */
+function otherVirtualDecline(model: { provider: string; id: string }): string {
+	return `save declined: ${modelKey(model)} is a virtual model, but not the one spirits routes`;
+}
+
+/**
+ * Why `save` writes nothing for this selection, or undefined when it may write.
+ *
+ * The predicate is {@link isRoutingModel} on the selection — identifier and virtual api together — the
+ * same test the badge, `status`, the setting warning, and the step-start confirmation use, so the surfaces
+ * cannot call a session routed while `save` calls it off (design Decision 1). Which sentence says so
+ * follows the selection's own kind, because the reason has to agree with what the selector shows.
+ *
+ * A session that selected no model is not a declined selection: it has no default model to state, and its
+ * `models.role` save stays.
+ *
+ * The list reads this too, because the `save` row's decline has to lead its description before the
+ * global file's read failure does (spec `managed-commands` / `save` の見送りは一覧の行と通知に出す).
+ */
+export function saveDeclination(selection: SessionSelection): string | undefined {
+	const model = selection.model;
+	if (model === undefined || isRoutingModel(model)) return undefined;
+	return model.api === PI_VIRTUAL_MODEL_API ? otherVirtualDecline(model) : PHYSICAL_SELECTION_DECLINE;
+}
+
+/**
  * The model `save` would write, or why it writes none.
  *
- * A physical selection is written as given: a session that starts on a physical model is a normal
- * session, and a default that names one always resolves.
+ * Reached only for the routing model: {@link decideSave} declines every other selection before it asks
+ * this, so a physical selection never arrives here to be written as given (design Decision 1).
  *
  * The routing model is the one selection that can break a session that has not spoken yet. `spirits/auto`
  * answers a normal request only through `models.normal`, and the session the user is looking at may be
@@ -227,7 +279,6 @@ function saveableModel(
 ): DefaultModel | undefined {
 	if (!selection) return undefined;
 	const model: DefaultModel = { provider: selection.provider, modelId: selection.id };
-	if (!isRoutingModel(selection)) return model;
 	// The prospective defaults, read the way a new session reads them: no `previous` model, because a
 	// session that has not asked anything has none.
 	const prospective = readRoutingSettings({
@@ -308,6 +359,13 @@ export function applyRoleSave(
 	selection: SessionSelection,
 	lookup: ModelLookup,
 ): RoleWrite {
+	// The decline is decided before the file is touched: a global settings file that does not exist must
+	// not be created, and one that cannot be read must not be written to (spec `managed-commands` /
+	// 物理モデルを選択中は `save` が global 設定を見送る).
+	const declined = saveDeclination(selection);
+	if (declined !== undefined) {
+		return { message: declined, saved: false, wrote: [], declined };
+	}
 	let decided: SaveDecision | undefined;
 	const outcome = saveFile(
 		() => {
@@ -350,7 +408,10 @@ export function describeSavePreview(
 	current: Record<string, unknown>,
 	lookup: ModelLookup,
 ): string {
+	// The preview is the decision read against the file, not a second predicate beside it: whatever the file
+	// holds, a declined selection has nothing to preview.
 	const decision = decideSave(selection, current, lookup);
+	if (decision.declined !== undefined) return decision.declined;
 	// The same writes that decide the patch also decide what the preview calls a change. Read the old raw
 	// value only for its display; do not repeat the comparison that produced `decision.writes` here.
 	const roleChanged = decision.writes.some(
@@ -360,7 +421,8 @@ export function describeSavePreview(
 		(change) => change.path[0] === SETTINGS_KEY_DEFAULT_PROVIDER || change.path[0] === SETTINGS_KEY_DEFAULT_MODEL,
 	);
 	// The two keys pi reads as written, so a padded value is shown as the file holds it (spec
-	// `managed-commands` / `/spirits-role save` はセッションの選択状況を設定に保存する).
+	// `managed-commands` / `save` は振り分け用のモデルを選択しているセッションの選択状況を global 既定に保存する:
+	// ディスクの既定値に前後の空白がある).
 	const rawProvider = rawDefault(current, SETTINGS_KEY_DEFAULT_PROVIDER);
 	const rawModel = rawDefault(current, SETTINGS_KEY_DEFAULT_MODEL);
 	const from = typeof rawModel === "string" && rawModel !== "" ? `${typeof rawProvider === "string" ? rawProvider : ""}/${rawModel}` : "unset";

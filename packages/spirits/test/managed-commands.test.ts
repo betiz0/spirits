@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { AgentMessage, PiModel } from "../src/types/host.ts";
-import { CLEAR_ENTRY_TYPE, COMMAND_SPIRITS_CLEAR, COMMAND_SPIRITS_ROLE, ROLE_ENTRY_TYPE, ROLE_MODEL_STATUS_KEY, ROLE_STATUS_KEY, ROUTING_STATE_ENTRY_TYPE } from "../src/constants.ts";
+import { CLEAR_ENTRY_TYPE, COMMAND_SPIRITS_CLEAR, COMMAND_SPIRITS_ROLE, PI_VIRTUAL_MODEL_API, ROLE_ENTRY_TYPE, ROLE_MODEL_STATUS_KEY, ROLE_STATUS_KEY, ROUTING_STATE_ENTRY_TYPE } from "../src/constants.ts";
 import { alreadyCleared, boundaryCompactionResult, clearBoundaryIndex, clearedMessageCount } from "../src/commands/clear.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
 import { inheritedRole, roleBadgeLines, roleModelDisplay } from "../src/commands/role.ts";
@@ -324,7 +324,7 @@ test("a settings write keeps the keys it was not told about, including pi's own"
  * that a patch merges instead of replacing. The row's own cases are in `managed-role-panel.test.ts`.
  */
 
-// spec "managed-commands / save はセッションの選択状況を設定に保存する": scenario "保存する乖離が無い".
+// spec "managed-commands / `save` は振り分け用のモデルを選択しているセッションの選択状況を global 既定に保存する": scenario "保存する乖離が無い".
 // "Nothing changed" has to be observable as a file nobody touched, not as a file rewritten to its own
 // content — a reader that watches the modification time should not see a save that wrote nothing.
 test("a conditional save leaves an unchanged file untouched", () => {
@@ -345,7 +345,7 @@ test("a conditional save leaves an unchanged file untouched", () => {
 	expect(statSync(path).mtimeMs).toBe(stat.mtimeMs);
 });
 
-// spec scenario "保存のあいだに他が global を変えた": the preview a user read is advisory. What the write
+// spec scenario "一覧を開いた後に global が変わる": the preview a user read is advisory. What the write
 // compares against is the content the lock let it open with, which is the other process's version here.
 test("a conditional save uses the latest global settings", () => {
 	const path = join(tempDir("save-latest"), "settings.json");
@@ -378,7 +378,7 @@ test("a conditional save uses the latest global settings", () => {
 	expect(statSync(path).mtimeMs).toBe(stat.mtimeMs);
 });
 
-// spec scenario "ロールと既定モデルを同時に保存する" and scenario "モデルを見送ってロールだけ保存する":
+// spec scenario "振り分け用モデルへ替えた後に保存する" and the declination the same requirement lets stand:
 // the pair is one write, and a patch that names two of the three `models` keys replaces none of the others.
 test("a save patch lands the role and model pair together", () => {
 	const path = join(tempDir("save-pair"), "settings.json");
@@ -428,25 +428,32 @@ test("a save patch lands the role and model pair together", () => {
 // comparison is the one the row's preview and the command share.
 test("a padded default provider is rewritten to the selected value", () => {
 	const path = join(tempDir("save-padded"), "settings.json");
+	// The routing model is selected, because a physical one declines before the comparison is reached (spec
+	// `managed-commands` / 物理モデルを選択中は `save` が global 設定を見送る).
+	// The file carries a `models.normal` a new session can resolve on its own, which is what lets a routing
+	// default be written at all; the padding is the difference under test.
 	writeFileSync(
 		path,
-		JSON.stringify({ defaultProvider: " compat-fake ", defaultModel: "fake-strong", models: { role: "normal" } }, null, 2),
+		JSON.stringify({ defaultProvider: " spirits ", defaultModel: "auto", models: { role: "normal", normal: "compat-fake/fake-strong" } }, null, 2),
 		"utf-8",
 	);
+	// A provider the host does not list as extension-registered is one the global file can vouch for, which is
+	// what lets the routing default be rewritten at all.
 	const lookup = {
 		getAvailable: () => [COMPAT_STRONG],
 		hasConfiguredAuth: () => true,
+		getRegisteredProviderIds: () => [],
 	};
 
 	patchSettingsFileIfChanged({
 		settingsPath: path,
-		decide: (current) => decideSave({ role: "normal", model: { provider: "compat-fake", id: "fake-strong" } }, current, lookup).patch,
+		decide: (current) => decideSave({ role: "normal", model: { provider: "spirits", id: "auto", api: PI_VIRTUAL_MODEL_API } }, current, lookup).patch,
 	});
 
 	expect(JSON.parse(readFileSync(path, "utf-8"))).toEqual({
-		defaultProvider: "compat-fake",
-		defaultModel: "fake-strong",
-		models: { role: "normal" },
+		defaultProvider: "spirits",
+		defaultModel: "auto",
+		models: { role: "normal", normal: "compat-fake/fake-strong" },
 	});
 });
 

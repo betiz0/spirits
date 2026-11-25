@@ -44,11 +44,15 @@ import {
 	STEP_DEFINITIONS,
 	THINKING_LEVELS,
 	ROLE_SAVE_WORD,
+	isRoutingModel,
 } from "../constants.ts";
 import type { ThinkingLevelName } from "../constants.ts";
 import { resolveRequestPlan } from "../routing/plan.ts";
 import type { RequestPlanInput } from "../routing/plan.ts";
 import { modelKey, resolveNormalTarget, resolveStrongTarget } from "../routing/resolve.ts";
+
+/** Status wording for a session whose host context has no selected model. */
+const NO_MODEL_SELECTED_LABEL = "no model is selected";
 
 /** Control characters, including the escape that starts a terminal sequence. */
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/g;
@@ -312,10 +316,15 @@ export function targetAnswers(line: RoleResolutionLine): boolean {
 export interface RoleStatusReport {
 	/** True when the session selected the routing model, so the routing is in force. */
 	routingEnabled: boolean;
-	/** The model the session holds, in `provider/id` spelling, named on the same line as the verdict. */
-	sessionModel: string;
+	/** The model the session holds, in `provider/id` spelling; absent when no model is selected. */
+	sessionModel?: string;
 	/** False when the session's model scope leaves the routing model out, which changes the way out. */
 	routingModelInScope: boolean;
+	/**
+	 * False when the session's catalog does not hold the routing model at all — the routing failed to
+	 * register — which leaves no procedure worth naming. Read through {@link routingModelAvailable}.
+	 */
+	routingModelAvailable: boolean;
 	/** True on a terminal, the only place a host operation can be named to someone who can run it. */
 	interactive: boolean;
 	lock: string;
@@ -338,12 +347,11 @@ export interface RoleStatusReport {
  * comes from, and what the settings file holds that routing will not read.
  */
 export function formatRoleStatus(report: RoleStatusReport): string {
+	const sessionSelection = report.sessionModel === undefined ? NO_MODEL_SELECTED_LABEL : `${report.sessionModel} is selected`;
 	const lines: string[] = [
 		// The verdict and the model behind it, because "off" is a fact about the session's selection and the
 		// user needs to see which selection that was.
-		report.routingEnabled
-			? `routing: on (${report.sessionModel} is selected)`
-			: `routing: off (${report.sessionModel} is selected)`,
+		`routing: ${report.routingEnabled ? "on" : "off"} (${sessionSelection})`,
 		`lock: ${report.lock}`,
 	];
 	if (report.step) {
@@ -366,16 +374,65 @@ export function formatRoleStatus(report: RoleStatusReport): string {
 	lines.push(`strong: ${report.strong.target} (${report.strong.source})`);
 	if (report.stepSettings.length > 0) lines.push(`step settings: ${report.stepSettings.join("; ")}`);
 	if (report.ignored.length > 0) lines.push(`ignored settings: ${report.ignored.join("; ")}`);
-	// The way out, where there is one to explain: an off session whose scope does hold the routing model has
-	// nothing broken, and a report that lectured about it would be describing a problem the user does not
-	// have (spec `managed-commands` / 振り分け用モデルがスコープ外だと分かる).
-	if (!report.routingEnabled && !report.routingModelInScope) {
-		const guide = routingModelGuide({ scoped: true, interactive: report.interactive });
-		// A terminal is told how to get out of the state, so the line reads as an instruction. The fact a
-		// headless session is told is not something to enable, so it stands on its own.
-		lines.push(report.interactive ? `to enable: ${guide}` : guide);
+	// The way out. Every off session is told how to get out of the state where one exists: the report is the
+	// one surface long enough to hold the procedure, and the list sends the reader here (spec
+	// `managed-commands` / 振り分けを有効にする手順は対話端末で実行できるものを名指す: スコープが設定されていなくても手順が出る).
+	// The report's own job here is to say whether routing is on. What may be named alongside it is the shared
+	// decision of {@link routingEnablementLines}, the same one the `save` decline and the setting warning read.
+	if (!report.routingEnabled) {
+		lines.push(...routingEnablementLines(enablementFacts(report)));
 	}
 	return lines.join("\n");
+}
+
+/** The facts that decide whether a notice may name a procedure, or only state why it cannot. */
+export interface RoutingEnablementFacts {
+	/** True when the catalog holds the routing virtual model, which is what a selector can select. */
+	available: boolean;
+	/** True when the session limits its models and that limit leaves the routing model out. */
+	scoped: boolean;
+	/** True on a terminal, the only session someone can be told to run something. */
+	interactive: boolean;
+}
+
+/** The same three facts, read off a report so `status` does not restate them at each branch. */
+function enablementFacts(report: RoleStatusReport): RoutingEnablementFacts {
+	return {
+		available: report.routingModelAvailable,
+		scoped: !report.routingModelInScope,
+		interactive: report.interactive,
+	};
+}
+
+/** The scope fact on its own: what a session nobody operates is told, and the second fact of an unregistered catalog. */
+const MODEL_SCOPE_FACT = routingModelGuide({ scoped: true, interactive: false });
+
+/**
+ * The way out of an off session, in the one sentence a notice has room for.
+ *
+ * Registration, scope, and mode are the only inputs, and every surface that offers a way out reads them
+ * through here: the `save` decline, the setting-change warning, and `status`. Two of them have one line and
+ * take this string; `status` has room for the facts apart and takes {@link routingEnablementLines}. The
+ * point of one place is that a session cannot be told to run an operation another surface knows it cannot
+ * run (spec `managed-commands` / 振り分けを有効にする手順は対話端末で実行できるものを名指す).
+ */
+export function routingEnablement(facts: RoutingEnablementFacts): string {
+	if (!facts.available) return ROUTING_MODEL_UNAVAILABLE;
+	return routingModelGuide(facts);
+}
+
+/**
+ * The same decision as the lines `status` prints, which is where two facts can be said apart.
+ *
+ * An unregistered catalog and an excluding scope are independent facts, so a collision states both — but
+ * neither one makes an unavailable procedure usable, so no operation is named. A session nobody is driving
+ * is told the scope fact and nothing else: the scope is a fact about the session, not a task for whoever
+ * may be scripting it.
+ */
+export function routingEnablementLines(facts: RoutingEnablementFacts): string[] {
+	if (!facts.available) return facts.scoped ? [MODEL_SCOPE_FACT, ROUTING_MODEL_UNAVAILABLE] : [ROUTING_MODEL_UNAVAILABLE];
+	if (!facts.interactive) return facts.scoped ? [MODEL_SCOPE_FACT] : [];
+	return [`to enable: ${routingEnablement(facts)}`];
 }
 
 /**
@@ -384,10 +441,9 @@ export function formatRoleStatus(report: RoleStatusReport): string {
  * The routing is in force only while the session holds `spirits/auto`, so every off session has to be told
  * how to change that, and the honest answer depends on whether the session limits its models: a scope
  * excludes the routing model as surely as a missing provider does, and naming the selector alone would name
- * a list the model is not in. Only a terminal has a selector, a key, or a slash command to name, and a
- * session nobody is operating is told the fact alone — it has no screen to press a key on, and pointing at
- * a settings file would send someone who may be driving a script through an editor (spec
- * `managed-commands` / 物理モデル選択中の設定変更は振り分けが働いていないことを伝える:
+ * a list the model is not in. The scope switch is named as the operation, not as a key: the host draws the
+ * key in the selector's own hint, and a word of ours would go stale the day the binding moves (spec
+ * `managed-commands` / 物理モデルを選択している間の設定変更は振り分けが働いていないことを伝える:
  * 対話端末でないセッションでは操作を名指さない).
  *
  * The strings carry no trailing period: the report, the warning, and the confirmation each close the
@@ -399,8 +455,31 @@ export function routingModelGuide(options: { scoped: boolean; interactive: boole
 		: `${ROUTING_MODEL_REFERENCE} is not the model this session selected`;
 	if (!options.interactive) return `${fact}, and routing is in force only while it is selected`;
 	return options.scoped
-		? `${fact}: press ${HOST_COMMANDS.scopeToggle} in ${HOST_COMMANDS.model} to switch its scope to all models, or run ${HOST_COMMANDS.scopedModels} to add it`
+		? `${fact}: switch ${HOST_COMMANDS.model}'s scope to all models, or run ${HOST_COMMANDS.scopedModels} to add it`
 		: `select ${ROUTING_MODEL_REFERENCE} with ${HOST_COMMANDS.model} to put this to work`;
+}
+
+/**
+ * Why no procedure can be named: the routing model is not in this session's catalog at all.
+ *
+ * The routing registers as a virtual model, and an extension that failed to register leaves nothing for a
+ * selector to select. Telling someone to open a list that does not hold the model sends them to a screen
+ * that proves the advice wrong (spec `managed-commands` / 振り分け用モデルが未登録なら手順を名指さない).
+ */
+export const ROUTING_MODEL_UNAVAILABLE = `${ROUTING_MODEL_REFERENCE} is not in this session's model catalog, so routing cannot be turned on here`;
+
+/**
+ * Whether this session can be told to select the routing model at all.
+ *
+ * The check every notice that names a procedure runs first, so `status` and a `save` decline cannot name an
+ * operation that reaches for a model the session does not have (spec `managed-commands` /
+ * 振り分け用モデルが未登録なら手順を名指さない). It reads the registry's whole list rather than the session's
+ * available list on purpose: the question is whether anything registered `spirits/auto` at all, and a scope
+ * that leaves it out is a different fact with its own procedure — the available list answers both questions
+ * with `no`, which would replace the scope's advice with the wrong one.
+ */
+export function routingModelAvailable(models: readonly PiModel[]): boolean {
+	return models.some((model) => isRoutingModel(model));
 }
 
 /** The one thing worth saying about a strong that nothing resolves to, or undefined when strong is usable. */
@@ -428,12 +507,20 @@ export function roleSettingWarning(options: {
 	scoped: boolean;
 	/** True on a terminal, the only session that can be told to press something. */
 	interactive: boolean;
+	/** False when the catalog holds no routing model, which leaves no procedure worth naming. */
+	routingModelAvailable: boolean;
 }): string | undefined {
 	const parts: string[] = [];
 	const strong = strongSettingWarning(options.setStrong, options.strongUnresolved);
 	if (strong) parts.push(strong);
 	if (options.physicalModelSelected) {
-		parts.push(`routing is off while a physical model is selected; ${routingModelGuide(options)}.`);
+		parts.push(
+			`routing is off while a physical model is selected; ${routingEnablement({
+				available: options.routingModelAvailable,
+				scoped: options.scoped,
+				interactive: options.interactive,
+			})}.`,
+		);
 	}
 	return parts.length === 0 ? undefined : parts.join(" ");
 }

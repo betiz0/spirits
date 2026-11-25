@@ -9,15 +9,19 @@
  */
 
 import { expect, test } from "bun:test";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { asExtensionApi, customEntry, fakeModel, nextEntryId, slashCommandInfo } from "./host/fake-pi.ts";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { PiModel } from "../src/types/host.ts";
-import { COMMAND_SPIRITS_ROLE, ROLE_ENTRY_TYPE, STEP_ENTRY_TYPE } from "../src/constants.ts";
+import { COMMAND_SPIRITS_ROLE, PI_VIRTUAL_MODEL_API, ROLE_ENTRY_TYPE, STEP_ENTRY_TYPE } from "../src/constants.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
 import { parseRoleCommand, resolveModelTarget } from "../src/commands/role.ts";
 import { decideSave } from "../src/commands/role-write.ts";
 import type { SessionSelection } from "../src/commands/role-write.ts";
 import type { SettingsPatch, SettingsPath } from "../src/commands/settings-store.ts";
+import { patchSettingsFileIfChanged, readSettingsFile } from "../src/commands/settings-store.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
 import { fakeCommandContext, FakePi } from "./routing/fake-pi.ts";
 import { mergeSettingsPatch } from "./support.ts";
@@ -57,7 +61,9 @@ function wire(branch: readonly SessionEntry[] = [], globalFile: Record<string, u
 }
 
 async function run(pi: FakePi, args: string, options: Parameters<typeof fakeCommandContext>[0] = {}) {
-	const context = fakeCommandContext({ available: CATALOG, ...options });
+	// The registry holds the routing model, because the wiring that registers these commands is the same
+	// wiring that registers `spirits/auto`. A case that wants a catalog without it says so.
+	const context = fakeCommandContext({ available: CATALOG, registered: [AUTO, ...CATALOG], ...options });
 	await pi.commands.get(COMMAND_SPIRITS_ROLE)!.handler(args, context.ctx);
 	return context;
 }
@@ -425,7 +431,7 @@ test("a failed settings write for a step is reported the same way", async () => 
  * has — the keys pi owns at the top level and the spirits keys under `models` — and reads back the three
  * keys `save` may move.
  */
-const AUTO_SELECTION = { provider: "spirits", id: "auto" };
+const AUTO_SELECTION = { provider: "spirits", id: "auto", api: PI_VIRTUAL_MODEL_API };
 
 /** A catalog in the shape the decision reads: the models there, and which providers can answer. */
 function lookup(models: readonly PiModel[], authed: readonly string[] = ["compat-fake"]) {
@@ -495,26 +501,48 @@ test("save checks normal against the prospective global defaults without history
 	expect(unreadableProvider.writes).toEqual([{ path: ["models", "role"], value: "strong" }]);
 });
 
-// spec scenario "物理モデルを選んでいるときに保存する" and scenario "モデルを選択していない": the safety check
-// belongs to `spirits/auto` alone, and a session with no selection has no default model to state.
+// spec scenario "物理モデルを選択して save を実行する": the physical selection is no
+// longer a default worth writing, because a session that starts on the written model runs nothing through the
+// routing. The decline carries the reason and no writes, and the file's own state — a `models.normal` nothing
+// resolves — is never reached.
 test("save plans a physical model or a role without a model", () => {
 	const catalog = [FAKE_MODEL, FAKE_STRONG];
 
-	// A physical default always resolves: a session that starts on one is an ordinary session, with no
-	// routing to fall through. The step's own role is no part of this — the selection comes from the lock.
+	// A physical selection declines whatever the file holds, and the lock the session carries is not written
+	// beside the decline.
 	const physical = decideSave(
-		{ role: "normal", model: { provider: "compat-fake", id: "fake-strong" } },
+		{ role: "normal", model: { provider: "compat-fake", id: "fake-strong", api: "openai" } },
 		{ models: { role: "strong", normal: "nowhere/nothing" } },
 		lookup(catalog),
 	);
-	expect(physical.writes).toEqual([
-		{ path: ["models", "role"], value: "normal" },
-		{ path: ["defaultProvider"], value: "compat-fake" },
-		{ path: ["defaultModel"], value: "fake-strong" },
-	]);
-	// A `models.normal` nothing resolves is no obstacle here, and saying so is the point: the file that
-	// would refuse the routing model accepts a physical one untouched.
+	expect(physical.writes).toEqual([]);
+	expect(physical.declined).toBeDefined();
+	expect(physical.declined).toContain("a physical model is selected");
+	// A decline is not a skip: the file was never asked, so there is no half-written state to explain.
 	expect(physical.skipped).toBeUndefined();
+	expect(physical.patch).toBeUndefined();
+
+	// Another extension's virtual model is not the one spirits routes, so it declines in the same way: the
+	// judgment is "the session runs on a model of its own", not "the key says spirits/auto". The reason
+	// follows the selection's kind — it is a virtual model, so calling it physical would be a lie the reader
+	// can check against the selector.
+	const otherVirtual = decideSave(
+		{ role: "normal", model: { provider: "other", id: "router", api: PI_VIRTUAL_MODEL_API } },
+		{ models: { role: "normal" } },
+		lookup(catalog),
+	);
+	expect(otherVirtual.writes).toEqual([]);
+	expect(otherVirtual.declined).toContain("other/router is a virtual model, but not the one spirits routes");
+	expect(otherVirtual.declined).not.toContain("physical");
+
+	// A physical model can claim the routing model's provider and id, so identity needs the virtual api too.
+	const sameNamePhysical = decideSave(
+		{ role: "normal", model: { provider: "spirits", id: "auto", api: "openai" } },
+		{ models: { role: "strong" } },
+		lookup(catalog),
+	);
+	expect(sameNamePhysical.writes).toEqual([]);
+	expect(sameNamePhysical.declined).toContain("a physical model is selected");
 
 	// A session with no model selected still has a lock to save, and the reason travels with it.
 	const roleOnly = decideSave({ role: "strong" }, { defaultProvider: "compat-fake", defaultModel: "fake-model" }, lookup(catalog));
@@ -536,27 +564,26 @@ test("save plans a physical model or a role without a model", () => {
 
 // spec scenario "ディスクの既定値に前後の空白がある": Pi reads `defaultProvider` / `defaultModel` as they
 // are written and searches for them as they are written, so a padded value is not the value the session
-// selected — it is a difference, and the save rewrites it to the selected spelling.
+// selected — it is a difference, and the save rewrites it to the selected spelling. The session is on the
+// routing model, because a physical one never reaches the comparison.
 test("save compares the raw default values", () => {
-	const selection: SessionSelection = { role: "normal", model: { provider: "compat-fake", id: "fake-strong" } };
+	const selection: SessionSelection = { role: "normal", model: AUTO_SELECTION };
+	const file = (provider: string) => ({
+		models: { role: "normal", normal: "compat-fake/fake-model" },
+		defaultProvider: provider,
+		defaultModel: "auto",
+	});
 
-	// The file holds the same model with a padded provider: a difference, not a match.
-	const padded = decideSave(
-		selection,
-		{ models: { role: "normal" }, defaultProvider: " compat-fake ", defaultModel: "fake-strong" },
-		lookup(CATALOG),
-	);
+	// The file holds the routing default with a padded provider: a difference, not a match, and pi's two
+	// default keys are written together because one of them is wrong.
+	const padded = decideSave(selection, file(" spirits "), lookup(CATALOG));
 	expect(padded.writes).toEqual([
-		{ path: ["defaultProvider"], value: "compat-fake" },
-		{ path: ["defaultModel"], value: "fake-strong" },
+		{ path: ["defaultProvider"], value: "spirits" },
+		{ path: ["defaultModel"], value: "auto" },
 	]);
 
-	// The same values without the padding are the same settings, so the file is left alone.
-	const exact = decideSave(
-		selection,
-		{ models: { role: "normal" }, defaultProvider: "compat-fake", defaultModel: "fake-strong" },
-		lookup(CATALOG),
-	);
+	// The same value without the padding is the same setting, so the file is left alone.
+	const exact = decideSave(selection, file("spirits"), lookup(CATALOG));
 	expect(exact.writes).toEqual([]);
 });
 
@@ -630,15 +657,16 @@ test("a save from a project-only provider leaves the model keys alone", async ()
 
 // --------------------------------------------------------------- the save command
 
-// spec "managed-commands / `/spirits-role save` はセッションの選択状況を設定に保存する": the decision is one
-// call to the conditional writer whether it ends in a write or not, and none of the three outcomes reloads.
+// spec "managed-commands / save はディスク上の結果と実効状態を区別する": the decision is one call to the
+// conditional writer whether it ends in a write or not, and none of the three outcomes reloads.
 test("save distinguishes a write, no change and failure", async () => {
-	// A write: the file has no role and no default, and the session holds both.
+	// A write: the file has no role and no default, and the session holds both. The session sits on the routing
+	// model, because a physical one declines before the file is asked.
 	const wrote = wire();
 	wrote.phase.setRole("strong");
-	const first = await run(wrote.pi, "save", { model: FAKE_MODEL });
+	const first = await run(wrote.pi, "save", { model: AUTO });
 	expect(wrote.saves()).toBe(1);
-	expect(wrote.disk()).toEqual({ models: { role: "strong" }, defaultProvider: "compat-fake", defaultModel: "fake-model" });
+	expect(wrote.disk()).toEqual({ models: { role: "strong" } });
 	expect(first.notices[0]).toContain("saved");
 	// A save leaves this session alone, so even a landed write earns no reload.
 	expect(first.reloads()).toBe(0);
@@ -646,8 +674,8 @@ test("save distinguishes a write, no change and failure", async () => {
 	// No change: the same command on the same file, now in agreement with the session.
 	const unchanged = wire();
 	unchanged.phase.setRole("strong");
-	await run(unchanged.pi, "save", { model: FAKE_MODEL });
-	const second = await run(unchanged.pi, "save", { model: FAKE_MODEL });
+	await run(unchanged.pi, "save", { model: AUTO });
+	const second = await run(unchanged.pi, "save", { model: AUTO });
 	// The second save still asks the file — that is where a change is detected — and asks it once.
 	expect(unchanged.saves()).toBe(2);
 	expect(second.notices.at(-1)).toContain("nothing to save");
@@ -666,7 +694,7 @@ test("save distinguishes a write, no change and failure", async () => {
 		},
 	});
 	phase.setRole("strong");
-	const failed = await run(pi, "save", { model: FAKE_MODEL });
+	const failed = await run(pi, "save", { model: AUTO });
 	expect(failed.notices.at(-1)).toContain("read-only");
 	// Nothing applied, so the refusal is the whole sentence: a save that wrote no key must not read as a
 	// change that only the file lost.
@@ -789,7 +817,9 @@ test("save keeps the current lock and step", async () => {
 	expect(phase.lock()).toBe("strong");
 	expect(phase.step()?.name).toBe("opsx-apply");
 
-	const context = fakeCommandContext({ available: CATALOG, model: FAKE_MODEL });
+	// The routing model is selected, because a physical one declines the write entirely (spec
+	// `managed-commands` / 物理モデルを選択中は `save` が global 設定を見送る).
+	const context = fakeCommandContext({ available: CATALOG, model: AUTO });
 	await pi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("save", context.ctx);
 
 	// The lock and the step are this session's; the file holds what the next one starts from.
@@ -799,8 +829,8 @@ test("save keeps the current lock and step", async () => {
 	expect(context.reloads()).toBe(0);
 });
 
-// The same scenario for a step that never resolved: a reload would restore it as a step whose run was
-// real, which is exactly the lifetime a save must not give it.
+// The same scenario for a step that never resolved: a save must make a real settings change without a
+// reload, so the next idle input still ends the step that never started running.
 test("save does not change an unresolved step's lifetime", async () => {
 	const runCase = async (save: boolean) => {
 		const pi = new FakePi();
@@ -821,15 +851,18 @@ test("save does not change an unresolved step's lifetime", async () => {
 		phase.handleInput("/skill:openspec-apply-change x");
 		expect(phase.step()?.name).toBe("opsx-apply");
 		if (save) {
-			const context = fakeCommandContext({ available: CATALOG, model: FAKE_MODEL });
+			const context = fakeCommandContext({ available: CATALOG, model: AUTO });
 			await pi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("save", context.ctx);
+			expect(context.notices[0]).toContain("saved");
+			expect((disk.models as Record<string, unknown>).role).toBe("strong");
+			expect(context.reloads()).toBe(0);
 		}
 		// The next idle input is what ends a step whose run never started.
 		phase.handleInput("continue");
 		return phase.step()?.name;
 	};
 
-	// With and without a save, the same rule ends it.
+	// With and without a save, the same rule ends it; the save case above verifies the save actually landed.
 	expect(await runCase(true)).toBeUndefined();
 	expect(await runCase(false)).toBeUndefined();
 });
@@ -854,15 +887,12 @@ test("save takes no item or value", async () => {
 	}
 });
 
-// spec scenario "RPC と print で保存する" and scenario "物理モデルの選択をコマンドで保存する": the write is the
+// spec scenario "RPC と print で保存する": the write is the
 // same in every mode, and what differs is only whether anyone is told.
 /**
- * The save reaches the file the same way in every mode, and it speaks only through `ctx.ui.notify`.
- *
- * print is the mode the host binds no UI to, so `notify` there is the runner's no-op and the save's result
- * is readable only in the global file. The extension's own half of that rule is the one this test can
- * check: it must not open a second output path. `process.stdout.write` is watched here for exactly that,
- * and the pinned-host run repeats the whole comparison from the outside.
+ * The save reaches the file the same way in every mode. TUI and RPC report through `ctx.ui.notify`; print
+ * suppresses that notification and has no stdout path, so its result is readable only in the global file.
+ * `process.stdout.write` is watched here for exactly that, and the pinned-host run repeats the comparison.
  */
 test("saving in rpc and print uses the same settings but different notifications", async () => {
 	const written: string[] = [];
@@ -877,7 +907,7 @@ test("saving in rpc and print uses the same settings but different notifications
 			const { pi, phase, disk } = wire([], { models: { role: "normal", normal: "compat-fake/fake-model" } });
 			phase.setRole("strong");
 			const context = await run(pi, "save", { model: AUTO, mode, authedProviders: ["compat-fake"] });
-			results.push({ mode, disk: disk(), notices: context.notices, reloads: context.reloads() });
+			results.push({ mode, disk: disk(), notices: context.notices, notifications: context.notifications, reloads: context.reloads() });
 		}
 	} finally {
 		process.stdout.write = stdout;
@@ -893,8 +923,14 @@ test("saving in rpc and print uses the same settings but different notifications
 			defaultModel: "auto",
 		});
 		expect(result.reloads).toBe(0);
+		if (result.mode === "print") {
+			expect(result.notices).toEqual([]);
+			expect(result.notifications).toEqual([]);
+			continue;
+		}
 		expect(result.notices).toHaveLength(1);
 		expect(result.notices[0]).toContain("saved");
+		expect(result.notifications[0]?.type).toBe("info");
 		// Nothing was held back on this GIVEN, so the notice says only what landed.
 		expect(result.notices[0]).not.toContain("left alone");
 	}
@@ -903,17 +939,37 @@ test("saving in rpc and print uses the same settings but different notifications
 });
 
 // spec "managed-commands / save はディスク上の結果と実効状態を区別する": the notice's kind follows the
-// outcome, so a file that already agreed is information rather than an error.
+// outcome, so a file that already agreed is information rather than an error — in every mode that reports,
+// which is why the three are read apart rather than inferred from the write case.
 test("a save that changed nothing is reported as information", async () => {
 	const { pi, phase } = wire([], { models: { role: "strong" }, defaultProvider: "compat-fake", defaultModel: "fake-model" });
 	phase.setRole("strong");
 
-	const first = await run(pi, "save", { model: FAKE_MODEL });
+	const first = await run(pi, "save", { model: AUTO });
 	expect(first.notifications[0]?.type).toBe("info");
 
-	const second = await run(pi, "save", { model: FAKE_MODEL });
+	const second = await run(pi, "save", { model: AUTO });
 	expect(second.notices.at(-1)).toContain("nothing to save");
 	expect(second.notifications.at(-1)?.type).toBe("info");
+
+	// The same no-op in the other two modes: the RPC session is told it as information, and print stays
+	// silent because its stdout is the model's answer.
+	for (const mode of ["rpc", "print"] as const) {
+		const noDiff = wire([], { models: { role: "strong" }, defaultProvider: "compat-fake", defaultModel: "fake-model" });
+		noDiff.phase.setRole("strong");
+		const context = await run(noDiff.pi, "save", { model: AUTO, mode });
+		// The file is still asked — that is where "nothing to write" is decided — and it is not rewritten.
+		expect(noDiff.saves()).toBe(1);
+		expect(noDiff.disk()).toEqual({ models: { role: "strong" }, defaultProvider: "compat-fake", defaultModel: "fake-model" });
+		if (mode === "print") {
+			expect(context.notices).toEqual([]);
+			expect(context.notifications).toEqual([]);
+		} else {
+			expect(context.notices[0]).toContain("nothing to save");
+			expect(context.notifications[0]?.type).toBe("info");
+		}
+		expect(context.reloads()).toBe(0);
+	}
 
 	// A refusal is the one outcome that is an error.
 	const refused = new FakePi();
@@ -927,7 +983,7 @@ test("a save that changed nothing is reported as information", async () => {
 		},
 	});
 	refusedPhase.setRole("strong");
-	const failed = await run(refused, "save", { model: FAKE_MODEL });
+	const failed = await run(refused, "save", { model: AUTO });
 	expect(failed.notifications.at(-1)?.type).toBe("error");
 });
 
@@ -935,16 +991,23 @@ test("a save that changed nothing is reported as information", async () => {
 // モデルの選択として扱わない. A session with no model selected is not told the routing is off, and a save
 // that writes a role does not warn about a physical selection it does not have.
 test("an unselected model is not a physical model", async () => {
-	const { pi, phase } = wire([], { models: { role: "normal" } });
+	const { pi, phase, disk, saves } = wire([], { models: { role: "normal" }, defaultProvider: "compat-fake", defaultModel: "fake-model" });
 	phase.setRole("strong");
 
-	const { notices } = await run(pi, "save", { model: undefined });
+	const { notices, notifications, reloads } = await run(pi, "save", { model: undefined });
 
-	expect(notices[0]).toContain("saved");
+	// spec scenario "モデル未選択では見送らない": the lock is still a default the session can state, and the
+	// two model keys stay out because there is no selection to write. The reason travels with the write.
+	expect(disk()).toEqual({ models: { role: "strong" }, defaultProvider: "compat-fake", defaultModel: "fake-model" });
+	expect(saves()).toBe(1);
+	expect(notices[0]).toContain("saved role strong");
+	expect(notices[0]).toContain("no model is selected");
+	expect(notifications[0]?.type).toBe("info");
+	expect(reloads()).toBe(0);
 	expect(notices.join("\n")).not.toContain("routing is off");
 });
 
-// spec scenario "保存されたモデルが起動時のスコープに含まれない": save records defaults but neither
+// spec scenario "保存済みモデルが起動時のスコープに含まれない": save records defaults but neither
 // consults the active session scope nor puts Pi's scope key into the conditional patch.
 test("save ignores the session scope and never patches enabledModels", async () => {
 	const { pi, phase } = wire([], { models: { role: "normal", normal: "compat-fake/fake-model" } });
@@ -979,27 +1042,224 @@ test("save ignores the session scope and never patches enabledModels", async () 
 	expect(patchKeys).not.toContain("enabledModels");
 });
 
-// spec "managed-commands / 物理モデル選択中の設定変更は振り分けが働いていないことを伝える": a save that landed
-// is a setting change like any other, and a session sitting on a physical model is told so.
-test("a save that wrote a physical default says the routing is off", async () => {
-	const { pi } = wire();
+// spec scenario "物理モデルを選択して save を実行する": the physical selection is not a
+// default worth writing, so no key of the global file moves and the session is left where it stood.
+test("a save on a physical or other virtual model declines without requesting a write", async () => {
+	const sameNamePhysical = fakeModel("spirits", "auto", { api: "openai" });
+	const otherVirtual = fakeModel("other", "router", { api: PI_VIRTUAL_MODEL_API });
+	const initial = { models: { role: "normal" }, defaultProvider: "compat-fake", defaultModel: "fake-model" };
+
+	// The reason states the selection the reader can check: a physical model, including one that claims the
+	// routing model's name, says a physical model is selected, and another extension's virtual model says it
+	// is not the routing one instead (spec `managed-commands` / 他拡張の仮想モデルも振り分け用ではない).
+	const cases = [
+		{ model: FAKE_MODEL, reason: "a physical model is selected", not: "" },
+		{ model: sameNamePhysical, reason: "a physical model is selected", not: "" },
+		{
+			model: otherVirtual,
+			reason: "other/router is a virtual model, but not the one spirits routes",
+			not: "a physical model is selected",
+		},
+	];
+	for (const { model, reason, not } of cases) {
+		const { pi, disk, saves, flat, paths } = wire([], initial);
+		const { notices, reloads } = await run(pi, "save", { model });
+
+		expect(notices).toHaveLength(1);
+		expect(notices[0]).toContain("save declined");
+		expect(notices[0]).toContain(reason);
+		if (not !== "") expect(notices[0]).not.toContain(not);
+		// The conditional write was never asked, and neither of the ordinary writers moved.
+		expect(saves()).toBe(0);
+		expect(flat).toEqual([]);
+		expect(paths).toEqual([]);
+		expect(disk()).toEqual(initial);
+		expect(reloads()).toBe(0);
+	}
+});
+
+// spec "managed-commands / `save` の見送りは一覧の行と通知に出す": a decline is its own outcome. The error kind
+// belongs to a file that refused, and the information kind to a write and a no-op.
+test("a declined save is reported as a warning not an error", async () => {
+	const declined = await run(wire().pi, "save", { model: FAKE_MODEL });
+	expect(declined.notifications[0]?.type).toBe("warning");
+
+	// RPC carries the same outcome kind but, unlike the terminal, does not name a procedure.
+	const rpc = await run(wire().pi, "save", { model: FAKE_MODEL, mode: "rpc" });
+	expect(rpc.notifications[0]?.type).toBe("warning");
+	expect(rpc.notices[0]).not.toContain("/model");
+
+	// The refusal of a file that will not write keeps the error kind, so the two outcomes stay apart.
+	const refused = new FakePi();
+	registerManagedCommands(asExtensionApi(refused), {
+		phase: createRoutingPhase(),
+		patchSettings: () => {},
+		patchSettingsPath: () => {},
+		saveSettings: () => {
+			throw new Error("EACCES: read-only");
+		},
+	});
+	const refusedRun = await run(refused, "save", { model: AUTO });
+	expect(refusedRun.notifications.at(-1)?.type).toBe("error");
+});
+
+// A decline leaves a real global file alone whether all three save keys differ or already match. Content
+// and mtime prove that no conditional write was attempted; the warning distinguishes both cases from a no-op.
+test("a declined save leaves real settings unchanged in TUI and RPC", async () => {
+	const cases = [
+		{ models: { role: "strong" }, defaultProvider: "other", defaultModel: "other" },
+		{ models: { role: "normal" }, defaultProvider: "compat-fake", defaultModel: "fake-model" },
+	];
+	for (const initial of cases) {
+		for (const mode of ["tui", "rpc"] as const) {
+			const dir = mkdtempSync(join(tmpdir(), "spirits-save-decline-file-"));
+			const path = join(dir, "settings.json");
+			const contents = `${JSON.stringify(initial, null, 2)}\n`;
+			writeFileSync(path, contents, "utf-8");
+			const beforeMtime = statSync(path).mtimeMs;
+			const pi = new FakePi();
+			let saveCalls = 0;
+			registerManagedCommands(asExtensionApi(pi), {
+				phase: createRoutingPhase(),
+				patchSettings: () => {},
+				patchSettingsPath: () => {},
+				readGlobalSettings: () => readSettingsFile(path),
+				saveSettings: (decide) => {
+					saveCalls++;
+					return patchSettingsFileIfChanged({ settingsPath: path, decide });
+				},
+			});
+			const context = await run(pi, "save", { model: FAKE_MODEL, mode });
+
+			expect(context.notifications).toHaveLength(1);
+			expect(context.notifications[0]?.type).toBe("warning");
+			expect(context.notices[0]).toContain("save declined");
+			expect(context.notices[0]).not.toContain("nothing to save");
+			expect(saveCalls).toBe(0);
+			expect(readFileSync(path, "utf-8")).toBe(contents);
+			expect(statSync(path).mtimeMs).toBe(beforeMtime);
+			expect(context.reloads()).toBe(0);
+			rmSync(dir, { recursive: true, force: true });
+		}
+	}
+});
+
+test("a declined save does not create a missing global file", async () => {
+	const dir = mkdtempSync(join(tmpdir(), "spirits-save-decline-"));
+	const path = join(dir, "settings.json");
+	const pi = new FakePi();
+	registerManagedCommands(asExtensionApi(pi), {
+		phase: createRoutingPhase(),
+		patchSettings: () => {},
+		patchSettingsPath: () => {},
+		readGlobalSettings: () => readSettingsFile(path),
+		saveSettings: (decide) => patchSettingsFileIfChanged({ settingsPath: path, decide }),
+	});
 
 	const { notices } = await run(pi, "save", { model: FAKE_MODEL });
 
-	expect(notices[0]).toContain("saved");
-	expect(notices.at(-1)).toContain("routing is off");
-	expect(notices.at(-1)).toContain("spirits/auto");
+	expect(notices[0]).toContain("save declined");
+	expect(existsSync(path)).toBe(false);
+	rmSync(dir, { recursive: true, force: true });
 });
 
-// A save that wrote nothing has no change to comment on: the routing-off notice belongs to a change, and
-// repeating it after a no-op would teach the user something they already knew.
-test("a save that wrote nothing sends no routing warning", async () => {
-	const { pi } = wire();
-	await run(pi, "save", { model: FAKE_MODEL });
+// spec scenario "対話端末では selector の操作を名指す": on a terminal the decline is told with the operation that
+// reaches the routing model, named in the host's own words and not as a keystroke.
+test("a declined save names the selector procedure in a terminal", async () => {
+	const { notices } = await run(wire().pi, "save", { model: FAKE_MODEL });
 
-	const second = await run(pi, "save", { model: FAKE_MODEL });
-	expect(second.notices).toHaveLength(1);
-	expect(second.notices[0]).toContain("nothing to save");
+	expect(notices[0]).toContain("select spirits/auto with /model");
+	expect(notices[0]).not.toContain("Tab");
+	expect(notices[0]).not.toContain("press");
+	expect(notices[0]).not.toContain("settings file");
+});
+
+// spec scenario "スコープ外の手順を名指す": a scope that excludes the routing model has two ways round, and both
+// are named because either one reaches the model.
+test("a declined save names the scope's procedure in a terminal", async () => {
+	const { notices } = await run(wire().pi, "save", { model: FAKE_MODEL, scopedModels: [{ model: FAKE_MODEL }] });
+
+	expect(notices[0]).toContain("spirits/auto is not in this session's model scope");
+	expect(notices[0]).toContain("switch /model's scope to all models");
+	expect(notices[0]).toContain("/scoped-models");
+});
+
+// spec scenario "対話端末でないセッションでは操作を名指さない": a session nobody is driving is told the decline and
+// its reason, and nothing about a selector, a key, a slash command, or a file to edit.
+test("a declined save names no procedure in rpc", async () => {
+	for (const scoped of [undefined, [{ model: FAKE_MODEL }]]) {
+		const { notices, notifications } = await run(wire().pi, "save", {
+			model: FAKE_MODEL,
+			mode: "rpc",
+			...(scoped ? { scopedModels: scoped } : {}),
+		});
+		expect(notices[0]).toContain("save declined");
+		expect(notices[0]).toContain("a physical model is selected");
+		expect(notices[0]).not.toContain("/model");
+		expect(notices[0]).not.toContain("/scoped-models");
+		expect(notices[0]).not.toContain("Tab");
+		expect(notices[0]).not.toContain("press");
+		expect(notices[0]).not.toContain("settings file");
+		expect(notifications[0]?.type).toBe("warning");
+	}
+});
+
+test("a declined print save emits no notification", async () => {
+	const { notices, notifications } = await run(wire().pi, "save", { model: FAKE_MODEL, mode: "print" });
+	expect(notices).toEqual([]);
+	expect(notifications).toEqual([]);
+});
+
+// spec scenario "振り分け用モデルが未登録なら手順を名指さない": the routing model is a virtual model this extension
+// registers, so a session whose catalog does not hold it has nothing for a selector to select. The decline
+// still travels, with the reason for its silence.
+test("a declined save names no procedure when the routing model is not available", async () => {
+	const { pi, saves } = wire();
+
+	const { notices } = await run(pi, "save", {
+		model: FAKE_MODEL,
+		available: CATALOG,
+		registered: CATALOG,
+		scopedModels: [{ model: FAKE_MODEL }],
+	});
+
+	expect(notices[0]).toContain("save declined");
+	expect(notices[0]).toContain("spirits/auto is not in this session's model catalog");
+	expect(notices[0]).not.toContain("/model");
+	expect(notices[0]).not.toContain("/scoped-models");
+	expect(saves()).toBe(0);
+});
+
+// spec scenario "物理モデルで global と差分が無い場合も見送る": the file already agreeing is not what a physical
+// selection is told. The decline is decided before the comparison, so the notice is the decline's own and
+// never the "nothing to save" of a session whose write would have been a no-op.
+test("a declined save with no disk difference is still a decline", async () => {
+	const { pi, saves } = wire([], { models: { role: "normal" } });
+
+	const { notices } = await run(pi, "save", { model: FAKE_MODEL });
+
+	expect(notices[0]).toContain("save declined");
+	expect(notices[0]).not.toContain("nothing to save");
+	expect(saves()).toBe(0);
+});
+
+// spec scenario "物理モデル選択中の save はこの警告ではない": a save is not one of the changes the routing-off
+// warning speaks of, whether it landed, found nothing, or was refused.
+test("a save sends no routing-off warning of its own", async () => {
+	const { pi, phase } = wire([], { models: { role: "normal" } });
+	phase.setRole("strong");
+
+	const landed = await run(pi, "save", { model: AUTO });
+	expect(landed.notices).toHaveLength(1);
+	expect(landed.notices[0]).toContain("saved");
+
+	const unchanged = await run(pi, "save", { model: AUTO });
+	expect(unchanged.notices).toHaveLength(1);
+	expect(unchanged.notices[0]).toContain("nothing to save");
+
+	for (const notice of [...landed.notices, ...unchanged.notices]) {
+		expect(notice).not.toContain("routing is off");
+	}
 });
 
 // --------------------------------------------------------------- step restoration on reload

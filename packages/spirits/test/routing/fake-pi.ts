@@ -254,6 +254,11 @@ export function makeStateChangeEntry(type: "model_change" | "thinking_level_chan
 export interface FakeCustomUi {
 	/** The components the factories returned, in call order. */
 	readonly components: unknown[];
+	/**
+	 * Each close a component asked for, with the value it closed with, in call order. A screen the action
+	 * left open — a save the session declined, a write the file refused — adds nothing here.
+	 */
+	readonly closes: unknown[];
 }
 
 /**
@@ -339,6 +344,12 @@ export function fakeCatalog(options: {
 	/** Thinking level the session selected, which is what a role or step level overrides. */
 	thinkingLevel?: ThinkingLevel;
 	/**
+	 * Everything the registry holds, as `getAll()` reports it, for a session whose scope is narrower than its
+	 * catalog — a virtual model a scope leaves out is still registered, and an extension deciding whether
+	 * anything registered a model at all reads this list rather than the scoped one.
+	 */
+	registered?: readonly PiModel[];
+	/**
 	 * The session's model scope, as pi resolves it from `--models` / `enabledModels`. Empty means every
 	 * available model is usable, which is what pi's own reader reports for an unscoped session.
 	 */
@@ -374,7 +385,8 @@ export function fakeCatalog(options: {
 	const notifications: Array<{ message: string; type: "info" | "warning" | "error" | undefined }> = [];
 	const statuses = new Map<string, string | undefined>();
 	const components: unknown[] = [];
-	const custom: FakeCustomUi = { components };
+	const closes: unknown[] = [];
+	const custom: FakeCustomUi = { components, closes };
 	const selector = options.select === undefined ? undefined : fakeSelect(options.select);
 	return {
 		notices,
@@ -395,7 +407,7 @@ export function fakeCatalog(options: {
 				// pi's `custom()` builds the component through the factory and resolves with what `done()`
 				// carries. The fake runs the factory with a `done` that closes at once, so a test sees the
 				// component the screen built without a terminal in front of it.
-				custom: fakeCustomScreen({ components, onCustom: options.onCustom, customResult: options.customResult }),
+				custom: fakeCustomScreen({ components, closes, onCustom: options.onCustom, customResult: options.customResult }),
 			}),
 			mode: options.mode ?? "tui",
 			thinkingLevel: options.thinkingLevel,
@@ -415,6 +427,11 @@ export function fakeCatalog(options: {
 			}),
 			modelRegistry: fakeModelRegistry({
 				getAvailable: () => [...(options.available ?? [])],
+				/**
+				 * The registry's whole list, which is every model any extension registered, whatever the session's
+				 * scope. Defaults to the available list, because a test that says nothing about scope has one catalog.
+				 */
+				getAll: () => [...(options.registered ?? options.available ?? [])],
 				find: (provider: string, modelId: string) =>
 					(options.available ?? []).find((model) => model.provider === provider && model.id === modelId),
 				hasConfiguredAuth: (model: PiModel) => authed.has(model.provider),

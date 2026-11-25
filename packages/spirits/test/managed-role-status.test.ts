@@ -9,18 +9,19 @@
  */
 
 import { expect, test } from "bun:test";
+import { ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { asExtensionApi, fakeModel, slashCommandInfo } from "./host/fake-pi.ts";
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { PiModel } from "../src/types/host.ts";
-import { COMMAND_SPIRITS_ROLE, MODEL_ROLE_NORMAL, ROLE_ENTRY_TYPE, STEP_ENTRY_TYPE } from "../src/constants.ts";
+import { COMMAND_SPIRITS_ROLE, MODEL_ROLE_NORMAL, PI_VIRTUAL_MODEL_API, ROLE_ENTRY_TYPE, STEP_ENTRY_TYPE } from "../src/constants.ts";
 import { readRoutingSettings } from "../src/config.ts";
 import { patchSettingsFileIfChanged, readSettingsFile } from "../src/commands/settings-store.ts";
 import type { SettingsPatchDecider } from "../src/commands/settings-store.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
-import { formatRoleStatus } from "../src/commands/role.ts";
+import { formatRoleStatus, routingModelAvailable } from "../src/commands/role.ts";
 import type { RoleStatusReport } from "../src/commands/role.ts";
 import { createRoutingPhase } from "../src/routing/phase.ts";
 import { fakeCommandContext, FakePi, makeCustomEntry } from "./routing/fake-pi.ts";
@@ -72,7 +73,9 @@ function wire(settings: Record<string, unknown>, options: { lastRequest?: boolea
 }
 
 async function status(pi: FakePi, options: Parameters<typeof fakeCommandContext>[0] = {}) {
-	const context = fakeCommandContext({ available: CATALOG, model: AUTO, ...options });
+	// The registry holds the routing model unless a case says otherwise: our own extension registers it, so a
+	// session with the commands available has it in its catalog, and the scope is the narrower list.
+	const context = fakeCommandContext({ available: CATALOG, registered: [AUTO, ...CATALOG], model: AUTO, ...options });
 	await pi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("status", context.ctx);
 	return context.notices.join("\n");
 }
@@ -129,11 +132,20 @@ test("reports routing disabled on a physical model", async () => {
 	expect(report).toContain("normal: compat-fake/fake-model (pi's default model)");
 });
 
-// spec scenarios "振り分け用モデルがスコープ外だと分かる" and "対話端末でなければスコープ外の事実だけを出す",
-// with the states where nothing is wrong with the scope: the report names an operation only where there is a
-// terminal to run it in, and names a scope only where one excludes the routing model. The scope varies three
-// ways — excluded, included, none — against both run modes, because the two halves of the answer are
-// independent facts.
+test("reports routing off and no selected model when the host has none", async () => {
+	const { pi } = wire({ defaultProvider: "compat-fake", defaultModel: "fake-model" });
+
+	const report = await status(pi, { model: undefined });
+
+	expect(report).toContain("routing: off (no model is selected)");
+	expect(report).toContain("to enable: select spirits/auto with /model to put this to work");
+});
+
+// spec scenarios "振り分け用モデルがスコープ外だと分かる", "スコープが設定されていなくても手順が出る",
+// "振り分け用モデルが範囲内でも手順が出る", and "対話端末でないセッションでは操作を名指さない": every off session
+// is told how to get out of the state, and the scope only chooses which procedure. The mode decides whether
+// an operation is named at all. The scope varies three ways — excluded, included, none — against both run
+// modes, because the two halves of the answer are independent facts.
 test("reports the way back to the routing model in every scope and mode", async () => {
 	const settings = { defaultProvider: "compat-fake", defaultModel: "fake-model" };
 	const outsideScope = [{ model: FAKE_MODEL }];
@@ -157,27 +169,173 @@ test("reports the way back to the routing model in every scope and mode", async 
 	// session rather than about the terminal.
 	expect(rows[0]).toContain("spirits/auto is not in this session's model scope");
 	expect(rows[1]).toContain("spirits/auto is not in this session's model scope");
-	// Only the terminal is told how to work around it, and it is told both ways round: the selector's scope
-	// toggle and the command that writes the scope.
-	expect(rows[0]).toContain("Tab");
-	expect(rows[0]).toContain("/model");
+	// Only the terminal is told how to work around it, and it is told both ways round: moving the selector's
+	// scope, and the command that writes it. The switch is named as the operation rather than as the key bound
+	// to it today, which is the host's to draw in its own hint.
+	expect(rows[0]).toContain("switch /model's scope to all models");
 	expect(rows[0]).toContain("/scoped-models");
 	// A session nobody is looking at names no operation at all — and no settings file to edit, either: the
 	// scope is a fact a headless session is told about, not a task it is given.
-	for (const report of rows.slice(1)) {
+	for (const report of [rows[1], rows[3], rows[5]]) {
 		expect(report).not.toContain("Tab");
+		expect(report).not.toContain("press");
 		expect(report).not.toContain("/model");
 		expect(report).not.toContain("/scoped-models");
 		expect(report).not.toContain("enabledModels");
 		expect(report).not.toContain("settings file");
 	}
-	// Nothing is excluded, so there is nothing to explain: the report says no more about the scope than the
-	// model line does.
-	for (const report of [rows[2], rows[3], rows[4], rows[5]]) {
+	// Nothing is excluded, so the shorter procedure applies — but the procedure is still there: a session with
+	// nothing wrong with its scope is still off, and the report is the one place its way out is written down.
+	for (const report of [rows[2], rows[4]]) {
+		expect(report).toContain("routing: off (compat-fake/fake-model is selected)");
+		expect(report).not.toContain("model scope");
+		expect(report).toContain("to enable: select spirits/auto with /model to put this to work");
+	}
+	// The same two states read as an RPC session: the verdict and the readable settings stay, no scope is
+	// diagnosed where none excludes the routing model, and the procedure the terminal is given is not handed
+	// to a session nobody is operating. Adding the procedure to every off session did not move these.
+	for (const report of [rows[3], rows[5]]) {
 		expect(report).toContain("routing: off (compat-fake/fake-model is selected)");
 		expect(report).not.toContain("model scope");
 		expect(report).not.toContain("to enable:");
 	}
+});
+
+// spec scenario "スコープが設定されていなくても手順が出る": an absent scope is not an absent problem. The
+// session is off, and the report is the surface long enough to say how to get out of it.
+test("status names the procedure when the scope is unset", async () => {
+	const { pi } = wire({ defaultProvider: "compat-fake", defaultModel: "fake-model" });
+
+	const report = await status(pi, { model: FAKE_MODEL });
+
+	expect(report).toContain("routing: off (compat-fake/fake-model is selected)");
+	expect(report).toContain("to enable: select spirits/auto with /model to put this to work");
+	expect(report).not.toContain("model scope");
+});
+
+// spec scenario "振り分け用モデルが範囲内でも手順が出る": a scope that already holds the routing model answers
+// the same question the unset scope answers, so the shorter procedure applies — but it applies.
+test("status names the procedure when the routing model is in scope", async () => {
+	const { pi } = wire({ defaultProvider: "compat-fake", defaultModel: "fake-model" });
+
+	const report = await status(pi, { model: FAKE_MODEL, scopedModels: [{ model: AUTO }, { model: FAKE_MODEL }] });
+
+	expect(report).toContain("to enable: select spirits/auto with /model to put this to work");
+	expect(report).not.toContain("model scope");
+});
+
+// spec scenario "振り分け用モデルが未登録なら手順を名指さない": the routing registers as a virtual model, so an
+// extension that failed to register leaves a catalog with nothing for a selector to select. The report says
+// that, still says the routing is off, and names no operation.
+test("status gives no procedure when the routing model is not available", async () => {
+	const settings = { defaultProvider: "compat-fake", defaultModel: "fake-model" };
+
+	const rows = await Promise.all(
+		[
+			{ scoped: [{ model: FAKE_MODEL }], mode: "tui" as const },
+			{ scoped: [], mode: "tui" as const },
+			{ scoped: [], mode: "rpc" as const },
+			{ scoped: [{ model: FAKE_MODEL }], mode: "rpc" as const },
+		].map(async (option) => {
+			const { pi } = wire(settings);
+			// The catalog `status` reads, with the routing model missing from it.
+			return status(pi, {
+				model: FAKE_MODEL,
+				available: [FAKE_MODEL, FAKE_STRONG],
+				registered: [FAKE_MODEL, FAKE_STRONG],
+				scopedModels: option.scoped,
+				mode: option.mode,
+			});
+		}),
+	);
+
+	for (const report of rows) {
+		expect(report).toContain("routing: off (compat-fake/fake-model is selected)");
+		expect(report).toContain("spirits/auto is not in this session's model catalog");
+		expect(report).not.toContain("to enable:");
+		expect(report).not.toContain("switch /model");
+		expect(report).not.toContain("/scoped-models");
+	}
+	for (const report of [rows[0], rows[3]]) {
+		expect(report).toContain("spirits/auto is not in this session's model scope");
+	}
+});
+
+// The pinned Pi keeps a physical model with a provider/id collision and refuses the virtual registration.
+// Feed that actual catalog into all three user-facing decisions so each surface follows the host's api fact.
+test("a pinned physical spirits/auto collision is unavailable across status and notices", async () => {
+	const runtime = await ModelRuntime.create({
+		credentials: { read: async () => undefined, list: async () => [], modify: async () => undefined, delete: async () => {} },
+		modelsStore: { read: async () => undefined, write: async () => {}, delete: async () => {} },
+		modelsPath: null,
+		allowModelNetwork: false,
+	});
+	runtime.registerProvider("spirits", {
+		apiKey: "pin-key",
+		baseUrl: "http://127.0.0.1:9/pin",
+		models: [
+			{
+				id: "auto",
+				name: "Physical Auto",
+				api: "openai-completions",
+				reasoning: true,
+				input: ["text"],
+				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+				contextWindow: 1000,
+				maxTokens: 100,
+			},
+		],
+	});
+	await runtime.refresh({ allowNetwork: false });
+	try {
+		runtime.registerVirtualModel({ provider: "spirits", id: "auto", name: "Auto", route: () => { throw new Error("not routed"); } });
+	} catch {
+		// Pinned Pi may reject the duplicate at registration time; either way the physical catalog entry wins.
+	}
+	const models = await runtime.getAvailable();
+	const collision = models.find((model) => model.provider === "spirits" && model.id === "auto");
+	expect(collision).toBeDefined();
+	expect(collision?.api).not.toBe(PI_VIRTUAL_MODEL_API);
+	expect(routingModelAvailable(models)).toBe(false);
+	if (!collision) throw new Error("the pinned physical collision was not available");
+
+	const catalog = [...CATALOG, collision];
+	const { pi } = wire({ defaultProvider: "compat-fake", defaultModel: "fake-model" });
+	const report = await status(pi, {
+		available: catalog,
+		registered: catalog,
+		model: collision,
+		scopedModels: [{ model: collision }],
+	});
+	expect(report).toContain("routing: off (spirits/auto is selected)");
+	expect(report).toContain("spirits/auto is not in this session's model scope");
+	expect(report).toContain("spirits/auto is not in this session's model catalog");
+	expect(report).not.toContain("to enable:");
+	expect(report).not.toContain("/model");
+
+	const savePi = new FakePi();
+	let saveCalls = 0;
+	let settingWrites = 0;
+	registerManagedCommands(asExtensionApi(savePi), {
+		phase: createRoutingPhase(),
+		patchSettings: () => {},
+		patchSettingsPath: () => { settingWrites++; },
+		saveSettings: () => { saveCalls++; return undefined; },
+	});
+	const saveContext = fakeCommandContext({ available: catalog, registered: models, model: collision, scopedModels: [{ model: collision }] });
+	await savePi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("save", saveContext.ctx);
+	expect(saveContext.notifications[0]?.type).toBe("warning");
+	expect(saveContext.notices[0]).toContain("spirits/auto is not in this session's model catalog");
+	expect(saveContext.notices[0]).not.toContain("/model");
+	expect(saveCalls).toBe(0);
+	expect(saveContext.reloads()).toBe(0);
+
+	const settingContext = fakeCommandContext({ available: catalog, registered: models, model: collision, scopedModels: [{ model: collision }] });
+	await savePi.commands.get(COMMAND_SPIRITS_ROLE)!.handler("normal thinking high", settingContext.ctx);
+	expect(settingWrites).toBe(1);
+	expect(settingContext.notifications.at(-1)?.type).toBe("warning");
+	expect(settingContext.notices.at(-1)).toContain("spirits/auto is not in this session's model catalog");
+	expect(settingContext.notices.at(-1)).not.toContain("/model");
 });
 
 // spec `managed-commands` / badge は状態の射影を決められた時点で描き直す: the report and the badge are two
@@ -410,6 +568,7 @@ test("renders the report in one message", () => {
 		routingEnabled: true,
 		sessionModel: "spirits/auto",
 		routingModelInScope: true,
+		routingModelAvailable: true,
 		interactive: true,
 		lock: "normal",
 		last: { role: "normal", model: "compat-fake/fake-model" },

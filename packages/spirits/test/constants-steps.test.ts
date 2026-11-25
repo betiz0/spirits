@@ -4,6 +4,7 @@ import { expect, test } from "bun:test";
 import {
 	MODEL_ROLE_STRONG,
 	MODEL_ROLES,
+	PI_VIRTUAL_MODEL_API,
 	ROLE_BADGE_NONE,
 	ROLE_BADGE_OFF,
 	ROLE_MODEL_DISPLAY_MAX_LENGTH,
@@ -61,7 +62,7 @@ test("shares no name with the role vocabulary", () => {
 	}
 });
 
-// spec "managed-commands / `/spirits-role save` はセッションの選択状況を設定に保存する": `save` is a word of
+// spec "managed-commands / `save` は振り分け用のモデルを選択しているセッションの選択状況を global 既定に保存する": `save` is a word of
 // the command's first position, the same position the role lock words and the step names occupy. A
 // collision would make `/spirits-role save` mean something else depending on which table the command
 // consults first, so the three vocabularies have to stay disjoint.
@@ -129,9 +130,11 @@ test("keeps the display width and the confirmation wait at the stated values", (
 	expect(STEP_CONFIRM_TIMEOUT_SLACK_MS).toBeLessThan(STEP_CONFIRM_TIMEOUT_MS);
 });
 
-test("recognizes only the model spirits routes as routed", () => {
-	expect(isRoutingModel({ provider: ROUTING_PROVIDER_ID, id: ROUTING_MODEL_ID })).toBe(true);
-	expect(isRoutingModel({ provider: ROUTING_PROVIDER_ID, id: "manual" })).toBe(false);
-	expect(isRoutingModel({ provider: "other", id: ROUTING_MODEL_ID })).toBe(false);
+test("recognizes only the virtual model spirits routes as routed", () => {
+	expect(isRoutingModel({ provider: ROUTING_PROVIDER_ID, id: ROUTING_MODEL_ID, api: PI_VIRTUAL_MODEL_API })).toBe(true);
+	expect(isRoutingModel({ provider: ROUTING_PROVIDER_ID, id: ROUTING_MODEL_ID, api: "openai" })).toBe(false);
+	expect(isRoutingModel({ provider: ROUTING_PROVIDER_ID, id: ROUTING_MODEL_ID })).toBe(false);
+	expect(isRoutingModel({ provider: ROUTING_PROVIDER_ID, id: "manual", api: PI_VIRTUAL_MODEL_API })).toBe(false);
+	expect(isRoutingModel({ provider: "other", id: ROUTING_MODEL_ID, api: PI_VIRTUAL_MODEL_API })).toBe(false);
 	expect(isRoutingModel(undefined)).toBe(false);
 });

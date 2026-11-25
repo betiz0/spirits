@@ -30,7 +30,6 @@ import {
 	ROLE_SAVE_WORD,
 	EXTENSION_MODE_PRINT,
 	EXTENSION_MODE_TUI,
-	ROUTING_MODEL_REFERENCE,
 	INPUT_SOURCE_INTERACTIVE,
 	STEP_CONFIRM_CANCEL,
 	STEP_CONFIRM_CONTINUE,
@@ -51,6 +50,9 @@ import {
 	createRoleBadge,
 	formatModelKey,
 	formatRoleStatus,
+	type RoutingEnablementFacts,
+	routingEnablement,
+	routingModelAvailable,
 	routingModelGuide,
 	roleBadgeLines,
 	roleBadgeState,
@@ -189,11 +191,21 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 				// the step this session holds, and the host refuses one while a response is running, so the
 				// command reports and stops (spec `managed-commands` / save はディスク上の結果と実効状態を区別する).
 				const write = applyRoleSave(writes, selectionOf(ctx), ctx.modelRegistry);
+				// A decline is its own outcome: the file was never asked, so it is neither the error a refusal
+				// earns nor the information a write and a no-op carry. It is told with the way out, and with no
+				// reload (spec `managed-commands` / `save` の見送りは一覧の行と通知に出す).
+				if (write.declined !== undefined) {
+					// The reason is the write's own; the way out is the shared decision about what this session can
+					// run, so a terminal is told the operation and an RPC session is not.
+					if (ctx.mode !== EXTENSION_MODE_PRINT) ctx.ui.notify(`${write.declined}; ${enablementFor(ctx)}`, "warning");
+					return;
+				}
 				// The notice's kind follows the outcome: a write that landed and a file that already agreed are
-				// both information, and only a refusal is an error.
-				ctx.ui.notify(write.message, write.failure ? "error" : "info");
-				if (!write.saved) return;
-				warnAfterChange({ askingForStrong: false, wrote: write.wrote }, ctx);
+				// both information, and only a refusal is an error. print keeps the command's output silent.
+				if (ctx.mode !== EXTENSION_MODE_PRINT) ctx.ui.notify(write.message, write.failure ? "error" : "info");
+				// A save is not one of the changes the routing-off warning speaks of: while a physical model is
+				// selected it writes nothing at all, and a save that landed was made on the routing model, so the
+				// warning has nothing left to say (spec `managed-commands` / 物理モデル選択中の save はこの警告ではない).
 				return;
 			}
 			case "panel": {
@@ -281,7 +293,9 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 		const model = ctx.model;
 		return {
 			role: deps.phase.lock(),
-			...(model?.provider !== undefined && model.id !== undefined ? { model: { provider: model.provider, id: model.id } } : {}),
+			...(model?.provider !== undefined && model.id !== undefined
+				? { model: { provider: model.provider, id: model.id, ...(model.api !== undefined ? { api: model.api } : {}) } }
+				: {}),
 		};
 	}
 
@@ -302,6 +316,7 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 					)
 					: readSettings();
 		const physicalModelSelected = isPhysicalSelection(ctx);
+		const facts = routingFacts(ctx);
 		const warning = roleSettingWarning({
 			setStrong: change.askingForStrong,
 			strongUnresolved: change.askingForStrong && !strongIsUsable(settings, ctx.modelRegistry),
@@ -309,10 +324,32 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 			// Scope matters only for the instruction attached to a physical selection. A save on the routing
 			// model must leave the host's scope entirely outside the operation (spec `managed-commands` /
 			// save はモデルスコープを変更しない).
-			scoped: physicalModelSelected && routingModelOutOfScope(ctx),
-			interactive: ctx.mode === EXTENSION_MODE_TUI,
+			scoped: physicalModelSelected && facts.scoped,
+			interactive: facts.interactive,
+			routingModelAvailable: facts.available,
 		});
 		if (warning) ctx.ui.notify(warning, "warning");
+	}
+
+	/**
+	 * The way out of a `save` decline, read from this session's facts by the shared decision.
+	 *
+	 * Registration, scope, and mode are gathered here because they are host reads; how they turn into an
+	 * operation, or into the reason there is none, is {@link routingEnablement}'s single answer, so the
+	 * decline, the setting warning, and `status` cannot name different procedures for one session (spec
+	 * `managed-commands` / 振り分け用モデルが未登録なら手順を名指さない).
+	 */
+	function enablementFor(ctx: ExtensionCommandContext): string {
+		return routingEnablement(routingFacts(ctx));
+	}
+
+	/** The three facts every notice that offers a way out reads off the host. */
+	function routingFacts(ctx: ExtensionCommandContext): RoutingEnablementFacts {
+		return {
+			available: routingModelAvailable(ctx.modelRegistry.getAll()),
+			scoped: routingModelOutOfScope(ctx),
+			interactive: ctx.mode === EXTENSION_MODE_TUI,
+		};
 	}
 
 	/**
@@ -376,11 +413,11 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 		// The same targets the route would resolve, the last successful response included: a report that
 		// read the settings instead would call an unusable target the answer.
 		const targets = roleResolutionLines(settings, ctx.modelRegistry, { ...(previous ? { previous } : {}), ignored });
-		const physical = isPhysicalSelection(ctx);
 		return {
-			routingEnabled: !physical,
-			sessionModel: physical && ctx.model ? modelKey(ctx.model) : ROUTING_MODEL_REFERENCE,
+			routingEnabled: isRoutingModel(ctx.model),
+			sessionModel: ctx.model ? modelKey(ctx.model) : undefined,
 			routingModelInScope: !routingModelOutOfScope(ctx),
+			routingModelAvailable: routingModelAvailable(ctx.modelRegistry.getAll()),
 			interactive: ctx.mode === EXTENSION_MODE_TUI,
 			lock: deps.phase.lock(),
 			...(step
@@ -401,7 +438,7 @@ export function registerManagedCommands(pi: ExtensionAPI, deps: ManagedCommandsD
 	 * folded into the raw settings object with `writePathValue`, the same primitive the write itself uses,
 	 * because `pi.getSettings()` will not carry them until the reload that closes the screen — and a row
 	 * that kept describing the startup settings would describe a session the user has already left (spec
-	 * `managed-commands` / 書き込んだ直後の行の説明).
+	 * `managed-commands` / 一覧での編集はコマンドと同じ書き込みを行う).
 	 */
 	function panel(ctx: ExtensionCommandContext): RolePanel {
 		return new RolePanel(

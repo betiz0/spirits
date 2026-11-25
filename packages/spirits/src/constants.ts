@@ -334,13 +334,6 @@ export const ROUTING_MODEL_NAME = "Auto";
 export const ROUTING_MODEL_REFERENCE = `${ROUTING_PROVIDER_ID}${MODEL_SPEC_SEPARATOR}${ROUTING_MODEL_ID}`;
 
 /**
- * The host's own commands and keys, spelled the way the host's help spells them.
- *
- * Only the interactive terminal is told these, because they are operations on a screen that only exists
- * there, and each one was read out of the pinned host rather than guessed: `scoped-models` is in its
- * command table and the model selector's scope hint names its toggle key.
- */
-/**
  * The host mode with a terminal in front of a person.
  *
  * Named rather than spelled at each read because the operations spirits can name — a selector, a key, a
@@ -351,13 +344,19 @@ export const EXTENSION_MODE_TUI = "tui";
 /** The mode whose whole output contract is the model's answer on stdout, so the extension adds nothing. */
 export const EXTENSION_MODE_PRINT = "print";
 
+/**
+ * The host's own commands, spelled the way the host's help spells them.
+ *
+ * Only the interactive terminal is told these, because they are operations on a screen that only exists
+ * there, and each one was read out of the pinned host rather than guessed: both are in its command table.
+ * Keys are not carried here — the host draws its own key hints, so a key of ours would go stale the day a
+ * binding moves, and the operations below are named by what they do.
+ */
 export const HOST_COMMANDS = {
 	/** Opens the model selector. */
 	model: "/model",
 	/** Sets which models a session may select, saved into the settings file. */
 	scopedModels: "/scoped-models",
-	/** Key the model selector reads to switch between all models and the session's scope. */
-	scopeToggle: "Tab",
 } as const;
 
 /**
@@ -366,14 +365,12 @@ export const HOST_COMMANDS = {
  *
  * The single test every surface uses — the badge, the list, `status`, the setting warning, and the
  * step-start confirmation — so none of them can call a session routed while another calls it off. The
- * lookup excludes virtual models by their api instead, because another extension's virtual model is not
- * one spirits routes; `routing/child.ts` keeps that api test in front of this comparison.
- *
- * The parameter is the shape the readers hold (`provider` and `id`) rather than a host type, so this
- * file keeps importing nothing.
+ * The provider, id, and virtual-model api must all match: a physical model can use the same name, but it
+ * does not route. The parameter is the shape the readers hold rather than a host type, so this file keeps
+ * importing nothing.
  */
-export function isRoutingModel(model: { provider?: string; id?: string } | undefined): boolean {
-	return model?.provider === ROUTING_PROVIDER_ID && model.id === ROUTING_MODEL_ID;
+export function isRoutingModel(model: { provider?: string; id?: string; api?: string } | undefined): boolean {
+	return model?.provider === ROUTING_PROVIDER_ID && model.id === ROUTING_MODEL_ID && model.api === PI_VIRTUAL_MODEL_API;
 }
 
 /** Role of every request that is not made during a strong phase. */

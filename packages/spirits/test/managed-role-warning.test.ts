@@ -110,6 +110,17 @@ test("says routing is off while a physical model is selected", async () => {
 	expect(notices.at(-1)).toContain("spirits/auto");
 });
 
+test("an unselected model saves a setting without the routing-off warning", async () => {
+	const { pi, written } = wire({});
+
+	const context = await run(pi, "normal thinking high", { model: undefined });
+
+	expect(written).toEqual([{ path: ["models", "thinking", "normal"], value: "high" }]);
+	expect(context.notices).toEqual(["set normal thinking high"]);
+	expect(context.notifications[0]?.type).toBe("info");
+	expect(context.reloads()).toBe(1);
+});
+
 // A target that exists in the settings but not in the catalog is unusable in the same way, and the user
 // has to hear it before the run, not as a routing notice in the middle of one.
 test("warns when strong names a model the catalog does not have", async () => {
@@ -130,6 +141,21 @@ test("stays quiet on a change that asks for nothing", async () => {
 	expect(notices).toEqual(["set opsx-verify thinking low"]);
 });
 
+// spec scenario "物理モデル選択中の save はこの警告ではない": the setting-change warning explains that a change
+// went through while nothing was routing. A `save` under the same selection explains something else — that
+// nothing was written at all — so it earns its own sentence and the warning's two halves stay out of it.
+test("a declined save is not the setting-change warning", async () => {
+	const { pi } = wire({ defaultProvider: "compat-fake", defaultModel: "fake-model" });
+
+	const { notices, notifications } = await run(pi, "save", { model: FAKE_MODEL });
+
+	expect(notices).toHaveLength(1);
+	expect(notices[0]).toContain("save declined");
+	// Not the setting change's phrasing, which would report a change this command did not make.
+	expect(notices[0]).not.toContain("routing is off while a physical model is selected");
+	expect(notifications[0]?.type).toBe("warning");
+});
+
 // The wording function is pure, which is what lets both halves be said at once without either one
 // swallowing the other.
 test("says both halves when both are true", () => {
@@ -139,26 +165,28 @@ test("says both halves when both are true", () => {
 		physicalModelSelected: true,
 		scoped: false,
 		interactive: true,
+		routingModelAvailable: true,
 	});
 	expect(warning).toBeDefined();
 	expect(warning).toContain("strong has no usable model");
 	expect(warning).toContain("routing is off");
 });
 
-// spec "managed-commands / 物理モデル選択中の設定変更は振り分けが働いていないことを伝える": the procedure has
+// spec "managed-commands / 振り分けを有効にする手順は対話端末で実行できるものを名指す": the procedure has
 // to be one the session can actually carry out, which is a question about its model scope, and a session
 // nobody is watching has no operation to be handed — not a keystroke, not a slash command, and not an edit of
 // a settings file either. Four states, because both halves vary.
 test("names a procedure the session can run", () => {
-	const base = { setStrong: false, strongUnresolved: false, physicalModelSelected: true };
+	const base = { setStrong: false, strongUnresolved: false, physicalModelSelected: true, routingModelAvailable: true };
 
 	const terminal = roleSettingWarning({ ...base, scoped: false, interactive: true })!;
 	expect(terminal).toContain("select spirits/auto with /model");
 
 	const scopedTerminal = roleSettingWarning({ ...base, scoped: true, interactive: true })!;
-	// The fact first, then both ways out, since either one reaches the model from a scope that excludes it.
+	// The fact first, then both ways out, since either one reaches the model from a scope that excludes it. The
+	// scope switch is the operation, not the key that happens to be bound to it today.
 	expect(scopedTerminal).toContain("spirits/auto is not in this session's model scope");
-	expect(scopedTerminal).toContain("Tab");
+	expect(scopedTerminal).toContain("switch /model's scope to all models");
 	expect(scopedTerminal).toContain("/scoped-models");
 
 	// Off a terminal there is nobody to tell, so the two remaining states state the fact and stop there: what
@@ -173,6 +201,7 @@ test("names a procedure the session can run", () => {
 	// to edit the settings file that holds the scope.
 	for (const warning of [headless, scopedHeadless]) {
 		expect(warning).not.toContain("Tab");
+		expect(warning).not.toContain("press");
 		expect(warning).not.toContain("/model");
 		expect(warning).not.toContain("/scoped-models");
 		expect(warning).not.toContain("enabledModels");
