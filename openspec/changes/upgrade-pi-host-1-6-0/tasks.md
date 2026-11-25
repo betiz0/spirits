@@ -115,6 +115,7 @@
   記録 (2026-11-25): clean な `cd94aeb6e9b55620a330d06790498632e001e279` の作業ツリーから `build-managed-pi-inputs.ts` と `build-binaries.ts` を再実行 (bundle SHA `a0e008b2bc579fc45caba56c26bec25d8e791ed58af8e1cb4568d32ef0fea820`)、`run.ts --inputs dist --artifact-root /tmp/pi-artifacts --commit cd94aeb6e… --out /tmp/compat/final/result.json` → 終了コード 0、`mode=official`、`confirmed=38 limited=0 unavailable=0 not-run=3 failed=0`、`compatibilityMet=true`。結果 JSON の来歴は `targetCommit=cd94aeb6e9b55620a330d06790498632e001e279`・`workingTreeClean=true`、ランタイム版 `1.6.0`。必須観測で `confirmed` 以外は 0 件 (`not-run` 3 件はいずれも必須外の registerModelRoles / 書き戻し互換 / 他拡張の tool probe)。artifact / bundle / manifest の SHA256 は手元の成果物と一致。
 - [x] 10.3 正式の再測定の結果が揃うまで、この変更を完了として扱わず、`openspec` の archive も行わないことを Workflow follow-up の状態として記録する。完了確認: 一次と正式の 2 つの結果 JSON のパスが手順書の記録に並んでいる。
   記録 (2026-11-25): 手順書「実測の記録」に一次 `/tmp/compat/primary/result.json` と正式 `/tmp/compat/final/result.json` が並び、両者の内訳は同一 (`confirmed` 38 / `limited` 0 / `unavailable` 0 / `not-run` 3 / `failed` 0)。これで 1〜10 が揃い、残タスクは 0 件。アーカイブは利用者の依頼と `host-upgrade` 本仕様への差分同期 (design D12 / D13 を含む) の後。
+  正式測定の対象は承認された `cd94aeb6e…` であり、その後に付いた `3b17045c5…` (smoke と正式測定の記録を `docs/spirits-host-upgrade.md` と本ファイルへ書き写すコミット) は bundle・起動役の入力にならないため、測定の来歴は動かさない。
 
 ## Workflow follow-up
 
