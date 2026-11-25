@@ -140,7 +140,7 @@ Only two OpenSpec workflow steps ask for a stronger model: the change review ski
 - **BREAKING**: the old `PI_CODING_AGENT_DIR` variable is no longer read. The default `~/.spirits/agent/` is unchanged, so existing data keeps working.
 - **BREAKING**: the compiled binary no longer reads `.env`, `.env.local`, or `.env.<NODE_ENV>` files from the start directory. Set API keys and other variables in the shell (`export ANTHROPIC_API_KEY=...` or `export SPIRITS_...`) or inline before the command instead.
 - Install telemetry and Pi-attributed provider headers are off by default. `settings.json` cannot enable them; use `PI_TELEMETRY=1` to opt in.
-- The first launch needs network access once: it downloads the pinned host tarball (58,876,253 bytes for Pi 1.5.0) and the spirits bundle into `~/.spirits/managed-pi`, which takes 182 MB on disk afterwards. Later launches verify the set locally, and `spirits managed-pi repair` rebuilds it. `PI_OFFLINE=1` applies to `spirits update`, not to the managed set.
+- The first launch needs network access once: it downloads the pinned host tarball (58,977,130 bytes for Pi 1.6.0) and the spirits bundle into `~/.spirits/managed-pi`, which takes 182 MB on disk afterwards. Later launches verify the set locally, and `spirits managed-pi repair` rebuilds it. `PI_OFFLINE=1` applies to `spirits update`, not to the managed set.
 
 ## Security
 

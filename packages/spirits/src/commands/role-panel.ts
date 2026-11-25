@@ -878,7 +878,7 @@ export async function openRolePanel(ctx: ExtensionCommandContext, panel: RolePan
 		 * Show a refusal on the row that caused it, inside the list.
 		 *
 		 * The host's TUI calls `handleInput` on the focused component without a try (measured in
-		 * `@earendil-works/pi-tui@1.5.0`, where `dist/tui.js` calls it directly), so an exception that escapes
+		 * `@earendil-works/pi-tui@1.5.0` and again in `1.6.0`, where `dist/tui.js` calls it directly), so an exception that escapes
 		 * an edit is not caught around the component, so the terminal is left mid-frame. A failed edit belongs
 		 * on the row the user is looking at, not in the terminal's crash output (design Decision 11).
 		 */

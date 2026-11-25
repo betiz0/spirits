@@ -34,7 +34,7 @@ spirits は、エージェント型コーディングツール **Pi**(`earendil-
 | 項目 | 内容 | 状態 |
 |---|---|---|
 | ランタイム | Bun のみ。最低 >= 1.4.0、推奨 >= 1.4.2 | 確定 |
-| ホスト | 公式 `@earendil-works/pi-coding-agent` の配布物 (現在 1.5.0) を `~/.spirits/managed-pi` に導入して起動する。ソースは持たない | **確定(v0.5)** |
+| ホスト | 公式 `@earendil-works/pi-coding-agent` の配布物 (現在 1.6.0) を `~/.spirits/managed-pi` に導入して起動する。ソースは持たない | **確定(v0.5)** |
 | 型検査 | devDependencies に公式パッケージを完全 pin し、`tsc --noEmit` でホストと同じ宣言に対して検査する。手写しの型宣言は置かない | **確定(v0.5)** |
 | 実装方式 | 拡張(Extension)+ 起動役のみ。ホストのソース差分は 0 | 確定 |
 | 参照実装 | Prime Agent(MIT)のアーキテクチャを TS に移植。コードコピーはしない | 確定 |
@@ -198,7 +198,7 @@ import 許可範囲:
 - **agent dir**: `ENV_AGENT_DIR` は `APP_NAME` から派生し `SPIRITS_CODING_AGENT_DIR` になる(**BREAKING**: 旧 `PI_CODING_AGENT_DIR` は読まない)。既定は `~/.spirits/agent/` で、env-defaults が未設定時に設定する。設定・認証・セッション・拡張の保存先は変わらない
 - **TUI ヘッダ**: spirits 拡張が `session_start` で `ctx.ui.setHeader` を呼び、最上部から ASCII アート(4 行)・ワードマーク・`resolveSpiritsVersion()` のバージョン・キーヒント・オンボーディング文をこの順で表示する。ASCII アートの本文と行別のテーマトークン割り当ては `colorful-startup-mark` が正本で、ビルトインテーマでは truecolor / 256 色のどちらでも 4 行の解決後の色が互いに異なることが要求される(行の順序は `product-identity`)。`quietStartup: true` 時はヘッダを設定せず、起動ヘルプの展開キーに `setExpanded` で追従する。アート以外の色もテーマトークン(`accent` / `dim` / `muted`)を使う
 - **テレメトリ**: env-defaults が `PI_TELEMETRY=0` を既定にし、pi.dev への install レポートと pi 名義の attribution ヘッダを送らない。有効化は `PI_TELEMETRY=1` の明示指定のみで、settings.json の opt-in は既定の無効化に上書きされて効かない
-- **CLI 表示**: オーバーレイした identity をホスト自身が読むので、ホストの help・起動行・エラー文は spirits を名乗る。実測では管理下の host 実行ファイルの `--help` が `spirits - AI coding assistant with read, bash, edit, write tools` を出し、`-- --version` は `1.5.0` を返す (ホストの版)。起動役自身の `--version` は `spirits <spirits 版> (Bun <bun>)` で、 spirits 自身の最新 stable を解決する
+- **CLI 表示**: オーバーレイした identity をホスト自身が読むので、ホストの help・起動行・エラー文は spirits を名乗る。実測では管理下の host 実行ファイルの `--help` が `spirits - AI coding assistant with read, bash, edit, write tools` を出し、`-- --version` は `1.6.0` を返す (ホストの版)。起動役自身の `--version` は `spirits <spirits 版> (Bun <bun>)` で、 spirits 自身の最新 stable を解決する
 - **ヘッダの描画**: 起動時のアートは spirits 拡張がホストの header API を通して描く (`installBrandingHeader`)。行別の色は theme token を解決して使うため、テーマはホストの artifact 側のもので動く
 
 ホスト側の表示・テレメトリ・provider ヘッダは、オーバーレイと `PI_TELEMETRY=0` の既定値で寄せる。ソース差分は作らない (§5)。
@@ -341,9 +341,9 @@ spirits は Pi をフォークしない。ホストは公式配布物であり�
 - **`node:vm` の ESM 系実装状況**(Bun 公式文書間で記述が矛盾)→ 対応: M1 早期に実機検証し、不可なら Phase 1 方式のまま運用
 - **ホストの Extension API の変動** → 対応: 版更新のたびに devDependencies の型で `tsc` を通し、互換性ランナー公式モードで実測する。失敗したら固定値をコミットしない(§5)
 - **Bun の JSC と V8 の差異**により、V8 固有 API 依存の npm パッケージが REPL 経由で import されると壊れる可能性 → 対応: `use()` のエラー整形で原因候補を提示
-- **コンパイルバイナリでの拡張ロード**: 起動役はバンドルした拡張を `-e` で渡し、利用者の外部拡張は agent dir からホストが読む。両方が載った一式は 1.5.0 で実機確認済み (`[Extensions]` に `spirits-extension.js` が出る)
+- **コンパイルバイナリでの拡張ロード**: 起動役はバンドルした拡張を `-e` で渡し、利用者の外部拡張は agent dir からホストが読む。両方が載った一式は 1.6.0 で実機確認済み (`[Extensions]` に `spirits-extension.js` が出る)
 - **ホストの配布物が読めなくなる / 検証が通らない** → 対応: 起動時に検証し、`spirits managed-pi repair` と Rollback を表示して止まる。黙って別のホストへ切り替えない
-- **host のコマンド語の変化** → 対応: `HostDescriptor.commandWords` が正。起動役はこの語を拒否して host 実行ファイルを案内するため、host がコマンドを増やしたら記述子の更新が必要 (Pi 1.5.0 の `--help` の表を実測根拠にする)
+- **host のコマンド語の変化** → 対応: `HostDescriptor.commandWords` が正。起動役はこの語を拒否して host 実行ファイルを案内するため、host がコマンドを増やしたら記述子の更新が必要 (Pi 1.6.0 の `--help` の表 `install` / `remove` / `uninstall` / `update` / `list` / `config` / `auth` / `mcp` を実測根拠にし、`update` を除いた 7 語が語表と一致)
 - **REPL 状態の永続化範囲**: vm コンテキスト内の変数はプロセス内のみで、セッション復元時に消える。必要ならセルログのリプレイによる再構成を将来検討(現状は非目標)
 
 ## 12. Follow-up 候補
@@ -364,8 +364,8 @@ spirits は Pi をフォークしない。ホストは公式配布物であり�
 
 ## managed 経路 (単一経路)
 
-既定の起動は managed で、公式 Pi の固定 artifact と事前 bundle した spirits 拡張を 1 組として起動する。組の書式・検証・互換マトリクス・ランナーは `docs/spirits-managed-pi.md`、初回起動のバックアップと戻し方は `docs/spirits-default-launch.md`、版更新と Rollback は `docs/spirits-host-upgrade.md`。公式 Pi 1.5.0 の拡張 API で spirits の機能をどう実現するかという調査・設計の一次根拠は `docs/spirits-managed-pi-design.md`(フォーク Era の比較を含む歴史的資料)。
+既定の起動は managed で、公式 Pi の固定 artifact と事前 bundle した spirits 拡張を 1 組として起動する。組の書式・検証・互換マトリクス・ランナーは `docs/spirits-managed-pi.md`、初回起動のバックアップと戻し方は `docs/spirits-default-launch.md`、版更新と Rollback は `docs/spirits-host-upgrade.md`。公式 Pi 1.5.0 の拡張 API で spirits の機能をどう実現するかという調査・設計の一次根拠は `docs/spirits-managed-pi-design.md`(フォーク Era の比較を含む歴史的資料で、1.5.0 の実測記録としてそのまま残す)。
 
 `spirits managed-pi` は残るが、意味は「一式の管理と隔離起動」である。`install` / `update` / `repair` は `~/.spirits/managed-pi` を扱い、`spirits managed-pi -- [args]` は専用の agent dir (`~/.spirits/managed-pi/agent`) で起動するため、互換性ランナーとテストはこれで実データを触らずにホストを動かせる。既定経路の agent dir は `~/.spirits/agent` である。
 
-role・clear・model は削除していない。role のバッジは拡張の status 行に出し、role のコマンドは `/spirits-role`、会話境界は `/spirits-clear`(ホストの `/clear` と `/model` をそのまま残す)。Pi 1.5.0 で不足する拡張 API は限定互換として記録し、実装できないものは Follow-up に残す。
+role・clear・model は削除していない。role のバッジは拡張の status 行に出し、role のコマンドは `/spirits-role`、会話境界は `/spirits-clear`(ホストの `/clear` と `/model` をそのまま残す)。Pi 1.5.0 で不足する拡張 API は限定互換として記録し、実装できないものは Follow-up に残す。1.6.0 でも `registerModelRoles` は無く、role の限定互換はそのまま残る。

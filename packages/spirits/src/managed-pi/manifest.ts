@@ -184,7 +184,7 @@ export async function loadManagedManifest(path: string): Promise<ManagedManifest
 }
 
 /**
- * The supported set, built from `PINNED_PI` (Pi 1.5.0, Linux x64 today).
+ * The supported set, built from `PINNED_PI` (Pi 1.6.0, Linux x64 today).
  *
  * The extension checksum is filled in by `scripts/build-managed-pi-inputs.ts`; this function is the
  * code-level description of the host and overlay half so tests and docs can refer to it.

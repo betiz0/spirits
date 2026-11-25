@@ -46,7 +46,8 @@ test("repair keeps the pi version", async () => {
 	const manifest = JSON.parse(
 		await readFile(join(value.root, "releases", value.manifest.setId, "manifest.json"), "utf8"),
 	);
-	expect(manifest.pi.version).toBe("1.5.0");
+	// Independent expectation: the set a repair rewrites still names the pinned host version (1.6.0).
+	expect(manifest.pi.version).toBe("1.6.0");
 });
 
 test("repair restores a set whose release manifest named assets relatively", async () => {

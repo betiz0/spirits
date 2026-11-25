@@ -120,7 +120,7 @@ OpenSpec 工作流中只有两个步骤需要更强的模型：评审变更的 `
 - 在选择物理模型的会话里启动一个期待角色的步骤时会先询问：询问会说清这个角色现在不会被使用，并给出重新启用分流的做法，等待 10 秒。倒计时结束或者选择继续，输入就会发送；选择停止或者按 Escape，输入不发送，步骤回到该输入之前的状态。询问只出现在交互式终端，由扩展发出的输入不会触发，所以脚本驱动的会话不会被拦下。
 - 主机的命令无法通过 `spirits` 运行：`spirits update <其他参数>`、`spirits install`、`spirits list` 等会被拒绝并给出主机可执行文件路径。启动器先加载扩展包，而主机只在自身第一个参数是命令时才 dispatch。
 - 没有自动更新。升级用 `spirits update` 或重新运行安装器。
-- 首次启动需要网络：把固定的主机 tarball（Pi 1.5.0 为 58,876,253 字节）与 spirits 扩展包下载到 `~/.spirits/managed-pi`，安装后占用 182 MB。之后在本地校验已安装的套件，损坏时用 `spirits managed-pi repair` 重建。`PI_OFFLINE=1` 作用于 `spirits update`，不作用于 managed 套件。
+- 首次启动需要网络：把固定的主机 tarball（Pi 1.6.0 为 58,977,130 字节）与 spirits 扩展包下载到 `~/.spirits/managed-pi`，安装后占用 182 MB。之后在本地校验已安装的套件，损坏时用 `spirits managed-pi repair` 重建。`PI_OFFLINE=1` 作用于 `spirits update`，不作用于 managed 套件。
 - `rlm` 是同步且串行的。异步 fan-out 将在 M5 评估。
 - 配置、会话与认证位于 `~/.spirits/agent/`（若设置了 `SPIRITS_CODING_AGENT_DIR` 则以该变量为准）。外部扩展放在 `~/.spirits/agent/extensions/`。
 - **BREAKING**：不再读取旧的 `PI_CODING_AGENT_DIR`。默认路径 `~/.spirits/agent/` 不变，现有数据可继续使用。

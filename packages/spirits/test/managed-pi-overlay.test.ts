@@ -7,7 +7,7 @@ import { createOverlayPackageJson, sha256Hex, verifyOverlayPackage, writeOverlay
 const OFFICIAL = `${JSON.stringify(
 	{
 		name: "@earendil-works/pi-coding-agent",
-		version: "1.5.0",
+		version: "1.6.0",
 		type: "module",
 		piConfig: { configDir: ".pi" },
 		bin: { pi: "dist/bundle/cli.js" },
@@ -20,7 +20,7 @@ test("overlay preserves the official artifact name and version", () => {
 	const overlay = createOverlayPackageJson(OFFICIAL);
 	const parsed = JSON.parse(overlay.content);
 	expect(parsed.name).toBe("@earendil-works/pi-coding-agent");
-	expect(parsed.version).toBe("1.5.0");
+	expect(parsed.version).toBe("1.6.0");
 });
 
 test("overlay adds the spirits piConfig", () => {

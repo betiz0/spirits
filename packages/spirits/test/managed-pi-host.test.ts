@@ -79,26 +79,26 @@ test("the descriptor carries the environment names the child is built from", () 
 test("the identity overlay writes only the name field and keeps the rest", () => {
 	const official: HostPackageJson = {
 		name: "@earendil-works/pi-coding-agent",
-		version: "1.5.0",
+		version: "1.6.0",
 		piConfig: { configDir: ".pi" },
 		bin: { pi: "dist/bundle/cli.js" },
 	};
 	const overlaid = applyHostIdentity(official, OFFICIAL_PI_HOST.identity);
 	expect(overlaid.piConfig).toEqual({ configDir: ".pi", name: SPIRITS_APP_NAME });
 	expect(overlaid.name).toBe("@earendil-works/pi-coding-agent");
-	expect(overlaid.version).toBe("1.5.0");
+	expect(overlaid.version).toBe("1.6.0");
 	expect(overlaid.bin).toEqual({ pi: "dist/bundle/cli.js" });
 	expect(official.piConfig).toEqual({ configDir: ".pi" });
 });
 
 test("the identity overlay fills the default config directory", () => {
-	const overlaid = applyHostIdentity({ name: "pi", version: "1.5.0" }, OFFICIAL_PI_HOST.identity);
+	const overlaid = applyHostIdentity({ name: "pi", version: "1.6.0" }, OFFICIAL_PI_HOST.identity);
 	expect(overlaid.piConfig).toEqual({ configDir: ".pi", name: SPIRITS_APP_NAME });
 });
 
 test("an overlay over a foreign config directory keeps the artifact value", () => {
 	const overlaid = applyHostIdentity(
-		{ name: "pi", version: "1.5.0", piConfig: { configDir: ".custom", name: "pi" } },
+		{ name: "pi", version: "1.6.0", piConfig: { configDir: ".custom", name: "pi" } },
 		OFFICIAL_PI_HOST.identity,
 	);
 	expect(overlaid.piConfig).toEqual({ configDir: ".custom", name: SPIRITS_APP_NAME });

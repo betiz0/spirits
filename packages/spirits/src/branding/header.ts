@@ -8,6 +8,7 @@
  */
 
 import { keyHint, keyText, rawKeyHint } from "@earendil-works/pi-coding-agent";
+import type { Component } from "../types/host.ts";
 import { resolveSpiritsVersion } from "../version.ts";
 
 /** Theme colors the header uses. */
@@ -18,14 +19,15 @@ export interface HeaderTheme {
 	fg(color: HeaderThemeColor, text: string): string;
 }
 
-/** Component contract the pi TUI calls for custom headers. */
-export interface HeaderComponent {
-	render(width: number): string[];
-	invalidate(): void;
-}
-
-/** Header factory accepted by `ctx.ui.setHeader`. */
-export type HeaderFactory = (tui: unknown, theme: HeaderTheme) => HeaderComponent & { dispose?(): void };
+/**
+ * Header factory accepted by `ctx.ui.setHeader`.
+ *
+ * The component contract is the host's own `Component` (read through `src/types/host.ts`), not a
+ * hand-written copy: pi owns the array `render()` hands back (`readonly string[]` since 1.6.0, and
+ * `Container` reuses a child's array while the child is unchanged), so a local interface would let an
+ * in-place edit of that array compile silently.
+ */
+export type HeaderFactory = (tui: unknown, theme: HeaderTheme) => Component & { dispose?(): void };
 
 /** Context the install function needs from pi. */
 export interface BrandingContext {
@@ -92,7 +94,7 @@ const ONBOARDING =
 	"spirits is a persistent TypeScript REPL agent; ask it to run code with tsrepl, delegate with rlm, or take notes with note().";
 
 /** Header component shown at startup. `setExpanded` mirrors pi's startup-help expansion. */
-export class SpiritsHeader implements HeaderComponent {
+export class SpiritsHeader implements Component {
 	private readonly theme: HeaderTheme;
 	private expanded: boolean;
 
@@ -108,7 +110,7 @@ export class SpiritsHeader implements HeaderComponent {
 
 	invalidate(): void {}
 
-	render(_width: number): string[] {
+	render(_width: number): readonly string[] {
 		const art = ART_LINES.map((line) => this.theme.fg(line.color, line.text));
 		const wordmark = `${this.theme.fg("accent", "spirits")} ${this.theme.fg("dim", `v${resolveSpiritsVersion()}`)}`;
 		const onboarding = this.theme.fg("dim", ONBOARDING);

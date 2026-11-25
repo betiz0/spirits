@@ -176,7 +176,7 @@ test("a host descriptor that names less than the whole host is refused", () => {
 		executable: "/bolt/bin/pi",
 		packageDir: "/bolt/package",
 		bundle: "/bolt/spirits-bundle.js",
-		piVersion: "1.5.0",
+		piVersion: "1.6.0",
 	};
 	const descriptor = parseSubstitutedHost(JSON.stringify(whole), "bolt.json", "/home/u");
 	expect(descriptor.bundle).toBe("/bolt/spirits-bundle.js");
@@ -208,7 +208,7 @@ test("a substituted host is labelled, identified, and never compatibility met", 
 				executable: "/bolt/bin/pi",
 				packageDir: "/bolt/package",
 				bundle: "/bolt/spirits-bundle.js",
-				piVersion: "1.5.0",
+				piVersion: "1.6.0",
 			},
 		});
 		for (const name of REQUIRED_OBSERVATIONS) {

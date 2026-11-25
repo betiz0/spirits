@@ -36,7 +36,7 @@ manifest は release 資産 `spirits-managed-pi-manifest.json` として配布�
 - `overlay.version` / `overlay.sha256`: 生成する overlay `package.json` の版と SHA256。
 - `assets`: 追加アセットの `name`、`url`、`sha256`。
 
-最初の対応 set は Pi `1.5.0`、Linux x64、公式 `pi-linux-x64.tar.gz`、SHA256 `df870ba0e344cb7b3358d8d8f19397b8b8d225a8669784736ad68a5c2169d53b`。manifest を更新するときは `scripts/build-managed-pi-inputs.ts` で bundle と manifest を同時に生成し、Checksum を release 資産へ添付する。`spirits-v*` の既定配布物 (`spirits-linux-x64`) とは別の資産である。リリースには旧版の自己更新との互換用に `dark.json` / `light.json` と `.sha256` も添付するが、現行の install.sh・自己更新・起動役はそれらを取得しない (実測: インストーラはテーマを要求しない)。
+現在の対応 set は Pi `1.6.0`、Linux x64、公式 `pi-linux-x64.tar.gz`、SHA256 `ef77dbe4379b3bdeb425a1e1b862fa3c915c255000dfe4965c98eee96a5765d1`、overlay `1.6.0-spirits.1` (SHA256 `e0c6b589a26f3438c5b9224294b769a999fabee3eba06383fafceb68be031cd0`)。直前の set は Pi `1.5.0`、SHA256 `df870ba0e344cb7b3358d8d8f19397b8b8d225a8669784736ad68a5c2169d53b`。manifest を更新するときは `scripts/build-managed-pi-inputs.ts` で bundle と manifest を同時に生成し、Checksum を release 資産へ添付する。`spirits-v*` の既定配布物 (`spirits-linux-x64`) とは別の資産である。リリースには旧版の自己更新との互換用に `dark.json` / `light.json` と `.sha256` も添付するが、現行の install.sh・自己更新・起動役はそれらを取得しない (実測: インストーラはテーマを要求しない)。
 
 ## 配置とロールバック
 
@@ -144,7 +144,7 @@ host の実体を bundle に含めないのは、rlm の子セッションが親
 
 ## role / `/clear` / `/model` の限定互換モード
 
-公式 Pi 1.5.0 には `registerModelRoles` がない。spirits 拡張は API の有無を起動時に判定し、ある場合は既存の role 登録を使う。ない場合は仮想モデル `spirits/auto`、skill に基づく strong フェーズ、設定からの既定 role 読み取りを残したうえで、同じ状態に届く別コマンドを登録する。起動時に一度だけ制限内容を通知する。
+公式 Pi 1.5.0 にも 1.6.0 にも `registerModelRoles` がない (1.6.0 の公式モード実測でも `roleApi` は偽)。spirits 拡張は API の有無を起動時に判定し、ある場合は既存の role 登録を使う。ない場合は仮想モデル `spirits/auto`、skill に基づく strong フェーズ、設定からの既定 role 読み取りを残したうえで、同じ状態に届く別コマンドを登録する。起動時に一度だけ制限内容を通知する。
 
 `/spirits-role` は「対象 項目 値」の 1 行でロールとステップの設定をする。引数なしは対話端末なら設定一覧、RPC なら `status` と同じ実行報告を通知し、print では一覧も稼働状況も出さない。語の照合は大文字小文字を問わない。解釈できない行・項目の省略・空の参照では何も変えず、理由だけを出す。設定を書いたあとは `ctx.reload()` を呼ぶので、そのコマンドの `pi` ハンドルと context はそれ以降使わない（`save` だけは reload せず、返った context をそのまま終える）。設定の書き込みだけが失敗したときは、session の変更を取り消さず、保存に失敗した旨を分けて伝え、reload はしない（読み直す既定値が変わっていないため）。
 

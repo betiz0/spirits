@@ -124,7 +124,7 @@ OpenSpec ワークフローでより強いモデルを要求するのは 2 ス�
 - 物理モデルを選んでいるセッションで、ロールを期待するステップを始めるときは確認を出します。確認は、そのロールが今使われないことと振り分けを元に戻す手順を書いて 10 秒待ちます。時間切れでも「続行」を選んでも入力は送られ、「中止」でも Esc でも入力は送られず、ステップは入力を受ける前の状態に戻ります。確認は対話端末だけで、拡張機能が送った入力では出ないので、スクリプトで駆動するセッションは待ちません。
 - host のコマンドは `spirits` 経由で使えません。`spirits update <その他の引数>`、`spirits install`、`spirits list` などは拒否され、host 実行ファイルのパスが表示されます。起動役が拡張 bundle を先に渡すため、host はコマンドを自身の第一引数のときにだけ dispatch します。
 - 自動アップデートはありません。更新は `spirits update` かインストーラの再実行です。
-- 初回起動はネットワークが要ります。固定したホストの tarball (Pi 1.5.0 で 58,876,253 バイト) と spirits bundle を `~/.spirits/managed-pi` に取得し、導入後は 182 MB を使います。2 回目以降は導入済みの一式をローカルで検証し、壊れていたら `spirits managed-pi repair` で作り直します。`PI_OFFLINE=1` は `spirits update` に効き、managed 一式には効きません。
+- 初回起動はネットワークが要ります。固定したホストの tarball (Pi 1.6.0 で 58,977,130 バイト) と spirits bundle を `~/.spirits/managed-pi` に取得し、導入後は 182 MB を使います。2 回目以降は導入済みの一式をローカルで検証し、壊れていたら `spirits managed-pi repair` で作り直します。`PI_OFFLINE=1` は `spirits update` に効き、managed 一式には効きません。
 - `rlm` は同期・直列です。非同期 fan-out は M5 で採否判断します。
 - 設定・セッション・認証は `~/.spirits/agent/`(`SPIRITS_CODING_AGENT_DIR` 指定時はそちら)。外部拡張は `~/.spirits/agent/extensions/` に置きます。
 - **BREAKING**: 旧 `PI_CODING_AGENT_DIR` は読まれません。既定パス `~/.spirits/agent/` は変わらないため、既存データはそのまま使えます。

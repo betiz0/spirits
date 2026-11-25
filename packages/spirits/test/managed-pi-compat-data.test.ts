@@ -127,7 +127,7 @@ test("existing agent fixture is unchanged", async () => {
 		await mkdir(packageDir, { recursive: true });
 		await writeFile(
 			join(packageDir, "package.json"),
-			`${JSON.stringify({ name: "@earendil-works/pi-coding-agent", version: "1.5.0", piConfig: { name: "spirits", configDir: ".pi" } }, null, "\t")}\n`,
+			`${JSON.stringify({ name: "@earendil-works/pi-coding-agent", version: "1.6.0", piConfig: { name: "spirits", configDir: ".pi" } }, null, "\t")}\n`,
 		);
 		const statePath = join(runner.workRoot, "probe-state.json");
 		const env = computeManagedEnv({

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { installBrandingHeader, SpiritsHeader, type BrandingContext, type BrandingSettings, type HeaderComponent, type HeaderTheme, type HeaderThemeColor } from "../src/branding/header.ts";
+import { installBrandingHeader, SpiritsHeader, type BrandingContext, type BrandingSettings, type HeaderTheme, type HeaderThemeColor } from "../src/branding/header.ts";
+import type { Component } from "../src/types/host.ts";
 import { resolveSpiritsVersion } from "../src/version.ts";
 
 /** Deterministic theme stub for render assertions. */
@@ -50,7 +51,7 @@ function render(header: SpiritsHeader): string {
 	return header.render(120).join("\n");
 }
 
-function asSpiritsHeader(component: HeaderComponent & { dispose?(): void }): SpiritsHeader {
+function asSpiritsHeader(component: Component & { dispose?(): void }): SpiritsHeader {
 	if (!(component instanceof SpiritsHeader)) {
 		throw new Error("expected SpiritsHeader");
 	}
@@ -115,6 +116,26 @@ describe("SpiritsHeader", () => {
 
 		expect(artAfter).not.toEqual(artBefore);
 		expect(artAfter.map((line) => line.slice(2))).toEqual(ART);
+	});
+
+	// design D2 of `upgrade-pi-host-1-6-0`: the header's contract is the host's own `Component`, read from
+	// `@earendil-works/pi-tui` through `src/types/host.ts`. The two cases below are what that choice buys,
+	// and they are the reason a hand-written `render(): string[]` interface is not allowed back in.
+	test("is assignable to the host component contract", () => {
+		const component: Component = new SpiritsHeader(testTheme);
+		expect(component.render(120).length).toBeGreaterThan(0);
+		component.invalidate();
+	});
+
+	test("leaves the array render() returns to the host", () => {
+		const component: Component = new SpiritsHeader(testTheme);
+		// The host owns the lines a component renders: 1.6.0 declares them `readonly string[]` and reuses a
+		// child's array in `Container`. Writing to it through the host type has to stay a type error, which is
+		// the one direction `string[]` and `readonly string[]` differ in. If the contract is ever loosened,
+		// this directive goes unused and `bun run check` fails.
+		// @ts-expect-error render() hands back a host-owned array; a caller must not modify it
+		component.render(120).push("in-place");
+		expect(component.render(120)).not.toContain("in-place");
 	});
 
 	test("setExpanded switches between compact and full startup help", () => {

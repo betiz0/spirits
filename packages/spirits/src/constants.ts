@@ -618,15 +618,15 @@ export const MANAGED_PI_PLATFORM = "linux-x64";
  */
 export const PINNED_PI = {
 	/** Host version the managed set installs. */
-	version: "1.5.0",
+	version: "1.6.0",
 	/** Release asset name of the host artifact for {@link MANAGED_PI_PLATFORM}. */
 	artifactName: "pi-linux-x64.tar.gz",
 	/** SHA256 of the host artifact. */
-	artifactSha256: "df870ba0e344cb7b3358d8d8f19397b8b8d225a8669784736ad68a5c2169d53b",
+	artifactSha256: "ef77dbe4379b3bdeb425a1e1b862fa3c915c255000dfe4965c98eee96a5765d1",
 	/** Overlay version recorded in the manifest for this pinned Pi version. */
-	overlayVersion: "1.5.0-spirits.1",
+	overlayVersion: "1.6.0-spirits.1",
 	/** SHA256 of the overlay `package.json` generated from the pinned artifact. */
-	overlaySha256: "883b0b1462dd22bbcfa5c5020aeb79979b74adc39d059d6dbc8fa8318135a6ad",
+	overlaySha256: "e0c6b589a26f3438c5b9224294b769a999fabee3eba06383fafceb68be031cd0",
 } as const;
 
 /** Pinned Pi version, kept as a name for the manifest and the build scripts. */

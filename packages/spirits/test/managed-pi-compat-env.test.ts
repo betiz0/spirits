@@ -4,14 +4,14 @@ import { allPathsUnder, classifyEnv, classifyHelpSideEffects } from "../../../sc
 test("agent dir precedence", () => {
 	expect(
 		classifyEnv(
-			{ agentDir: "/tmp/agent", packageDir: "/managed/pi", appName: "spirits", version: "1.5.0" },
-			{ agentDir: "/tmp/agent", version: "1.5.0" },
+			{ agentDir: "/tmp/agent", packageDir: "/managed/pi", appName: "spirits", version: "1.6.0" },
+			{ agentDir: "/tmp/agent", version: "1.6.0" },
 		).state,
 	).toBe("confirmed");
 	expect(
 		classifyEnv(
-			{ agentDir: "/tmp/old", packageDir: "/managed/pi", appName: "spirits", version: "1.5.0" },
-			{ agentDir: "/tmp/agent", version: "1.5.0" },
+			{ agentDir: "/tmp/old", packageDir: "/managed/pi", appName: "spirits", version: "1.6.0" },
+			{ agentDir: "/tmp/agent", version: "1.6.0" },
 		).state,
 	).toBe("failed");
 });
@@ -19,7 +19,7 @@ test("agent dir precedence", () => {
 test("package dir decoy does not change identity", () => {
 	const result = classifyEnv(
 		{ agentDir: "/tmp/agent", appName: "decoy", version: "9.9.9", packageDirDecoyUsed: true },
-		{ agentDir: "/tmp/agent", version: "1.5.0" },
+		{ agentDir: "/tmp/agent", version: "1.6.0" },
 	);
 	expect(result.state).toBe("failed");
 	expect(result.detail).toContain("decoy");

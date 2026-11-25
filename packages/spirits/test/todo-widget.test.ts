@@ -1,12 +1,22 @@
 import { expect, test } from "bun:test";
 import { asExtensionApi, customEntry, fakeProjection, nextEntryId } from "./host/fake-pi.ts";
 import type { AgentSettledEvent, BeforeAgentStartEvent, BeforeAgentStartEventResult, ContextEvent, ContextEventResult, ExtensionHandler, ExtensionToolContext, ExtensionUIContext, InputEvent, InputEventResult, ResourcesDiscoverEvent, ResourcesDiscoverResult, SessionEntry, SessionStartEvent, SessionBeforeCompactEvent, SessionBeforeCompactResult, SessionTreeEvent, ToolCallEvent, ToolCallEventResult } from "@earendil-works/pi-coding-agent";
-import type { ExtensionMode } from "../src/types/host.ts";
+import type { Component, ExtensionMode } from "../src/types/host.ts";
 import { resolveTodoConfig, type EnvLike, type TodoConfig } from "../src/config.ts";
 import { DEFAULT_TODO_TOGGLE_KEY, ENV_TODO_MAX_LINES } from "../src/constants.ts";
 import { TODO_ENTRY_TYPE, type TodoItem, type TodoSnapshot } from "../src/todo/state.ts";
 import { createManageTodosTool } from "../src/todo/tool.ts";
-import { createTodoPanelState, registerTodoPanel, renderTodoLines, renderTodoSummaryLines, TODO_WIDGET_KEY, type TodoPanelState, updateTodoPanel } from "../src/todo/widget.ts";
+import {
+	createTodoPanel,
+	createTodoPanelState,
+	registerTodoPanel,
+	renderTodoLines,
+	renderTodoSummaryLines,
+	TODO_WIDGET_KEY,
+	TodoPanelComponent,
+	type TodoPanelState,
+	updateTodoPanel,
+} from "../src/todo/widget.ts";
 import { makeToolContext, type RecordedShortcut } from "./support.ts";
 
 function snapshot(items: TodoItem[]): TodoSnapshot {
@@ -43,11 +53,30 @@ function expanded(): TodoPanelState {
 	return createTodoPanelState(false);
 }
 
-type WidgetFactory = (tui: unknown, theme: unknown) => { render(width: number): string[]; invalidate(): void };
+type WidgetFactory = (tui: unknown, theme: unknown) => Component;
 
-function renderWidget(content: unknown, width: number): string[] {
+function renderWidget(content: unknown, width: number): readonly string[] {
 	return (content as WidgetFactory)(undefined, undefined).render(width);
 }
+
+/**
+ * The panel's contract is the host's `Component`, and the lines it renders belong to the host
+ * (`readonly string[]` in pi-tui 1.6.0). Assignability alone would pass on 1.5.0 and on 1.6.0, so the case
+ * below checks the direction that differs: an in-place edit of the returned lines has to stay a `tsc`
+ * failure (design D2 of `upgrade-pi-host-1-6-0`).
+ */
+test("the panel is a host component and the host owns its lines", () => {
+	const snapshot: TodoSnapshot = { nextId: 2, items: [item(1)] };
+	const panel: Component = new TodoPanelComponent(snapshot, 5, false);
+	expect(panel.render(80)).toEqual(["○ #1 task 1"]);
+	// @ts-expect-error the rendered lines are the host's; an in-place edit must not compile
+	panel.render(80).push("in-place");
+	expect(panel.render(80)).not.toContain("in-place");
+	// A fresh array every render, so an ancestor that reuses what it was handed cannot go stale.
+	expect(panel.render(80)).not.toBe(panel.render(80));
+	// The factory the panel installs through `setWidget` builds that same component.
+	expect(renderWidget(createTodoPanel(snapshot, 5, false), 80)).toEqual(["○ #1 task 1"]);
+});
 
 type Execute = (
 	id: string,

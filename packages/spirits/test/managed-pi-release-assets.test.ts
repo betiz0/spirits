@@ -27,7 +27,7 @@ test("the manifest of one release is fetched by its tag", async () => {
 		timeoutMs: 5000,
 	});
 	expect(manifest.setId).toBe(fixture.manifest.setId);
-	expect(manifest.pi.version).toBe("1.5.0");
+	expect(manifest.pi.version).toBe("1.6.0");
 	expect(url).toBe(`${fixture.baseUrl}/betiz0/spirits/releases/download/spirits-v0.1.0/${MANAGED_PI_MANIFEST_ASSET_NAME}`);
 	// The assets resolve against the same release directory, not against the latest release.
 	expect(baseUrl).toBe(`${url.slice(0, url.lastIndexOf("/") + 1)}`);
@@ -71,7 +71,7 @@ test("the managed install command reports success and failure", async () => {
 		io: { out: (line) => out.push(line), err: (line) => err.push(line) },
 	});
 	expect(ok).toEqual({ ok: true, exitCode: 0 });
-	expect(out.join("\n")).toContain("Installed managed Pi 1.5.0 with spirits extension 0.1.0.");
+	expect(out.join("\n")).toContain("Installed managed Pi 1.6.0 with spirits extension 0.1.0.");
 	expect(err).toEqual([]);
 
 	// Nothing can be fetched from a closed port, so the refusal names the tag and the escape hatches.

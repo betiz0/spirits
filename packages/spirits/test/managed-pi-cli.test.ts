@@ -4,9 +4,9 @@ import { classifyUpdateArgs } from "../src/update/classify.ts";
 
 test("classifies managed-pi install update and launch", () => {
 	expect(classifyManagedPiArgs(["managed-pi", "install"])).toEqual({ kind: "install" });
-	expect(classifyManagedPiArgs(["managed-pi", "install", "--version", "1.5.0"])).toEqual({
+	expect(classifyManagedPiArgs(["managed-pi", "install", "--version", "1.6.0"])).toEqual({
 		kind: "install",
-		version: "1.5.0",
+		version: "1.6.0",
 	});
 	expect(classifyManagedPiArgs(["managed-pi", "update"])).toEqual({ kind: "update" });
 	expect(classifyManagedPiArgs(["managed-pi", "repair"])).toEqual({ kind: "repair" });

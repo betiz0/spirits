@@ -19,7 +19,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { asExtensionApi, fakeModel, fakeModelRegistry, fakeTheme, slashCommandInfo } from "./host/fake-pi.ts";
-import type { ExtensionMode, ExtensionModelRegistry, PiModel } from "../src/types/host.ts";
+import type { Component, ExtensionMode, ExtensionModelRegistry, PiModel } from "../src/types/host.ts";
 import {
 	COMMAND_SPIRITS_ROLE,
 	ENV_AGENT_DIR,
@@ -1802,11 +1802,15 @@ const ESCAPE = "\x1b";
 const UP = "\x1b[A";
 const DOWN = "\x1b[B";
 
-/** The list screen as the terminal sees it: the component `ctx.ui.custom()` was built with. */
-interface ScreenList {
+/**
+ * The list screen as the terminal sees it: the component `ctx.ui.custom()` was built with.
+ *
+ * The members a test drives, widened out of the host's own `Component`. The screen's contract itself is the
+ * host's (design D2 of `upgrade-pi-host-1-6-0`), which {@link driveScreen} records as a `Component`.
+ */
+interface ScreenList extends Component {
 	selectItem(id: string): void;
 	handleInput(data: string): void;
-	render(width: number): string[];
 }
 
 /** What a screen run left behind: the host, the writes, the badge, the reload count, and the screen. */
@@ -1986,6 +1990,26 @@ async function driveScreen(
 		text: () => (context.custom.components[0] as ScreenList).render(100).join("\n"),
 	};
 }
+
+/**
+ * design D2 of `upgrade-pi-host-1-6-0`: the component the command hands `ctx.ui.custom()` is the host's own
+ * `Component`, and the host owns the lines it renders. Assignability alone would hold on 1.5.0 as well, so
+ * the case below checks the direction that differs: writing into the returned lines has to stay a `tsc`
+ * failure, and the list has to hand out a fresh array rather than one an ancestor keeps reusing.
+ */
+test("the list screen is a host component and the host owns its lines", async () => {
+	// The list is collected as the host's own `Component`, with no assertion at the capture site: the push is
+	// what has to typecheck. A capture that never happened is a runtime failure, not a `!` that keeps compiling.
+	const screens: Component[] = [];
+	await driveScreen((list: Component) => void screens.push(list));
+	const [component] = screens;
+	if (!component) throw new Error("the command handed no component to ctx.ui.custom()");
+
+	expect(component.render(100).length).toBeGreaterThan(0);
+	// @ts-expect-error the rendered lines are the host's; an in-place edit must not compile
+	component.render(100).push("in-place");
+	expect(component.render(100)).not.toContain("in-place");
+});
 
 /**
  * Run one `/spirits-role` argument line on a host the list already ran on.

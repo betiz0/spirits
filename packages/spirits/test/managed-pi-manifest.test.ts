@@ -14,8 +14,10 @@ function validManifest(): ManagedManifest {
 test("manifest accepts the first supported set", () => {
 	const manifest = parseManagedManifest(validManifest());
 	expect(manifest.platform).toBe("linux-x64");
-	expect(manifest.pi.version).toBe("1.5.0");
-	expect(manifest.pi.artifact.sha256).toBe("df870ba0e344cb7b3358d8d8f19397b8b8d225a8669784736ad68a5c2169d53b");
+	// Independent expectation copied from the 1.6.0 release's `SHA256SUMS` (design D5: a wrong pin has to
+	// fail here, not only fail to be noticed by the propagation case below).
+	expect(manifest.pi.version).toBe("1.6.0");
+	expect(manifest.pi.artifact.sha256).toBe("ef77dbe4379b3bdeb425a1e1b862fa3c915c255000dfe4965c98eee96a5765d1");
 	expect(manifest.extension.version).toBe("0.1.0");
 	expect(manifest.overlay.sha256).toHaveLength(64);
 });

@@ -26,6 +26,8 @@ managed の一式（公式 Pi と拡張 bundle）は、**起動役のバイナ�
 - `scripts/install.sh` … 実行ファイルを配置した後、同じタグの manifest URL を指定して導入する
 - 初回の `spirits` 起動 … 一式が無ければ、そのバイナリのリリースから取得して導入する
 
+初回起動が落とするもの (Pi 1.6.0 の実測、`docs/spirits-host-upgrade.md` の「実測の記録」から写した値): ホストの tarball **58,977,130 バイト** と spirits の拡張 bundle。導入後の一式は **182 MB**（展開した `pi/` と取得した tarball を置きっぱなしにする内訳）。導入時間の実測は 2,202 ms（loopback 配信・`installManagedSet` 全体）。後の起動は一式をローカルで検証するだけ。
+
 一式が無く、取得もできなかった場合は黙って別のホストを起動しない。理由、`spirits managed-pi repair`、取得元を表示して非ゼロで終わる。
 
 ## バックアップ
@@ -60,17 +62,40 @@ find ~/.spirits/backups/agent-2026-11-10T09-12-33Z -type l -exec ls -l {} +
 
 環境変数で経路を切り替える手段は無い。戻すときは実行ファイルごと戻す。
 
+正本は [`docs/spirits-host-upgrade.md`](spirits-host-upgrade.md) の Rollback 節にあり、以下は同じ順序・同じ検証対象の簡略版である（コマンド列を二重管理しないため、細部は正本に従う）。
+
 ```sh
 # 1. spirits を終了して ~/.spirits/bin を退避する
 cp -a ~/.spirits/bin ~/.spirits/bin-backup-$(date -u +%Y%m%dT%H%M%SZ)
-# 2. 直前のリリースの実行ファイルを取得して検証し、配置する
-gh release download spirits-v0.7.2 --repo betiz0/spirits --dir /tmp/rollback
-(cd /tmp/rollback && sha256sum -c spirits-linux-x64.sha256)
-mv /tmp/rollback/spirits-linux-x64 ~/.spirits/bin/spirits && chmod 755 ~/.spirits/bin/spirits
-spirits --version   # 戻した版が表示されること
+
+# 2. 直前のリリースから実行ファイル・manifest・bundle を取る
+RB=/tmp/rollback-<直前の版>; rm -rf "$RB"; mkdir -p "$RB"
+gh release download spirits-v<直前の版> --repo betiz0/spirits \
+  --pattern 'spirits-linux-x64' --pattern 'spirits-linux-x64.sha256' \
+  --pattern 'spirits-managed-pi-manifest.json' --pattern 'spirits-managed-pi-manifest.json.sha256' \
+  --pattern 'spirits-managed-pi-extension.js' --pattern 'spirits-managed-pi-extension.js.sha256' \
+  --dir "$RB"
+
+# 3. 検証が通るまで何も差し替えない（失敗したらここで終わり。配置も導入も走らない）
+(
+  cd "$RB" &&
+  sha256sum -c spirits-linux-x64.sha256 &&
+  sha256sum -c spirits-managed-pi-manifest.json.sha256 &&
+  sha256sum -c spirits-managed-pi-extension.js.sha256
+) || { echo "Rollback を中止した: SHA256 の検証が失敗した" >&2; exit 1; }
+cp "$RB/spirits-linux-x64" ~/.spirits/bin/spirits && chmod 755 ~/.spirits/bin/spirits
+
+# 4. 検証した manifest を明示して一式を作り直す（既定解決や環境変数の残値に左右されない）
+SPIRITS_MANAGED_PI_MANIFEST_URL="file://$RB/spirits-managed-pi-manifest.json" \
+  ~/.spirits/bin/spirits managed-pi install --version <直前の Pi 版>
+
+# 5. 起動役の版と一式が指す host 版の両方を確認する
+spirits --version && spirits -- --version
 ```
 
-`~/.spirits/agent` と `~/.spirits/managed-pi` は `bin/` の外なので、戻し操作の影響を受けない。その版に合う一式が未導入なら、その実行ファイルが同じ規則で取得する。手順全体とフォーク Era の実行ファイルの作り方は [`docs/spirits-host-upgrade.md`](spirits-host-upgrade.md) の Rollback を見る。
+実行ファイルだけ戻すと、`spirits managed-pi repair` が導入済み set の `manifest.json` を基準に新版の一式を再導入し得る。起動役と一式は同じリリースにそろえる。`rm -rf ~/.spirits/managed-pi` は使わない: 隔離経路の設定・セッション（`managed-pi/agent`）まで消え、取得が失敗すると動作する一式も残らないことが隔離 HOME の実測で分かっている。install は `releases/<setId>` と `current` だけを扱い、`agent` には触れない。
+
+`~/.spirits/agent` は `bin/` の外なので、戻し操作そのものの影響は受けない。隔離経路の設定・セッション（`~/.spirits/managed-pi/agent`）も上の手順では対象にしない。ただし「データが消えないこと」と「新版が書いたデータを旧版が読めること」は別の話で、後者は実測していない。新版が agent dir を使った後の Rollback では、先に `~/.spirits/agent` をコピーしてから旧版を起動する。手順全体とフォーク Era の実行ファイルの作り方は [`docs/spirits-host-upgrade.md`](spirits-host-upgrade.md) の Rollback を見る。
 
 ## 一式が壊れたとき
 
@@ -125,4 +150,4 @@ bun scripts/build-managed-pi-inputs.ts --version <版> --out dist
 bun scripts/managed-pi-compat/run.ts --inputs dist --artifact-root <公式 tarball の dir> --commit HEAD --out /tmp/compat/result.json
 ```
 
-完了確認は `Compatibility met` が真、`failed` が 0 件、`not-run` を成功として数えないこと。実データで確かめるときは上記のバックアップを自分で取ったうえで、`~/.spirits/managed-pi/agent` を使う隔離経路で行う。
+完了確認は `Compatibility met` が真、`failed` が 0 件、必須観測の `limited` / `unavailable` / `not-run` を成功として数えないこと。実データで確かめるときは上記のバックアップを自分で取ったうえで、`~/.spirits/managed-pi/agent` を使う隔離経路で行う。

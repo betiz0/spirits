@@ -7,7 +7,7 @@ import { firstSupportedManifest, type ManagedManifest } from "../src/managed-pi/
 export const OFFICIAL_PACKAGE = `${JSON.stringify(
 	{
 		name: "@earendil-works/pi-coding-agent",
-		version: "1.5.0",
+		version: "1.6.0",
 		type: "module",
 		piConfig: { configDir: ".pi" },
 		bin: { pi: "dist/bundle/cli.js" },
