@@ -451,7 +451,7 @@ bun scripts/build-binaries.ts --version 0.7.2-fork
 互換性ランナー (公式モード):
 
 - 一次 (作業ツリー、bundle 0.8.99): `confirmed=38`、`limited=0`、`unavailable=0`、`not-run=3`、`failed=0`、`Compatibility met` 真。結果は `/tmp/compat/primary/result.json` と `/tmp/compat/primary/managed-pi-compat-result.md`。
-- 正式 (承認済み commit からの再生成 bundle): **未実行**。揃うまで本更新は未完了とする。
+- 正式 (承認済み commit `cd94aeb6e9b55620a330d06790498632e001e279` から再生成した bundle と起動役): `confirmed=38`、`limited=0`、`unavailable=0`、`not-run=3`、`failed=0`、`Compatibility met` 真、ランタイム版 `1.6.0`、`workingTreeClean` 真。結果は `/tmp/compat/final/result.json` (一次 `/tmp/compat/primary/result.json` と同じ内訳)。両者のパスが揃うまで本更新は未完了扱いだった。
 - `not-run` 3 件は 1.5.0 と同じ「観測できないもの」 (既存 agent dir への書き戻し互換、永続 settings 書き込み API、別の拡張の tool 定義を要する直接実行 probe) で、必須観測ではない。`## Required observations not confirmed` は `none`。
 - role / `/clear` / model のマトリクスは **13 目的中 11 を観測**。`registerModelRoles` は 1.6.0 にも無い (`roleApi` 偽) ため、role の限定互換 (`/spirits-role` と仮想モデル `spirits/auto`) はそのまま残る。
 - 互換性の成功判定は design D12 で `confirmed` 一本へ揃えた。`Compatibility met` は公式モードで**必須観測がすべて `confirmed`** のときだけ真 (ランナーの `COMPATIBILITY_MET_DEFINITION`)。`limited` / `unavailable` / `not-run` は必須観測に 1 件でもある限り偽で、代替手段で部分成功した行を `limited` として成功に数えることもない。`host-upgrade` の本仕様側 (`confirmed` または `limited`) との同期は archive 前の spec sync で行う。
@@ -513,4 +513,12 @@ host コマンド語の照合:
 
 - `bun run check` は biome / `tsc -p tsconfig.scripts.json` / `packages/spirits` の型検査が 0 件。`cd packages/spirits && bun test` は失敗 0 件。
 - `bash scripts/test-clean-env.sh` は check / test / install / tmux-verify の 4 suite が完走した (実行環境は `python3` が在るため、install の 97 assertions と tmux-verify の 125 assertions もスキップされずに走っている)。python3 の無い環境ではこの 2 suite が走らないので、そちらでは未実行として扱う。
-- 自己更新 smoke (`sh scripts/self-update-smoke.sh …`) は `python3 -m http.server` と GitHub への network を要求するため本セッションでは **未実行**。利用者の実行による終了コード 0 の記録を受け取るまでこの手順は未完了とする。
+- 自己更新 smoke (利用者の許可を得て実行。Linux x64、Bun 1.4.2、GitHub への network あり、smoke 本体の待ち受けに `python3 -m http.server` を使用): 旧 `spirits 0.8.2` → 検証用 0.8.99 へ `spirits update` して **終了コード 0**。
+
+  ```sh
+  gh release download spirits-v0.8.2 --repo betiz0/spirits --pattern 'spirits-linux-x64' --dir /tmp/smoke-old
+  sh scripts/self-update-smoke.sh /tmp/smoke-old/spirits-linux-x64 dist/spirits-linux-x64 0.8.99 \
+    dist/spirits-managed-pi-manifest.json dist/spirits-managed-pi-extension.js
+  ```
+
+  出力は `Managed set verified [after-update]: current -> releases/pi-1.6.0`、2 回目の現版実行は `already up to date`、`Self-update smoke passed: spirits 0.8.99 (Bun 1.4.2)`。smoke はホストのランタイム版の文字列を比較しないため、同じ 0.8.99 起動役・同じ manifest を隔離 HOME へ導入して `spirits managed-pi -- --version` の実出力 **`1.6.0`** を別途確認し、導入された bundle が `dist` のものと `cmp` で一致することを見た。

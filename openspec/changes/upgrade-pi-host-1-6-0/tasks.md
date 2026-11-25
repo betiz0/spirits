@@ -54,7 +54,7 @@
 
 ## 7. 自己更新経路の検証 (利用者に実行を依頼する)
 
-- [ ] 7.1 直前のリリース `spirits-v0.8.2` の実行ファイルから検証用配信元 (`SPIRITS_API_BASE_URL` / `SPIRITS_RELEASE_BASE_URL`) で `spirits update` を実行し、新しい起動役へ置換され、同じリリースの manifest と bundle が managed root に導入されることを確認する。`scripts/self-update-smoke.sh` は検証用配信元に `python3 -m http.server` を使い、本セッションは python3 を実行できないため、実行コマンド・必要な成果物・期待する出力を揃えて利用者に実行を依頼し、結果の受領まで未実行として記録する (design D7)。検証用版は 0.8.2 より大きく、起動役・bundle・manifest が組で揃ったものを使う。完了確認: `sh scripts/self-update-smoke.sh <old-bin> <new-bin> <ver> [manifest] [bundle]` の終了コード 0 の記録 (実行した環境を含む) を手順書に写す。smoke は導入済み一式の配置と bundle の一致、launch の終了値までは見るが、ホストのランタイム版の文字列を比較しないため、終了コード 0 に加えて自己更新後の `spirits managed-pi -- --version` が `1.6.0` である実出力を別に記録する。
+- [x] 7.1 直前のリリース `spirits-v0.8.2` の実行ファイルから検証用配信元 (`SPIRITS_API_BASE_URL` / `SPIRITS_RELEASE_BASE_URL`) で `spirits update` を実行し、新しい起動役へ置換され、同じリリースの manifest と bundle が managed root に導入されることを確認する。`scripts/self-update-smoke.sh` は検証用配信元に `python3 -m http.server` を使い、本セッションは python3 を実行できないため、実行コマンド・必要な成果物・期待する出力を揃えて利用者に実行を依頼し、結果の受領まで未実行として記録する (design D7)。検証用版は 0.8.2 より大きく、起動役・bundle・manifest が組で揃ったものを使う。完了確認: `sh scripts/self-update-smoke.sh <old-bin> <new-bin> <ver> [manifest] [bundle]` の終了コード 0 の記録 (実行した環境を含む) を手順書に写す。smoke は導入済み一式の配置と bundle の一致、launch の終了値までは見るが、ホストのランタイム版の文字列を比較しないため、終了コード 0 に加えて自己更新後の `spirits managed-pi -- --version` が `1.6.0` である実出力を別に記録する。
   記録 (2026-11-25): **未実行**。本セッションは python3 と GitHub への network を使う smoke を走らせていない。利用者の実行コマンド (リポジトリルート、`python3` と network のある環境):
 
   ```sh
@@ -67,6 +67,16 @@
   ```
 
   期待する出力: 旧実行ファイルが 0.8.99 へ自己更新して `--version` がそれを返し、`spirits managed-pi -- --version` が `1.6.0` を返し (一式の導入と launch 時検証の成功)、一時ディレクトリが残らず、終了コード 0。受け取ったら手順書の「実測の記録」に終了コードと実行環境を書く。
+  記録 (2026-11-25、利用者の許可を得て本セッションで実行。Linux x64 / Bun 1.4.2 / GitHub への network あり / `python3` は smoke 本体が立てる待ち受けに使った):
+
+  ```sh
+  gh release download spirits-v0.8.2 --repo betiz0/spirits --pattern 'spirits-linux-x64' --dir /tmp/smoke-old
+  sh scripts/self-update-smoke.sh /tmp/smoke-old/spirits-linux-x64 dist/spirits-linux-x64 0.8.99 \
+    dist/spirits-managed-pi-manifest.json dist/spirits-managed-pi-extension.js
+  ```
+
+  終了コード **0**。出力は `Managed set verified [after-update]: current -> releases/pi-1.6.0`、`Managed set verified [after-current-version-run]: current -> releases/pi-1.6.0`、`Self-update smoke passed: spirits 0.8.99 (Bun 1.4.2)`。出だしの旧実行ファイルは `spirits 0.8.2 (Bun 1.4.2)`。
+  smoke はホストのランタイム版の文字列を比較しないため、同じ 0.8.99 起動役・同じ manifest で別の隔離 HOME に導入して実出力を取った (`env -i PATH=/usr/bin:/bin HOME=<iso> SPIRITS_MANAGED_PI_MANIFEST_URL=file://<repo>/dist/spirits-managed-pi-manifest.json <iso>/bin/spirits managed-pi install --version 1.6.0`) → `Installed managed Pi 1.6.0 with spirits extension 0.8.99.`、`spirits managed-pi -- --version` → **`1.6.0`**、導入された `spirits-extension.js` は `dist` の bundle と `cmp` で一致。
 
 ## 8. 全体の検査と手元のテスト
 
@@ -99,9 +109,12 @@
 
 ## 10. 承認済み commit からの正式な再測定
 
-- [ ] 10.1 1〜9 が揃った状態でユーザーにコミットを依頼し、コミットされた SHA を記録する (コミットは依頼時のみ行い、`PI_ALLOW_LOCKFILE_CHANGE=1` はそのコミットで付ける)。完了確認: 記録した SHA が `git log` に在り、`bun.lock` の移動を含むこと。
-- [ ] 10.2 その commit から拡張 bundle と起動役を再生成し、公式モードの互換性ランナーを `--commit <その SHA>` で再実行する (design D9)。完了確認: `Compatibility met` が真、`failed` が 0 件、`not-run` が成功として扱われていないこと、結果 JSON の `commit` が 10.1 の SHA と一致すること。結果 JSON のパスを実測の記録に書く。
-- [ ] 10.3 正式の再測定の結果が揃うまで、この変更を完了として扱わず、`openspec` の archive も行わないことを Workflow follow-up の状態として記録する。完了確認: 一次と正式の 2 つの結果 JSON のパスが手順書の記録に並んでいる。
+- [x] 10.1 1〜9 が揃った状態でユーザーにコミットを依頼し、コミットされた SHA を記録する (コミットは依頼時のみ行い、`PI_ALLOW_LOCKFILE_CHANGE=1` はそのコミットで付ける)。完了確認: 記録した SHA が `git log` に在り、`bun.lock` の移動を含むこと。
+  記録 (2026-11-25): 利用者の依頼でコミットした SHA は **`cd94aeb6e9b55620a330d06790498632e001e279`** (`feat(spirits): pin the Pi host to 1.6.0`、33 ファイル)。`git show --stat` に `bun.lock` を含み、pre-commit の門は `PI_ALLOW_LOCKFILE_CHANGE=1` で通過 (報告された移動は host pin 群と `grok-mermaid` 除去 / `lovely-mermaid@0.3.3` 追加 / `@google/genai` / `openai` / `undici` のみ = design D8)。コミット直後の `git status` は clean。
+- [x] 10.2 その commit から拡張 bundle と起動役を再生成し、公式モードの互換性ランナーを `--commit <その SHA>` で再実行する (design D9)。完了確認: `Compatibility met` が真、`failed` が 0 件、`not-run` が成功として扱われていないこと、結果 JSON の `commit` が 10.1 の SHA と一致すること。結果 JSON のパスを実測の記録に書く。
+  記録 (2026-11-25): clean な `cd94aeb6e9b55620a330d06790498632e001e279` の作業ツリーから `build-managed-pi-inputs.ts` と `build-binaries.ts` を再実行 (bundle SHA `a0e008b2bc579fc45caba56c26bec25d8e791ed58af8e1cb4568d32ef0fea820`)、`run.ts --inputs dist --artifact-root /tmp/pi-artifacts --commit cd94aeb6e… --out /tmp/compat/final/result.json` → 終了コード 0、`mode=official`、`confirmed=38 limited=0 unavailable=0 not-run=3 failed=0`、`compatibilityMet=true`。結果 JSON の来歴は `targetCommit=cd94aeb6e9b55620a330d06790498632e001e279`・`workingTreeClean=true`、ランタイム版 `1.6.0`。必須観測で `confirmed` 以外は 0 件 (`not-run` 3 件はいずれも必須外の registerModelRoles / 書き戻し互換 / 他拡張の tool probe)。artifact / bundle / manifest の SHA256 は手元の成果物と一致。
+- [x] 10.3 正式の再測定の結果が揃うまで、この変更を完了として扱わず、`openspec` の archive も行わないことを Workflow follow-up の状態として記録する。完了確認: 一次と正式の 2 つの結果 JSON のパスが手順書の記録に並んでいる。
+  記録 (2026-11-25): 手順書「実測の記録」に一次 `/tmp/compat/primary/result.json` と正式 `/tmp/compat/final/result.json` が並び、両者の内訳は同一 (`confirmed` 38 / `limited` 0 / `unavailable` 0 / `not-run` 3 / `failed` 0)。これで 1〜10 が揃い、残タスクは 0 件。アーカイブは利用者の依頼と `host-upgrade` 本仕様への差分同期 (design D12 / D13 を含む) の後。
 
 ## Workflow follow-up
 
