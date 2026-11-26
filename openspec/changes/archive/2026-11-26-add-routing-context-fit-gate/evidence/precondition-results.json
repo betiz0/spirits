@@ -1,0 +1,253 @@
+{
+	"generatedAt": "2026-11-26T02:29:09.869Z",
+	"measuredSet": "pi-1.6.0",
+	"bundle": {
+		"path": "/tmp/fit-gate/dist/spirits-managed-pi-extension.js",
+		"sha256": "bf8cc76c5ffd1a68d570eebacb66aac47996576fa549494601cc61509738b38d"
+	},
+	"mode": "fixture set staged around the built bundle; the Pi half is the installed pi-1.6.0 artifact",
+	"run-judgement-definition": "a run exists when the fake provider received a conversation request or the RPC stream carried agent_start; compaction_start alone does not map to a run. A compaction happened when the session records a new compaction entry; one compaction can carry more than one summarization request (split turn).",
+	"compact-waitable-from-idle-input": true,
+	"blocked-input-sends-nothing": true,
+	"queue-coexists": false,
+	"gate-flag-visible-to-racing-input": true,
+	"esc-aborts-compaction": true,
+	"d1-basis": "compact-waitable-from-idle-input && esc-aborts-compaction && gate-flag-visible-to-racing-input (revised D10: gate-level in-flight rejection replaces the host queue assumption)",
+	"d1-holds": true,
+	"input-shapes": [
+		{
+			"text": "fitgate shape plain answer ok",
+			"source": "rpc",
+			"streamingBehavior": null,
+			"mode": "rpc",
+			"hasUI": true,
+			"isIdle": true,
+			"gateWaitActive": false
+		},
+		{
+			"text": "/skill:fitgate-unknown fitgate shape skill answer ok",
+			"source": "rpc",
+			"streamingBehavior": null,
+			"mode": "rpc",
+			"hasUI": true,
+			"isIdle": true,
+			"gateWaitActive": false
+		},
+		{
+			"text": "/fitgate-tpl fitgate shape template answer ok",
+			"source": "rpc",
+			"streamingBehavior": null,
+			"mode": "rpc",
+			"hasUI": true,
+			"isIdle": true,
+			"gateWaitActive": false
+		},
+		{
+			"text": "/compact",
+			"source": "rpc",
+			"streamingBehavior": null,
+			"mode": "rpc",
+			"hasUI": true,
+			"isIdle": true,
+			"gateWaitActive": false
+		},
+		{
+			"text": "!echo fitgate shape shell answer ok",
+			"source": "rpc",
+			"streamingBehavior": null,
+			"mode": "rpc",
+			"hasUI": true,
+			"isIdle": true,
+			"gateWaitActive": false
+		},
+		{
+			"text": "FITGATE-EXTENSION-SOURCED answer ok",
+			"source": "extension",
+			"streamingBehavior": null,
+			"mode": "rpc",
+			"hasUI": true,
+			"isIdle": true,
+			"gateWaitActive": false
+		},
+		{
+			"text": "fitgate flush after send answer ok",
+			"source": "rpc",
+			"streamingBehavior": null,
+			"mode": "rpc",
+			"hasUI": true,
+			"isIdle": true,
+			"gateWaitActive": false
+		},
+		{
+			"text": "FITGATE-SLOW steer target answer ok",
+			"source": "rpc",
+			"streamingBehavior": null,
+			"mode": "rpc",
+			"hasUI": true,
+			"isIdle": true,
+			"gateWaitActive": false
+		},
+		{
+			"text": "fitgate steer during run",
+			"source": "rpc",
+			"streamingBehavior": "steer",
+			"mode": "rpc",
+			"hasUI": true,
+			"isIdle": false,
+			"gateWaitActive": false
+		},
+		{
+			"text": "fitgate followup during run",
+			"source": "rpc",
+			"streamingBehavior": "followUp",
+			"mode": "rpc",
+			"hasUI": true,
+			"isIdle": false,
+			"gateWaitActive": false
+		}
+	],
+	"input-shapes-commands": [
+		{
+			"name": "fitgate-state",
+			"source": "extension"
+		},
+		{
+			"name": "fitgate-send",
+			"source": "extension"
+		},
+		{
+			"name": "spirits-role",
+			"source": "extension"
+		},
+		{
+			"name": "spirits-clear",
+			"source": "extension"
+		},
+		{
+			"name": "fitgate-tpl",
+			"source": "prompt"
+		}
+	],
+	"input-shapes-template-expanded": true,
+	"input-rule": "the gate applies when ctx.mode is tui or rpc, streamingBehavior is absent, source is not extension, the text is neither blank nor a shell-escape prefix, and the text is not a slash command whose name pi resolves in getCommands with source \"extension\"; prompt template (source \"prompt\") and skill launch (`skill:`) commands stay in scope and are judged on their unexpanded text; anything the rule does not classify is out of scope (fail open).",
+	"input-rule-host-commands": "host commands cannot be excluded by name: getCommands() reports only the extension / prompt / skill sources (the host's BUILTIN_SLASH_COMMANDS is not a root export), the tui takes its own commands away before the input event, and in rpc a \"/compact\" line reaches input as plain prompt text (see input-shapes), where it starts a model request and is judged like any other idle input.",
+	"input-rule-revision": "2026-11-26 (task 1.3): the rule sentence above was restated. It used to claim extension, builtin, template, and skill sources all bypass the gate, which contradicted design D7 and the spec scenario 「スキル起動のコマンドでは展開前の本文で判定する」 and did not match the implementation (`gateInScope` in packages/spirits/src/routing/register.ts excludes extension-source commands only). The measured input-shapes and input-shapes-commands above are unchanged.",
+	"split-turn-calibration": {
+		"summarizationRequests": 2,
+		"compactionEntries": 1,
+		"compactionEntriesBefore": 0,
+		"note": "fixture: scripts/managed-pi-compat/fixtures/custom-provider.ts defines fake-model/fake-strong at 128000 and fake-small at 32000; the sample run drives one compaction over a turn that carries a steering message"
+	},
+	"measurements": {
+		"compactWait": {
+			"outcome": {
+				"kind": "complete",
+				"summaryChars": 83,
+				"estimatedTokensAfter": 3416
+			},
+			"waitingSamples": [
+				{
+					"atMs": 50,
+					"phase": "waiting",
+					"isIdle": false,
+					"pending": false
+				},
+				{
+					"atMs": 100,
+					"phase": "waiting",
+					"isIdle": false,
+					"pending": false
+				},
+				{
+					"atMs": 150,
+					"phase": "waiting",
+					"isIdle": false,
+					"pending": false
+				},
+				{
+					"atMs": 200,
+					"phase": "waiting",
+					"isIdle": false,
+					"pending": false
+				},
+				{
+					"atMs": 250,
+					"phase": "waiting",
+					"isIdle": false,
+					"pending": false
+				},
+				{
+					"atMs": 304,
+					"phase": "waiting",
+					"isIdle": false,
+					"pending": false
+				},
+				{
+					"atMs": 354,
+					"phase": "waiting",
+					"isIdle": false,
+					"pending": false
+				},
+				{
+					"atMs": 404,
+					"phase": "waiting",
+					"isIdle": false,
+					"pending": false
+				}
+			],
+			"timelineLength": 8,
+			"compactionEntriesAfterWait": 1,
+			"agentStartsTotal": 2,
+			"agentStartsAfterHandled": 0,
+			"handledDisposition": "handled",
+			"conversationRequests": 2,
+			"summarizationRequests": 1,
+			"stderr": ""
+		},
+		"queue": {
+			"secondError": null,
+			"secondDisposition": "started",
+			"firstDisposition": "started",
+			"secondConversationRequests": 2,
+			"compactionEntries": 1,
+			"probeInputOrder": [
+				{
+					"text": "fitgate queue seed turn answer ok",
+					"behavior": null,
+					"source": "rpc",
+					"gateWaitActive": false
+				},
+				{
+					"text": "FITGATE-WAIT first while waiting answer ",
+					"behavior": null,
+					"source": "rpc",
+					"gateWaitActive": false
+				},
+				{
+					"text": "fitgate second while waiting answer ok",
+					"behavior": null,
+					"source": "rpc",
+					"gateWaitActive": true
+				}
+			],
+			"agentStarts": 3,
+			"stderr": ""
+		},
+		"abort": {
+			"outcome": {
+				"kind": "error",
+				"message": "Compaction cancelled"
+			},
+			"compactionEntries": 0,
+			"closedEarly": 1,
+			"summarizationRequests": 1,
+			"agentStartsAfterAbort": 1,
+			"stderr": ""
+		},
+		"split": {
+			"probeInputs": 3,
+			"steerBehaviorSeen": true,
+			"stderr": ""
+		}
+	}
+}
