@@ -19,9 +19,11 @@ import {
 } from "../constants.ts";
 import type { RoutingSettings } from "../config.ts";
 import type { PiModel, ThinkingLevel } from "../types/host.ts";
+import type { FitCompactionSettings } from "./fit.ts";
+import { estimateConversationTokens, overFitThreshold, spanFits } from "./fit.ts";
 import type { ActiveStep } from "./phase.ts";
 import { resolveRequestPlan } from "./plan.ts";
-import { type ModelLookup, modelKey } from "./resolve.ts";
+import { findPhysicalModel, type ModelLookup, modelKey, latestSuccessfulModel } from "./resolve.ts";
 
 /** Notification reasons, deduplicated within one agent run (design Decision 8). */
 export interface NotificationGuard {
@@ -94,10 +96,53 @@ export interface RouterDeps {
 	 * nothing else, so a footer that will not take a write cannot reach the route through it.
 	 */
 	onRoute?: (decision: RouteDecision, ctx: ExtensionContext) => void;
+	/**
+	 * Whether the gate's ahead compaction is in flight right now.
+	 *
+	 * The one signal that separates a summary the gate is running from every other `direct` request
+	 * (branch summaries, bug reports, extension calls), which the host does not tag (design Decision
+	 * D4 of the fit-gate change). Absent means no gate is wired, and no `direct` request is moved.
+	 */
+	gateInFlight?: () => boolean;
+	/** Resolve pi's compaction numbers for one candidate model, for the fit comparison. */
+	readCompaction?: (model: PiModel) => FitCompactionSettings;
 }
 
 /** The role and level rules live with the plan, so every caller composes them the same way. */
 export { resolveRequestRole, resolveRequestThinkingLevel } from "./plan.ts";
+
+/**
+ * The summary model for a gated ahead-compaction, or undefined to answer on the role target.
+ *
+ * The three conditions of design Decision D4 are checked here and nowhere else: the caller has
+ * already read the in-flight flag, this sees `reason === "direct"`, and this measures whether the
+ * span passes the role target's own threshold. Only then do the candidates walk — the request's
+ * `previous` first, then the branch's latest successful model — and a candidate answers only when
+ * the current catalog lists it physical, its provider has credentials, and its own threshold holds
+ * the span. Nothing fitting is not a failure: the role target is returned as it was before the gate
+ * existed, and the gate's own block path reports why the compaction did not shrink the conversation.
+ */
+function gateSummaryModel(
+	request: ModelRouteRequest,
+	ctx: ExtensionContext,
+	target: PiModel,
+	readCompaction: (model: PiModel) => FitCompactionSettings,
+): PiModel | undefined {
+	const span = estimateConversationTokens(request.messages);
+	const targetSettings = readCompaction(target);
+	if (!overFitThreshold(span, target.contextWindow, targetSettings.reserveTokens)) return undefined;
+	const lookup: ModelLookup = ctx.modelRegistry;
+	const available = lookup.getAvailable();
+	const latest = latestSuccessfulModel(ctx.sessionManager.getBranch(), ctx.modelRegistry).model;
+	const candidates: PiModel[] = [...(request.previous ? [request.previous.model] : []), ...(latest ? [latest] : [])];
+	for (const candidate of candidates) {
+		const model = findPhysicalModel(available, candidate.provider, candidate.id);
+		if (!model || !lookup.hasConfiguredAuth(model)) continue;
+		const candidateSettings = readCompaction(model);
+		if (spanFits(span, model.contextWindow, candidateSettings.reserveTokens)) return model;
+	}
+	return undefined;
+}
 
 /** The `spirits/auto` route. */
 export function createRoutingRoute(deps: RouterDeps): (request: ModelRouteRequest, ctx: ExtensionContext) => ModelRoute {
@@ -131,6 +176,14 @@ export function createRoutingRoute(deps: RouterDeps): (request: ModelRouteReques
 				thinkingLevel: plan.thinkingLevel ?? request.thinkingLevel,
 			};
 		};
+
+		// A summary for the gate's ahead compaction runs where the conversation already fit, not on the
+		// role target that is about to receive it. Reporting stays off: the request is neither the run's
+		// resolution nor the last request the user asked for (design Decision D4 of the fit-gate change).
+		if (plan.model && request.reason === "direct" && deps.gateInFlight?.() && deps.readCompaction) {
+			const summary = gateSummaryModel(request, ctx, plan.model, deps.readCompaction);
+			if (summary) return { model: summary, thinkingLevel: plan.thinkingLevel ?? request.thinkingLevel };
+		}
 
 		if (plan.source === "strong" && plan.model) {
 			return answer(MODEL_ROLE_STRONG, plan.model);

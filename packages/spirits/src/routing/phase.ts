@@ -217,7 +217,7 @@ function starterCommand(starter: string): string {
  * name pi would read differently — a newline where a space belongs — is therefore not a command here
  * either, and does not open a step.
  */
-function commandNameFromInput(text: string): string | undefined {
+export function commandNameFromInput(text: string): string | undefined {
 	if (!text.startsWith("/")) return undefined;
 	if (text.startsWith(SKILL_COMMAND_PREFIX)) {
 		const rest = text.slice(SKILL_COMMAND_PREFIX.length);

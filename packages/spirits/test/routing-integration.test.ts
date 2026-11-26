@@ -7,7 +7,17 @@ import { expect, test } from "bun:test";
 import type { ModelRoute } from "@earendil-works/pi-coding-agent";
 import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { PiModel } from "../src/types/host.ts";
-import { asExtensionApi, fakeModel, slashCommandInfo } from "./host/fake-pi.ts";
+import {
+	asExtensionApi,
+	fakeContext,
+	fakeModel,
+	fakeProjection,
+	fakeSessionManager,
+	messageEntry,
+	nextEntryId,
+	slashCommandInfo,
+	userMessage,
+} from "./host/fake-pi.ts";
 import {
 	MODEL_ROLE_NORMAL,
 	MODEL_ROLE_STRONG,
@@ -20,12 +30,14 @@ import { readRoutingSettings } from "../src/config.ts";
 import spiritsExtension from "../src/index.ts";
 import { registerManagedCommands } from "../src/commands/register.ts";
 import { resolveRequestRole } from "../src/routing/plan.ts";
+import { registerDualModelRouting, type RoutedRequest } from "../src/routing/register.ts";
 import { registerReportedRouting } from "./routing/fake-pi.ts";
 import {
 	AUTO_SELECTION,
 	fakeCatalog,
 	fakeCommandContext,
 	FakePi,
+	makeUserEntry,
 	type FakeSelectBehavior,
 	makeCustomEntry,
 	makeInputEvent,
@@ -642,4 +654,71 @@ test("keeps normal across a non-target skill run", async () => {
 		"normal:claude-sonnet-4-5",
 	]);
 	expect(notices).toEqual([]);
+});
+
+// spec "dual-model-routing / 先行圧縮の要約先の解決": the gate's summary resolution must not move
+// the role phase or the `status` report, and a `direct` request the gate did not start must keep
+// reporting as it always has (fit-gate change task 3.3).
+const FIT_SMALL: PiModel = fakeModel("fake", "small", { contextWindow: 32000 });
+const FIT_BIG: PiModel = fakeModel("fake", "big", { contextWindow: 128000 });
+
+function fitGateStatusHarness() {
+	const pi = new FakePi();
+	pi.settings = { defaultProvider: "fake", defaultModel: "small" };
+	const requests: RoutedRequest[] = [];
+	registerDualModelRouting(asExtensionApi(pi), { onRequest: (request) => requests.push(request) });
+	// A conversation past the small target's threshold, so an idle input starts the ahead compaction.
+	const conversation = userMessage("x".repeat(20000 * 4));
+	const { ctx } = fakeCatalog({
+		available: [FIT_SMALL, FIT_BIG],
+		authedProviders: ["fake"],
+		model: AUTO_SELECTION,
+		branch: [messageEntry(conversation, nextEntryId())],
+	});
+	const compactions: Array<{ onComplete?: (result: unknown) => void }> = [];
+	const gateCtx = fakeContext({
+		...ctx,
+		compact: (call: { onComplete?: (result: unknown) => void }) => {
+			compactions.push(call);
+		},
+		// `fakeCatalog`'s projection carries entries only; the gate measures the projection's messages.
+		sessionManager: fakeSessionManager({
+			getBranch: () => [...ctx.sessionManager.getBranch()],
+			buildSessionProjection: () => fakeProjection({ messages: [conversation] }),
+		}),
+	});
+	return { pi, ctx, gateCtx, requests, compactions };
+}
+
+test("a gate summary leaves the reported last request alone", async () => {
+	const { pi, gateCtx, requests, compactions } = fitGateStatusHarness();
+
+	// An idle input over the threshold puts the gate's ahead compaction in flight.
+	const firing = pi.fire("input", makeInputEvent("back to work"), gateCtx);
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(compactions.length).toBe(1);
+
+	// The compaction's summarization request resolves on the model that held the conversation and
+	// reports nothing: no role for the badge, no last request for `status`.
+	const summary = pi.route()(
+		makeRequest({ reason: "direct", messages: [userMessage("x".repeat(100000 * 4))], previous: { model: FIT_BIG } }),
+		gateCtx,
+	) as ModelRoute;
+	expect(summary.model.id).toBe("big");
+	expect(requests).toEqual([]);
+
+	compactions[0]?.onComplete?.({ summary: "s", firstKeptEntryId: "k", tokensBefore: 0 });
+	await firing;
+});
+
+test("a branch summary keeps reporting as before", async () => {
+	const { pi, ctx, requests } = fitGateStatusHarness();
+
+	// No gate compaction is in flight: this `direct` request is a branch summary or an extension call,
+	// and it resolves and reports exactly as it did before the gate existed.
+	const summary = pi.route()(makeRequest({ reason: "direct", messages: [userMessage("summarize the branch")] }), ctx) as ModelRoute;
+
+	expect(summary.model.id).toBe("small");
+	expect(requests.length).toBe(1);
+	expect(requests[0]?.model).toBe("fake/small");
 });

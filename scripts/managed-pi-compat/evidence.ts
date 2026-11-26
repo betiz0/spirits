@@ -189,6 +189,19 @@ export const CLEAR_BOUNDARY_ITEMS = {
 } as const;
 
 /**
+ * Names of the three context-fit-gate items.
+ *
+ * They measure the strong-to-normal transition on the fixture's two windows: the ahead compaction
+ * and the model its summary ran on, the blocked interval when compaction cannot make the
+ * conversation fit, and the one-compaction-one-request shape of the transition turn.
+ */
+export const FIT_GATE_ITEMS = {
+	aheadCompaction: "fit gate ahead compaction summarizes on the previous model",
+	blocked: "fit gate refuses a conversation that stays over the small window",
+	singleCompaction: "fit gate compacts once per transition turn",
+} as const;
+
+/**
  * Observations that must be `confirmed` before an official run may claim compatibility. A missing
  * or limited item makes `compatibilityMet` false even when `failed=0`.
  *
@@ -227,6 +240,9 @@ export const REQUIRED_OBSERVATIONS: readonly string[] = [
 	CLEAR_BOUNDARY_ITEMS.fork,
 	CLEAR_BOUNDARY_ITEMS.treeMove,
 	CLEAR_BOUNDARY_ITEMS.resume,
+	FIT_GATE_ITEMS.aheadCompaction,
+	FIT_GATE_ITEMS.blocked,
+	FIT_GATE_ITEMS.singleCompaction,
 	"existing agent dir untouched",
 ];
 
@@ -280,6 +296,12 @@ export const OBSERVATION_EVIDENCE: Readonly<Record<string, string>> = {
 		"the extension API moved the leaf to before the boundary and the cleared marker came back into the request",
 	[CLEAR_BOUNDARY_ITEMS.resume]:
 		"the session reopened in another process sent a request that still left the cleared marker out",
+	[FIT_GATE_ITEMS.aheadCompaction]:
+		"the over-threshold transition compacted ahead of the run, every summarization request named the previous successful model, and the small-window normal target answered",
+	[FIT_GATE_ITEMS.blocked]:
+		"two over-threshold inputs refused with a notice each: 0 conversation requests, 0 runs, and no compaction entry added when the session already ended in one",
+	[FIT_GATE_ITEMS.singleCompaction]:
+		"the transition turn left exactly one compaction entry and one conversation request",
 	"direct execute probe is auxiliary":
 		"the managed tool inventory showed tsrepl; a direct execute would report bypassedPiHooks",
 	"settings write compatibility":

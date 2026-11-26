@@ -53,7 +53,7 @@ function isVirtual(model: PiModel): boolean {
 	return model.api === PI_VIRTUAL_MODEL_API;
 }
 
-function findModel(models: readonly PiModel[], provider: string, modelId: string): PiModel | undefined {
+export function findPhysicalModel(models: readonly PiModel[], provider: string, modelId: string): PiModel | undefined {
 	return models.find((model) => !isVirtual(model) && model.provider === provider && model.id === modelId);
 }
 
@@ -61,7 +61,7 @@ function findModel(models: readonly PiModel[], provider: string, modelId: string
 function findSpecModel(lookup: ModelLookup, spec: ModelSpec, defaultProvider?: string): PiModel | undefined {
 	const provider = spec.provider ?? defaultProvider;
 	if (!provider) return undefined;
-	return findModel(lookup.getAvailable(), provider, spec.modelId);
+	return findPhysicalModel(lookup.getAvailable(), provider, spec.modelId);
 }
 
 /**
@@ -91,7 +91,7 @@ export function resolveNormalTarget(options: {
 		if (configured && lookup.hasConfiguredAuth(configured)) return { model: configured, source: "spec", fellFromSpec: false };
 	}
 	if (defaultProvider && defaultModelId) {
-		const model = findModel(lookup.getAvailable(), defaultProvider, defaultModelId);
+		const model = findPhysicalModel(lookup.getAvailable(), defaultProvider, defaultModelId);
 		if (model) return { model, source: "default", fellFromSpec };
 	}
 	// `previous` is the model of a successful response, which pi guarantees physical: a failed route

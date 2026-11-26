@@ -46,9 +46,10 @@ test("keeps the skill-driven strong step", async () => {
 	const pi = host();
 	registerDualModelRouting(asExtensionApi(pi));
 	const { ctx } = fakeCatalog({ available: [SONNET, OPUS], authedProviders: ["anthropic"], model: AUTO_SELECTION });
-	const input = pi.handlers.get("input")![0]!;
 
-	await input({ type: "input", text: "/skill:sprt-opsx-review-change", source: "interactive" }, ctx);
+	// Fired through the host's chain, not one handler by index: the routing layer answers an input
+	// through several handlers in registration order (guard, phase, fit gate), and pi is what walks them.
+	await pi.fire("input", { type: "input", text: "/skill:sprt-opsx-review-change", source: "interactive" }, ctx);
 
 	expect((pi.route()(makeRequest(), ctx) as ModelRoute).model.id).toBe(OPUS.id);
 });

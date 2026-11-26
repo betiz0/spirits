@@ -54,12 +54,29 @@ import {
 	buildRuntimeEvidence,
 	CLEAR_BOUNDARY_ITEMS,
 	countStates,
+	FIT_GATE_ITEMS,
 	formatStateCounts,
 	HOST_VERIFICATION_ITEM,
 	identifyRuntime,
 } from "./evidence.ts";
 import type { FakeProviderRequest, FakeReply, FakeToolCall } from "./fake-provider.ts";
 import { reasoningEffortFor, requestFakeToolCall, startFakeProvider } from "./fake-provider.ts";
+import {
+	FIT_GATE_BLOCK_MARKERS,
+	FIT_GATE_FILL_MARKER,
+	FIT_GATE_FILL_TURNS,
+	FIT_GATE_FILLER_CHARS,
+	FIT_GATE_KEEP_BLOCKS,
+	FIT_GATE_KEEP_FITS,
+	FIT_GATE_TRANSITION_MARKER,
+	type FitGateProvider,
+	fitGateFillPrompt,
+	fitGateSettings,
+	judgeAheadCompaction,
+	judgeBlocked,
+	judgeSingleCompaction,
+	startFitGateProvider,
+} from "./fit-gate.ts";
 import { stageFixtureBundle } from "./fixture-bundle.ts";
 import {
 	classifySystemPrompt,
@@ -166,6 +183,8 @@ const ROUTING_PROVIDER = "spirits";
 const ROUTING_MODEL = "auto";
 const FAKE_MODEL_ID = "fake-model";
 const STRONG_MODEL_ID = "fake-strong";
+/** The fixture's deliberately small-window model, the normal role target of the fit-gate items. */
+const SMALL_MODEL_ID = "fake-small";
 /** Skill command prefix and the bundled skill that puts the spirits router into its strong phase. */
 const SKILL_COMMAND_PREFIX = "/skill:";
 const STRONG_PHASE_SKILL = "sprt-opsx-review-change";
@@ -693,6 +712,9 @@ async function main(): Promise<number> {
 			CLEAR_BOUNDARY_ITEMS.fork,
 			CLEAR_BOUNDARY_ITEMS.treeMove,
 			CLEAR_BOUNDARY_ITEMS.resume,
+			FIT_GATE_ITEMS.aheadCompaction,
+			FIT_GATE_ITEMS.blocked,
+			FIT_GATE_ITEMS.singleCompaction,
 		];
 		if (!launch) {
 			for (const name of processItems) {
@@ -2164,6 +2186,201 @@ async function main(): Promise<number> {
 									beforeMarker: markers.before,
 								})),
 							data: { sessionFile: seeded.sessionFile, openedSessionFile: resumed?.sessionFile },
+						};
+					} finally {
+						provider.stop();
+					}
+				});
+
+				// The context fit gate, measured on the fixture's two windows. These stages replace the
+				// settings file the boundary items last wrote: the strong role answers on the 128000-token
+				// model, the normal role target is the 32000-token fake-small, and each scenario pins the
+				// compaction numbers it is judged against before its launch, the way the boundary items do.
+				// Nothing after this point reads the settings file.
+				const fitGateStage = async (options: {
+					provider: FitGateProvider;
+					keepRecentTokens: number;
+					stages: readonly RpcStep[];
+				}) => {
+					await Bun.write(
+						join(runner.agentDir, "settings.json"),
+						`${JSON.stringify(
+							fitGateSettings(options.keepRecentTokens, COMPAT_PROVIDER, STRONG_MODEL_ID, SMALL_MODEL_ID),
+							null,
+							"\t",
+						)}\n`,
+					);
+					return stagedProbe({
+						command: launchCommand([PROVIDER_EXTENSION, launch.extensionPath]),
+						cwd: runner.workRoot,
+						env: {
+							...baseEnv,
+							[FAKE_PROVIDER_ENV]: options.provider.baseUrl,
+							// As in boundaryStage: a stage that failed to route to the compat models has to fail
+							// loudly, because with a live key the transition would answer from a real provider
+							// while the item measured nothing.
+							ANTHROPIC_API_KEY: "",
+							OPENAI_API_KEY: "",
+						},
+						stages: options.stages,
+						timeoutMs: RPC_TIMEOUT_MS,
+					});
+				};
+				const fitGateAutoStep: RpcStep = {
+					requests: [
+						{ id: "fitgate-model", type: "set_model", provider: ROUTING_PROVIDER, modelId: ROUTING_MODEL },
+					],
+				};
+				// The turns that grow the conversation: strong-phase skill steps, each answered with a
+				// long filler text. They cross the small window's threshold while staying under the strong
+				// one, so only the transition input can make the gate act.
+				const fitGateFillSteps = (): RpcStep[] =>
+					Array.from({ length: FIT_GATE_FILL_TURNS }, (_unused, index) =>
+						boundaryPrompt(
+							`fitgate-fill-${index + 1}`,
+							`${SKILL_COMMAND_PREFIX}${STRONG_PHASE_SKILL} ${fitGateFillPrompt(index + 1)}`,
+						),
+					);
+				const fitGateEntriesStep = (id: string): RpcStep => ({
+					requests: [{ id, type: "get_entries" }],
+					waitFor: () => false,
+					timeoutMs: PURPOSE_SETTLE_MS,
+				});
+				/** Compaction entries the host wrote, read off the scenario's `get_entries` response. */
+				const compactionEntriesIn = (records: readonly RpcRecord[]): number =>
+					records
+						.filter(
+							(record) =>
+								record.type === "response" && record.command === "get_entries" && record.success === true,
+						)
+						.flatMap(
+							(record) =>
+								(record.data as { entries?: Array<Record<string, unknown>> } | undefined)?.entries ?? [],
+						)
+						.filter((entry) => entry?.type === "compaction").length;
+				// Every fill prompt stays in the conversation, so a later request carries the earlier
+				// markers too; the fill turns are proven by the newest request carrying the last of them.
+				const fillTurnsRan = (provider: FitGateProvider): boolean =>
+					provider.modelFor(`${FIT_GATE_FILL_MARKER} ${FIT_GATE_FILL_TURNS}`) === STRONG_MODEL_ID &&
+					provider.requests.length >= FIT_GATE_FILL_TURNS;
+
+				// The transition turn of the fitting scenario, kept for the item that counts its compaction.
+				let fitGateTransition: { ran: boolean; compactionEntries: number; transitionRequests: number } | undefined;
+				await run(FIT_GATE_ITEMS.aheadCompaction, async () => {
+					const provider = startFitGateProvider(FIT_GATE_FILLER_CHARS);
+					try {
+						const probed = await fitGateStage({
+							provider,
+							keepRecentTokens: FIT_GATE_KEEP_FITS,
+							stages: [
+								fitGateAutoStep,
+								...fitGateFillSteps(),
+								boundaryPrompt("fitgate-transition", `${FIT_GATE_TRANSITION_MARKER} answer ok`),
+								fitGateEntriesStep("fitgate-entries"),
+							],
+						});
+						const ran = fillTurnsRan(provider);
+						const transitionModel = provider.modelFor(FIT_GATE_TRANSITION_MARKER);
+						const summarizationModels = provider.summarizationModels();
+						const compactionEntries = compactionEntriesIn(probed.records);
+						const transitionRequests = provider.conversationRequests(FIT_GATE_TRANSITION_MARKER);
+						fitGateTransition = { ran, compactionEntries, transitionRequests };
+						return {
+							...judgeAheadCompaction(
+								{
+									attempted: ran,
+									...(ran
+										? {}
+										: {
+												reason: `the last fill turn was not answered by ${STRONG_MODEL_ID} (${String(provider.requests.length)} request(s) reached the provider)`,
+											}),
+									summarizationModels,
+									...(transitionModel !== undefined ? { transitionModel } : {}),
+								},
+								{ summaryModel: STRONG_MODEL_ID, targetModel: SMALL_MODEL_ID },
+							),
+							data: {
+								requests: provider.requests.length,
+								summarizationModels,
+								transitionModel,
+								compactionEntries,
+								stderr: probed.stderr.trim().slice(0, 300),
+							},
+						};
+					} finally {
+						provider.stop();
+					}
+				});
+
+				await run(FIT_GATE_ITEMS.singleCompaction, async () =>
+					judgeSingleCompaction({
+						attempted: fitGateTransition?.ran === true,
+						...(fitGateTransition?.ran === true
+							? {}
+							: {
+									reason: "the transition scenario never reached its fill turns, so there is no turn to count",
+								}),
+						compactionEntries: fitGateTransition?.compactionEntries ?? 0,
+						transitionRequests: fitGateTransition?.transitionRequests ?? 0,
+					}),
+				);
+
+				await run(FIT_GATE_ITEMS.blocked, async () => {
+					const provider = startFitGateProvider(FIT_GATE_FILLER_CHARS);
+					// A refusal answers `handled` and starts no run, so a blocked stage waits for the notice
+					// the refusal carries instead of `agent_settled`, which it never produces. The wait is
+					// capped below the RPC timeout: a gate that neither refuses nor blocks would otherwise
+					// hold the whole scenario for two minutes before the judgement could say so.
+					const refused = (count: number): Pick<RpcStep, "waitFor" | "timeoutMs"> => ({
+						waitFor: (records) => notifyRecords(records).length >= count,
+						timeoutMs: 20_000,
+					});
+					try {
+						const probed = await fitGateStage({
+							provider,
+							keepRecentTokens: FIT_GATE_KEEP_BLOCKS,
+							stages: [
+								fitGateAutoStep,
+								...fitGateFillSteps(),
+								{
+									requests: [promptCommand("fitgate-block-one", `${FIT_GATE_BLOCK_MARKERS[0]} answer ok`)],
+									...refused(1),
+								},
+								{
+									requests: [promptCommand("fitgate-block-two", `${FIT_GATE_BLOCK_MARKERS[1]} answer ok`)],
+									...refused(2),
+								},
+								fitGateEntriesStep("fitgate-block-entries"),
+							],
+						});
+						const ran = fillTurnsRan(provider);
+						const blockRequests = FIT_GATE_BLOCK_MARKERS.reduce(
+							(total, marker) => total + provider.conversationRequests(marker),
+							0,
+						);
+						const notices = notifyRecords(probed.records);
+						const compactionEntries = compactionEntriesIn(probed.records);
+						return {
+							...judgeBlocked({
+								attempted: ran,
+								...(ran
+									? {}
+									: {
+											reason: `the last fill turn was not answered by ${STRONG_MODEL_ID}, so the conversation never crossed the small window`,
+										}),
+								blockRequests,
+								agentStarts: probed.records.filter((record) => record.type === "agent_start").length,
+								buildTurns: FIT_GATE_FILL_TURNS,
+								notices: notices.length,
+								compactionEntries,
+							}),
+							data: {
+								requests: provider.requests.length,
+								blockRequests,
+								notices: notices.map((text) => text.slice(0, 160)),
+								compactionEntries,
+								stderr: probed.stderr.trim().slice(0, 300),
+							},
 						};
 					} finally {
 						provider.stop();

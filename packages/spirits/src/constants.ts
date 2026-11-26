@@ -345,6 +345,15 @@ export const EXTENSION_MODE_TUI = "tui";
 export const EXTENSION_MODE_PRINT = "print";
 
 /**
+ * The mode where a client drives the session over a pipe.
+ *
+ * A person is behind the input there too, and the host delivers an extension's notice and editor
+ * requests to the client, so the fit gate treats it like the terminal: refuse with a reason, restore
+ * the text as far as the host lets it (design Decision D7 of the fit-gate change).
+ */
+export const EXTENSION_MODE_RPC = "rpc";
+
+/**
  * The host's own commands, spelled the way the host's help spells them.
  *
  * Only the interactive terminal is told these, because they are operations on a screen that only exists
@@ -570,6 +579,42 @@ export const STEP_CONFIRM_CANCEL = "cancel";
 export const INPUT_SOURCE_INTERACTIVE = "interactive";
 
 /**
+ * The `input` event's source word for a line another extension sent.
+ *
+ * Nobody typed it and the sending extension cannot answer a refusal, so the fit gate never judges
+ * one. The host's own union, spelled once here.
+ */
+export const INPUT_SOURCE_EXTENSION = "extension";
+
+/**
+ * Prefix that sends an input line to the shell instead of a model.
+ *
+ * The terminal intercepts it before the `input` event; an RPC client can still deliver such a line,
+ * and classifying it would need the host's own escaping rules, so the gate stays out of it (fail
+ * open, design Decision D7 of the fit-gate change).
+ */
+export const SHELL_INPUT_PREFIX = "!";
+
+/**
+ * pi's compaction settings, keyed the way the settings file nests them.
+ *
+ * The fit gate reads the same numbers pi's own threshold check resolves — reserve, keep, and the
+ * per-model overrides — because a second default of its own would drift from pi on the next host
+ * bump (design Decision D2 of the fit-gate change). The fallback values come from the host's
+ * exported `DEFAULT_COMPACTION_SETTINGS`, not from these keys.
+ */
+export const SETTINGS_KEY_COMPACTION = "compaction";
+
+/** Settings key under {@link SETTINGS_KEY_COMPACTION} holding the per-model override table. */
+export const SETTINGS_KEY_COMPACTION_MODEL_OVERRIDES = "modelOverrides";
+
+/** Settings key holding the tokens pi keeps free below the window, ordinary or per-model. */
+export const SETTINGS_KEY_COMPACTION_RESERVE_TOKENS = "reserveTokens";
+
+/** Settings key holding the tokens pi keeps recent in a compaction, ordinary or per-model. */
+export const SETTINGS_KEY_COMPACTION_KEEP_RECENT_TOKENS = "keepRecentTokens";
+
+/**
  * pi's api id for virtual catalog entries. pi keeps `isVirtualModel` inside the package, so spirits
  * reads this value off `PiModel.api` to keep virtual models out of routing targets. Pinned by
  * `test/pi-runtime/virtual-model-api.test.ts`.
@@ -584,6 +629,74 @@ export const NOTIFY_KEY_NORMAL_UNUSABLE = "routing-normal-unusable";
 
 /** Notification suppressed after the first one in a run: normal fell back to the previous model. */
 export const NOTIFY_KEY_PREVIOUS_FALLBACK = "routing-previous-fallback";
+
+/**
+ * The fit gate's refusal wording (design Decision D6 of the fit-gate change).
+ *
+ * One notice per blocked decision, naming the target, its window, the reserve-inclusive threshold,
+ * the measured conversation, and pi's keep. The cause line is one of {@link FIT_BLOCK_CAUSES}.
+ */
+export const FIT_BLOCK_CAUSES = {
+	/** The ahead compaction finished and the conversation is still past the threshold. */
+	stillOver: "still past the threshold after compaction",
+	/** The ahead compaction reported a failure; the gate appends the host's own message. */
+	compactionFailed: "the ahead compaction did not complete",
+	/** The ahead compaction was cancelled (Esc, the same path as `/compact`). */
+	cancelled: "the ahead compaction was cancelled",
+	/** pi's automatic compaction is switched off, so the gate compacted nothing (Decision D8). */
+	compactionDisabled: "automatic compaction is disabled, so nothing was compacted",
+} as const;
+
+/** Which {@link FIT_BLOCK_CAUSES} line a blocked decision reports. */
+export type FitBlockCause = (typeof FIT_BLOCK_CAUSES)[keyof typeof FIT_BLOCK_CAUSES];
+
+/** Everything the fit gate's refusal names, already read as numbers and a model key. */
+export interface FitBlockNoticeFields {
+	/** The model that would have answered, in `provider/id` spelling. */
+	model: string;
+	/** That model's context window, in tokens. */
+	contextWindow: number;
+	/** The reserve-inclusive threshold it is measured against, in tokens. */
+	threshold: number;
+	/** The measured conversation including the received text, in estimated tokens. */
+	estimate: number;
+	/** pi's `compaction.keepRecentTokens` resolved for the target, in tokens. */
+	keepRecentTokens: number;
+	/** Why this decision refused. */
+	cause: FitBlockCause;
+	/** The host's own failure line, appended only when a compaction failed. */
+	detail?: string;
+	/** True on a path where the editor restore is not guaranteed, which the notice must say. */
+	restoreUncertain: boolean;
+}
+
+/**
+ * Build the one notice a blocked request gets.
+ *
+ * The wording lives here so the numbers can never be shown in one place and hidden in another: a
+ * user has to be able to compare the estimate against the threshold without opening a settings file
+ * (spec `dual-model-routing` / 送らないことを選んだ理由を出す).
+ */
+export function fitBlockNotice(fields: FitBlockNoticeFields): string {
+	const parts = [
+		`not sent: estimated ${fields.estimate} tokens exceeds the fit threshold ${fields.threshold}`,
+		`(context window ${fields.contextWindow} minus reserve ${fields.contextWindow - fields.threshold}) of ${fields.model}`,
+		`${fields.cause}.`,
+	];
+	if (fields.detail) parts.push(` ${fields.detail}.`);
+	parts.push(` pi keeps the most recent ${fields.keepRecentTokens} tokens of a compaction.`);
+	if (fields.restoreUncertain) parts.push(" the typed text may not come back to the input field.");
+	return parts.join(" ");
+}
+
+/**
+ * The notice for an input that arrived while the gate's ahead compaction is in flight.
+ *
+ * One per rejected input; the text goes back to the editor by append, so a queue typed during the
+ * compaction survives whole (design Decision D10 of the fit-gate change).
+ */
+export const FIT_GATE_INFLIGHT_NOTICE =
+	"spirits/auto is compacting the conversation before the next request; this input was not sent.";
 
 /** Days a non-current bundled version directory is kept before cleanup. Unit: days. */
 export const BUNDLED_SKILLS_STALE_AFTER_DAYS = 7;

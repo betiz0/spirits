@@ -11,15 +11,26 @@ import type { ExtensionAPI, ProviderModelConfig } from "@earendil-works/pi-codin
 const FAKE_MODEL_ID = "fake-model";
 /** Model `models.strong` points at, so a strong-phase request is visible in the request body. */
 const FAKE_STRONG_MODEL_ID = "fake-strong";
+/**
+ * A deliberately small-context model for the context-fit gate measurements.
+ *
+ * The gate compares a conversation estimate against the routed model's `contextWindow`, so an
+ * observation needs two physical windows to drive a transition from a large frame to a small one.
+ * The id is only ever selected by an item that asks for it, which keeps the existing items on
+ * `fake-model`/`fake-strong` unchanged.
+ */
+const FAKE_SMALL_MODEL_ID = "fake-small";
+/** The small window the fit gate measures against, the counterpart of the 128000 default. */
+const FAKE_SMALL_CONTEXT_WINDOW = 32000;
 
 /** One model of the local fake provider, typed so the host's `input` vocabulary is checked here. */
-function model(id: string, name: string): ProviderModelConfig {
+function model(id: string, name: string, contextWindow = 128000): ProviderModelConfig {
 	return {
 		id,
 		name,
 		reasoning: true,
 		input: ["text"],
-		contextWindow: 128000,
+		contextWindow,
 		maxTokens: 4096,
 		cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 	};
@@ -33,6 +44,10 @@ export default function customProvider(pi: ExtensionAPI): void {
 		baseUrl: `${baseUrl}/v1`,
 		apiKey: "fake",
 		api: "openai-completions",
-		models: [model(FAKE_MODEL_ID, "Fake model"), model(FAKE_STRONG_MODEL_ID, "Fake strong model")],
+		models: [
+			model(FAKE_MODEL_ID, "Fake model"),
+			model(FAKE_STRONG_MODEL_ID, "Fake strong model"),
+			model(FAKE_SMALL_MODEL_ID, "Fake small-window model", FAKE_SMALL_CONTEXT_WINDOW),
+		],
 	});
 }

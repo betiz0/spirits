@@ -38,7 +38,10 @@ function wire() {
 
 test("wires input and agent_settled handlers", async () => {
 	const { pi, ctx, role } = wire();
-	expect(pi.handlersFor("input")).toBe(1);
+	// The routing layer listens on `input` three times since the fit gate: the in-flight guard first,
+	// then the phase handler, then the gate itself (fit-gate change design D10). The order is part of
+	// the contract, so a plain count of the wiring reads all three.
+	expect(pi.handlersFor("input")).toBe(3);
 	expect(pi.handlersFor("agent_settled")).toBe(1);
 
 	await pi.fire("input", makeInputEvent(`${SKILL_COMMAND_PREFIX}sprt-opsx-verify-deep add-dual-model-routing`), ctx);
@@ -47,12 +50,12 @@ test("wires input and agent_settled handlers", async () => {
 	await pi.fire("agent_settled", makeSettledEvent(), ctx);
 	expect(role()).toBe(MODEL_ROLE_NORMAL);
 
-	// `on()` handed back an unsubscribe for both handlers, and dropping them stops the wiring.
-	const removeInput = pi.unsubscribers.get("input")?.[0];
+	// `on()` handed back an unsubscribe for every handler, and dropping them stops the wiring.
+	const removeInput = pi.unsubscribers.get("input") ?? [];
 	const removeSettled = pi.unsubscribers.get("agent_settled")?.[0];
-	expect(typeof removeInput).toBe("function");
+	expect(removeInput.length).toBe(3);
 	expect(typeof removeSettled).toBe("function");
-	removeInput?.();
+	for (const remove of removeInput) remove();
 	removeSettled?.();
 	expect(pi.handlersFor("input")).toBe(0);
 	expect(pi.handlersFor("agent_settled")).toBe(0);
