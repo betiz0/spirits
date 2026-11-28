@@ -1,0 +1,469 @@
+{
+	"generatedAt": "2026-11-28T04:50:52.251Z",
+	"measuredSet": "pi-1.6.0",
+	"bundle": {
+		"path": "dist/spirits-managed-pi-extension.js",
+		"sha256": "ea78fd4d0f660481a3d9bd94b750f2d9901682e20cef506c524bea44b1f26151"
+	},
+	"mode": "fixture set staged around the built bundle; the Pi half is the installed pi-1.6.0 artifact; the model half is the local fake provider (fake-provider success, not real-provider); the --store route is measured end to end against a store registered with `openspec store setup` into this run's isolated HOME (d-verify3 C-1; the d-verify2 G-2 limitation is closed)",
+	"unpinned-close-notice": "the Decision 14 notice (a verification that closed with no target pinned says so once, and how to reopen it) is unit-covered, not measured here: every stage of this run either names its change on the opening line or replaces the step before it closes, so no un-pinned close happens. Cases: packages/spirits/test/verify-report-nudge.test.ts 'a deep verification that settles asking which change says no report was saved', 'a physical model session that answers an un-named verification is told once', 'the un-pinned close goes to stderr in stdout modes and stays silent on an abort' (print and json), plus the d-verify3 C-1 boundary that the close consumes its obligation: 'an aborted pinned deep verification is not announced by a later input', 'leaving a pinned verification through another command announces nothing later', 'a session start or tree move drops the window without the notice'",
+	"io-failure-regressions": "d-verify3 C-2's two failure injections are unit regressions, not RPC measurements: packages/spirits/test/verify-report-save.test.ts cases 'a directory gone before the numbering is a reason, not an exception', 'a write that fails after the temporary file exists removes the temporary file', and 'the saver turns a post-resolution I/O failure into a reason'",
+	"run-judgement-definition": "a run exists per before_agent_start the probe records; a provider request carrying the nudge message is the one continuation the settle bought; the saved files are read from the staged work directory's openspec/changes/alpha/{verify1,verify2}.md, and openspec/changes/beta/ must hold no report after the move-attempt input",
+	"host-facts-observed": "at every quiet settle the event context reports canContinue=false (it is computed before boundary drafts, with the assistant message last); the host re-checks continuation after committing the drafts, and the nudge custom_message reaches the wire as the newest user turn; the session runs on the spirits/auto routing model because a physical-model session ends an unresolved step at the next idle input (routing rule), which is outside this change",
+	"regenerated-template-expanded-and-nudged-once-in-same-run": true,
+	"tool-declared-during-verify": true,
+	"tool-hidden-in-plain-run": true,
+	"report-saved-whole-under-change": true,
+	"chat-echoes-saved-body": true,
+	"pending-settle-demanded-nothing": true,
+	"nudge-continued-exactly-once": true,
+	"tool-visible-in-answer-run": true,
+	"later-change-name-did-not-move-target": true,
+	"store-change-saved-into-the-store": true,
+	"store-listing-ignored-the-local-change": true,
+	"store-bait-save-was-refused": true,
+	"all-holds": true,
+	"measurements": {
+		"probe": {
+			"mode": "rpc",
+			"runs": [
+				{
+					"prompt": "Review the proposal and describe any remaining work: alpha VERIFY-REPORT-REGENERATED",
+					"messageType": "user",
+					"activeTools": [
+						"read",
+						"bash",
+						"edit",
+						"write",
+						"tsrepl",
+						"manage_todos",
+						"spirits_verify_report_save"
+					],
+					"promptHasTool": true
+				},
+				{
+					"prompt": "Review the proposal and describe any remaining work: alpha VERIFY-REPORT-SAVE-ME",
+					"messageType": "user",
+					"activeTools": [
+						"read",
+						"bash",
+						"edit",
+						"write",
+						"tsrepl",
+						"manage_todos",
+						"spirits_verify_report_save"
+					],
+					"promptHasTool": true
+				},
+				{
+					"prompt": "Leave the workflow. done",
+					"messageType": "user",
+					"activeTools": [
+						"read",
+						"bash",
+						"edit",
+						"write",
+						"tsrepl",
+						"manage_todos"
+					],
+					"promptHasTool": false
+				},
+				{
+					"prompt": "plain tools probe please",
+					"messageType": "user",
+					"activeTools": [
+						"read",
+						"bash",
+						"edit",
+						"write",
+						"tsrepl",
+						"manage_todos"
+					],
+					"promptHasTool": false
+				},
+				{
+					"prompt": "Review the proposal and describe any remaining work: VERIFY-REPORT-ASK-ME",
+					"messageType": "user",
+					"activeTools": [
+						"read",
+						"bash",
+						"edit",
+						"write",
+						"tsrepl",
+						"manage_todos",
+						"spirits_verify_report_save"
+					],
+					"promptHasTool": true
+				},
+				{
+					"prompt": "alpha",
+					"messageType": "user",
+					"activeTools": [
+						"read",
+						"bash",
+						"edit",
+						"write",
+						"tsrepl",
+						"manage_todos",
+						"spirits_verify_report_save"
+					],
+					"promptHasTool": true
+				},
+				{
+					"prompt": "beta",
+					"messageType": "user",
+					"activeTools": [
+						"read",
+						"bash",
+						"edit",
+						"write",
+						"tsrepl",
+						"manage_todos",
+						"spirits_verify_report_save"
+					],
+					"promptHasTool": true
+				},
+				{
+					"prompt": "save the verification report again VERIFY-REPORT-SAVE2-ME",
+					"messageType": "user",
+					"activeTools": [
+						"read",
+						"bash",
+						"edit",
+						"write",
+						"tsrepl",
+						"manage_todos",
+						"spirits_verify_report_save"
+					],
+					"promptHasTool": true
+				},
+				{
+					"prompt": "Review the proposal and describe any remaining work: beta --store vs1 VERIFY-REPORT-STORE-BAIT-ME VERIFY-REPORT-STORE-SAVE-ME",
+					"messageType": "user",
+					"activeTools": [
+						"read",
+						"bash",
+						"edit",
+						"write",
+						"tsrepl",
+						"manage_todos",
+						"spirits_verify_report_save"
+					],
+					"promptHasTool": true
+				},
+				{
+					"prompt": "Review the proposal and describe any remaining work: gamma --store vs1 VERIFY-REPORT-STORE-PIN-ME VERIFY-REPORT-STORE-SAVE-ME",
+					"messageType": "user",
+					"activeTools": [
+						"read",
+						"bash",
+						"edit",
+						"write",
+						"tsrepl",
+						"manage_todos",
+						"spirits_verify_report_save"
+					],
+					"promptHasTool": true
+				}
+			],
+			"settles": [
+				{
+					"entries": 0,
+					"canContinue": false
+				},
+				{
+					"entries": 0,
+					"canContinue": false
+				},
+				{
+					"entries": 0,
+					"canContinue": false
+				},
+				{
+					"entries": 0,
+					"canContinue": false
+				},
+				{
+					"entries": 0,
+					"canContinue": false
+				},
+				{
+					"entries": 0,
+					"canContinue": false
+				},
+				{
+					"entries": 0,
+					"canContinue": false
+				},
+				{
+					"entries": 0,
+					"canContinue": false
+				},
+				{
+					"entries": 0,
+					"canContinue": false
+				},
+				{
+					"entries": 0,
+					"canContinue": false
+				},
+				{
+					"entries": 0,
+					"canContinue": false
+				},
+				{
+					"entries": 0,
+					"canContinue": false
+				}
+			],
+			"settled": [
+				{
+					"aborted": false
+				},
+				{
+					"aborted": false
+				},
+				{
+					"aborted": false
+				},
+				{
+					"aborted": false
+				},
+				{
+					"aborted": false
+				},
+				{
+					"aborted": false
+				},
+				{
+					"aborted": false
+				},
+				{
+					"aborted": false
+				},
+				{
+					"aborted": false
+				},
+				{
+					"aborted": false
+				}
+			]
+		},
+		"regeneratedVerification": {
+			"command": "/opsx-verify alpha VERIFY-REPORT-REGENERATED",
+			"templateBody": "Review the proposal and describe any remaining work: $ARGUMENTS",
+			"newestUserMessagesThroughSettle": [
+				"Review the proposal and describe any remaining work: alpha VERIFY-REPORT-REGENERATED",
+				"spirits: the verification report for this step has not been saved. Call spirits_verify_report_save with the final report body now. If the verification did not actually finish, say that instead of writing a report; do not invent one."
+			]
+		},
+		"providerRequests": [
+			{
+				"kind": "text",
+				"atMs": 1165,
+				"hasSaveMarker": false,
+				"hasAskMarker": false,
+				"hasNudge": false,
+				"hasSavedBody": false,
+				"lastUserIncludesAlpha": true,
+				"assistantEchoesSavedBody": false,
+				"nudgeLastUser": "Review the proposal and describe any remaining work: alpha V"
+			},
+			{
+				"kind": "text",
+				"atMs": 1172,
+				"hasSaveMarker": false,
+				"hasAskMarker": false,
+				"hasNudge": true,
+				"hasSavedBody": false,
+				"lastUserIncludesAlpha": false,
+				"assistantEchoesSavedBody": false,
+				"nudgeLastUser": "spirits: the verification report for this step has not been "
+			},
+			{
+				"kind": "tool-call",
+				"atMs": 1307,
+				"hasSaveMarker": true,
+				"hasAskMarker": false,
+				"hasNudge": true,
+				"hasSavedBody": false,
+				"lastUserIncludesAlpha": true,
+				"assistantEchoesSavedBody": false,
+				"nudgeLastUser": "Review the proposal and describe any remaining work: alpha V"
+			},
+			{
+				"kind": "text",
+				"atMs": 1452,
+				"hasSaveMarker": true,
+				"hasAskMarker": false,
+				"hasNudge": true,
+				"hasSavedBody": false,
+				"lastUserIncludesAlpha": true,
+				"assistantEchoesSavedBody": false,
+				"nudgeLastUser": "Review the proposal and describe any remaining work: alpha V"
+			},
+			{
+				"kind": "text",
+				"atMs": 1466,
+				"hasSaveMarker": true,
+				"hasAskMarker": false,
+				"hasNudge": true,
+				"hasSavedBody": false,
+				"lastUserIncludesAlpha": false,
+				"assistantEchoesSavedBody": true,
+				"nudgeLastUser": "Leave the workflow. done"
+			},
+			{
+				"kind": "text",
+				"atMs": 1476,
+				"hasSaveMarker": true,
+				"hasAskMarker": false,
+				"hasNudge": true,
+				"hasSavedBody": false,
+				"lastUserIncludesAlpha": false,
+				"assistantEchoesSavedBody": true,
+				"nudgeLastUser": "plain tools probe please"
+			},
+			{
+				"kind": "text",
+				"atMs": 1613,
+				"hasSaveMarker": true,
+				"hasAskMarker": true,
+				"hasNudge": true,
+				"hasSavedBody": false,
+				"lastUserIncludesAlpha": false,
+				"assistantEchoesSavedBody": true,
+				"nudgeLastUser": "Review the proposal and describe any remaining work: VERIFY-"
+			},
+			{
+				"kind": "text",
+				"atMs": 1739,
+				"hasSaveMarker": true,
+				"hasAskMarker": true,
+				"hasNudge": true,
+				"hasSavedBody": false,
+				"lastUserIncludesAlpha": true,
+				"assistantEchoesSavedBody": true,
+				"nudgeLastUser": "alpha"
+			},
+			{
+				"kind": "text",
+				"atMs": 1742,
+				"hasSaveMarker": true,
+				"hasAskMarker": true,
+				"hasNudge": true,
+				"hasSavedBody": false,
+				"lastUserIncludesAlpha": false,
+				"assistantEchoesSavedBody": true,
+				"nudgeLastUser": "spirits: the verification report for this step has not been "
+			},
+			{
+				"kind": "text",
+				"atMs": 1748,
+				"hasSaveMarker": true,
+				"hasAskMarker": true,
+				"hasNudge": true,
+				"hasSavedBody": false,
+				"lastUserIncludesAlpha": false,
+				"assistantEchoesSavedBody": true,
+				"nudgeLastUser": "beta"
+			},
+			{
+				"kind": "tool-call",
+				"atMs": 1758,
+				"hasSaveMarker": true,
+				"hasAskMarker": true,
+				"hasNudge": true,
+				"hasSavedBody": false,
+				"lastUserIncludesAlpha": false,
+				"assistantEchoesSavedBody": true,
+				"nudgeLastUser": "save the verification report again VERIFY-REPORT-SAVE2-ME"
+			},
+			{
+				"kind": "text",
+				"atMs": 1894,
+				"hasSaveMarker": true,
+				"hasAskMarker": true,
+				"hasNudge": true,
+				"hasSavedBody": false,
+				"lastUserIncludesAlpha": false,
+				"assistantEchoesSavedBody": true,
+				"nudgeLastUser": "save the verification report again VERIFY-REPORT-SAVE2-ME"
+			},
+			{
+				"kind": "tool-call",
+				"atMs": 2018,
+				"hasSaveMarker": true,
+				"hasAskMarker": true,
+				"hasNudge": true,
+				"hasSavedBody": false,
+				"lastUserIncludesAlpha": false,
+				"assistantEchoesSavedBody": true,
+				"nudgeLastUser": "Review the proposal and describe any remaining work: beta --"
+			},
+			{
+				"kind": "text",
+				"atMs": 2021,
+				"hasSaveMarker": true,
+				"hasAskMarker": true,
+				"hasNudge": true,
+				"hasSavedBody": false,
+				"lastUserIncludesAlpha": false,
+				"assistantEchoesSavedBody": true,
+				"nudgeLastUser": "Review the proposal and describe any remaining work: beta --"
+			},
+			{
+				"kind": "tool-call",
+				"atMs": 2147,
+				"hasSaveMarker": true,
+				"hasAskMarker": true,
+				"hasNudge": true,
+				"hasSavedBody": false,
+				"lastUserIncludesAlpha": false,
+				"assistantEchoesSavedBody": true,
+				"nudgeLastUser": "Review the proposal and describe any remaining work: gamma -"
+			},
+			{
+				"kind": "text",
+				"atMs": 2255,
+				"hasSaveMarker": true,
+				"hasAskMarker": true,
+				"hasNudge": true,
+				"hasSavedBody": false,
+				"lastUserIncludesAlpha": false,
+				"assistantEchoesSavedBody": true,
+				"nudgeLastUser": "Review the proposal and describe any remaining work: gamma -"
+			}
+		],
+		"savedFile": {
+			"path": "/tmp/spirits-managed-compat-oup464/openspec/changes/alpha/verify1.md",
+			"exists": true,
+			"byteEqualToToolBody": true
+		},
+		"secondSavedFile": {
+			"path": "/tmp/spirits-managed-compat-oup464/openspec/changes/alpha/verify2.md",
+			"exists": true,
+			"byteEqualToToolBody": true,
+			"betaReports": []
+		},
+		"storeVerification": {
+			"storeId": "vs1",
+			"storeRoot": "/tmp/spirits-managed-compat-oup464/store-vs1",
+			"changeRoot": "/tmp/spirits-managed-compat-oup464/store-vs1/openspec/changes/gamma",
+			"directoryListing": [
+				"proposal.md",
+				"verify1.md"
+			],
+			"reportPath": "/tmp/spirits-managed-compat-oup464/store-vs1/openspec/changes/gamma/verify1.md",
+			"byteEqualToToolBody": true,
+			"localReports": {
+				"alpha": [
+					"verify1.md",
+					"verify2.md"
+				],
+				"beta": []
+			}
+		},
+		"stderr": ""
+	}
+}
