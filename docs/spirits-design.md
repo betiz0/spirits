@@ -74,6 +74,7 @@ spirits は、エージェント型コーディングツール **Pi**(`earendil-
 │  ├─ guard/  bash 実行の分類と遮断(案内のみ)             │
 │  ├─ harness/ goal / memory / skill CRUD / code-mode      │
 │  ├─ routing/ spirits/auto の role 振り分け               │
+│  ├─ verify/ 検証レポート保存(連番・保存督促)             │
 │  └─ managed-pi/ update/ (導入・検証・自己更新)          │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -216,6 +217,12 @@ OpenSpec ワークフローのうち変更レビューと深い検証の 2 ス�
 - **層**: `packages/spirits/src/routing/` は `spirits:routing` 層として [`docs/architecture/convention-registry.md`](architecture/convention-registry.md) に登記し、依存先は `spirits:shared` とホスト (`host:pi-coding-agent`) に限定する
 
 ホストへのソース差分は作らない。挙動が必要なら拡張 API か overlay で実現し、API が足りなければ不足を限定互換として記録し、ホストの版更新で解決する。
+
+### 4.8 検証レポート保存(`verify`)
+
+`/opsx-verify` と `/skill:sprt-opsx-verify-deep` の最終レポートを、検証対象として固定された変更のディレクトリ直下へ連番の新規ファイルとして保存し、保存されるまで検証を完了として扱わない。保存手段の公開は検証ステップの開いたあいだだけで、強制はホストの拡張 API だけで行う(OpenSpec 生成のプロンプトに依存しない)。
+
+- **層**: `packages/spirits/src/verify/` は `spirits:verify` 層として [`docs/architecture/convention-registry.md`](architecture/convention-registry.md) に登記し、依存先の許可向きは正本の層表が正である(`spirits:routing` への依存は実行中ステップを読むみの参照)
 
 ## 5. ホスト版更新方針
 

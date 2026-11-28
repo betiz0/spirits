@@ -18,7 +18,7 @@
 - 公開パッケージ(`package.json` の `private` でないもの)は `packages/<ディレクトリ名>` の層を持つ。許可向きは各 `package.json` の `dependencies` / `optionalDependencies` / `peerDependencies` の workspace 依存から検査時に導出する。依存追加は正本の編集なしに新しい向きを許可する。
 - private パッケージと例外層と spirits の層は `registry:layers` の表を正とする。
 - **例外層**は公開パッケージの `tsconfig.build.json` の `exclude` のうち `src/` 配下を指し(`src` 自身を除く)、glob を含まず、実在するディレクトリからなる。例外層の許可向きは「当該パッケージの `package.json` 宣言分 + 同パッケージの例外層以外の部分 + 下記 `registry:layers` に列挙した未宣言パッケージ」である。
-- **spirits** は 12 層に分割される。`packages/spirits/src/index.ts` だけが `entry` 層で、`repl` `rlm` `harness` `todo` `update` `routing` `commands` `managed-pi` `guard` は互いに依存しない兄弟層(`commands` は `routing` に、`managed-pi` は `update` に限って依存を許可する)。`bin` を除く全 src 層はホスト (`host:pi-coding-agent` と `host:pi-tui`) を許可する。ただし `routing` はホストのうち `host:pi-coding-agent` のみを許可し、`managed-pi` は `update` への依存を再利用する資産に限定する。`bin` はホストを import しない。
+- **spirits** は 13 層に分割される。`packages/spirits/src/index.ts` だけが `entry` 層で、`repl` `rlm` `harness` `todo` `update` `routing` `commands` `managed-pi` `guard` `verify` は互いに依存しない兄弟層(`commands` は `routing` に、`managed-pi` は `update` に限って依存を許可する)。`bin` を除く全 src 層はホスト (`host:pi-coding-agent` と `host:pi-tui`) を許可する。ただし `routing` と `verify` はホストのうち `host:pi-coding-agent` のみを許可し、`managed-pi` は `update` への依存を再利用する資産に限定する。`bin` はホストを import しない。検証レポート保存(`verify`)は兄弟層で、`routing` への依存は実行中ステップを読むみの参照に限定する(書き込みはしない)。
 - 層への所属は `registry:layer-members` の登録パスだけで決める。登録に当てはまらない src のファイルは既定の層に割り当てず、`ARCH-LAYER-UNKNOWN` で失敗する。
 
 ## 機械可読部
@@ -32,10 +32,11 @@
   "spirits:todo": ["spirits:repl", "spirits:shared", "host:pi-coding-agent", "host:pi-tui"],
   "spirits:update": ["spirits:shared", "host:pi-coding-agent", "host:pi-tui"],
   "spirits:routing": ["spirits:shared", "host:pi-coding-agent"],
+  "spirits:verify": ["spirits:shared", "spirits:routing", "host:pi-coding-agent"],
   "spirits:commands": ["spirits:shared", "spirits:routing", "host:pi-coding-agent", "host:pi-tui"],
   "spirits:managed-pi": ["spirits:shared", "spirits:update", "host:pi-coding-agent", "host:pi-tui"],
   "spirits:guard": ["spirits:shared", "host:pi-coding-agent", "host:pi-tui"],
-  "spirits:entry": ["spirits:repl", "spirits:shared", "spirits:rlm", "spirits:harness", "spirits:todo", "spirits:routing", "spirits:commands", "spirits:guard", "host:pi-coding-agent", "host:pi-tui"],
+  "spirits:entry": ["spirits:repl", "spirits:shared", "spirits:rlm", "spirits:harness", "spirits:todo", "spirits:routing", "spirits:commands", "spirits:guard", "spirits:verify", "host:pi-coding-agent", "host:pi-tui"],
   "spirits:bin": ["spirits:entry", "spirits:shared", "spirits:update", "spirits:managed-pi"]
 }
 ```
@@ -51,6 +52,7 @@
   "spirits:commands": ["packages/spirits/src/commands/"],
   "spirits:managed-pi": ["packages/spirits/src/managed-pi/"],
   "spirits:guard": ["packages/spirits/src/guard/"],
+  "spirits:verify": ["packages/spirits/src/verify/"],
   "spirits:shared": [
     "packages/spirits/src/config.ts",
     "packages/spirits/src/constants.ts",
@@ -96,7 +98,7 @@
 ## ARCH-REPL: repl の後段非依存
 
 - **強度**: SHALL
-- **内容**: `packages/spirits/src/repl/` が自分のほかの spirits 層を import すること(型のみの import と動的 import を含む)を検出して失敗する。列挙すると `rlm` `harness` `todo` `update` `routing` `commands` `managed-pi` `guard` とエントリ(`packages/spirits/src/index.ts`)、および `bin` で、検査が `ARCH-REPL` として報告する層はこの列挙と同じである。
+- **内容**: `packages/spirits/src/repl/` が自分のほかの spirits 層を import すること(型のみの import と動的 import を含む)を検出して失敗する。列挙すると `rlm` `harness` `todo` `update` `routing` `commands` `managed-pi` `guard` `verify` とエントリ(`packages/spirits/src/index.ts`)、および `bin` で、検査が `ARCH-REPL` として報告する層はこの列挙と同じである。
 - **例外**: repl はホスト (`host:pi-coding-agent` `host:pi-tui`) と repl 内完結の import に制限される。`guard` は計測のために session へ entry を append する後段の性質を持つため、特に repl から締め出す(design decision 5)。
 - **判定方法**: 起点が `spirits:repl` の層違反を `ARCH-REPL` として報告する(1 つの層の違反を複数の ID で重ねて報告しない)。
 - **根拠**: ハードルール「後段非依存」。design decision 1。
@@ -104,7 +106,7 @@
 ## ARCH-SPIRITS-LAYER: spirits の層の許可向き
 
 - **強度**: SHALL
-- **内容**: spirits の各層(`repl` `shared` `rlm` `harness` `todo` `update` `routing` `commands` `managed-pi` `guard` `entry` `bin`)は `registry:layers` の表に載った層へのみ依存する。`rlm` `harness` `todo` `routing` `commands` `managed-pi` と `guard` は互いに依存できない兄弟層。エントリ層へ import できるのは `bin` のみ。
+- **内容**: spirits の各層(`repl` `shared` `rlm` `harness` `todo` `update` `routing` `commands` `managed-pi` `guard` `verify` `entry` `bin`)は `registry:layers` の表に載った層へのみ依存する。`rlm` `harness` `todo` `routing` `commands` `managed-pi` `guard` と `verify` は互いに依存できない兄弟層。エントリ層へ import できるのは `bin` のみ。
 - **例外**: `bin` は `entry` `shared` `update` `managed-pi` へ依存できる(コンパイル済み単一バイナリの起動時初期化のため)。ホストへの依存は `bin` には無い(境界は `ARCH-PI-BOUNDARY`)。
 - **判定方法**: 起点が `spirits:repl` 以外の spirits の層の層違反を `ARCH-SPIRITS-LAYER` として報告する。
 - **根拠**: ハードルール「後段非依存」と Roadmap の兄弟層の分離。design decision 1。
@@ -113,7 +115,7 @@
 
 - **強度**: SHALL
 - **内容**: `packages/spirits/src/` はホストを、その package.json が公開する entry point でのみ import する。許可する subpath は `@earendil-works/pi-coding-agent` の `.` と `./rpc-entry`、`@earendil-works/pi-tui` の `.` だけである(`pi-tui` は `exports` を持たず `main` / `types` のみ、`./rpc-entry` は型宣言を持たない)。`packages/spirits/bin/` はホストを import しない。`packages/spirits/src/` と `packages/spirits/bin/` はホスト型の再宣言 (型ミラー) を置いてはならず、`declare module` による ambient 宣言と、ホストの specifier を名前に出す `.d.ts` を含めない。
-- **例外**: `packages/spirits/src/` の層のうち `routing` を除く全層がホスト両方へ依存すること(bare specifier)は許可する。`routing` の許可は `host:pi-coding-agent` だけとし、層ごとの許可は `registry:layers` が正であるため、この例外文はそれと食い違わないように同じ変更で更新する。
+- **例外**: `packages/spirits/src/` の層のうち `routing` と `verify` を除く全層がホスト両方へ依存すること(bare specifier)は許可する。`routing` と `verify` の許可は `host:pi-coding-agent` だけとし、層ごとの許可は `registry:layers` が正であるため、この例外文はそれと食い違わないように同じ変更で更新する。
 - **判定方法**: importer から `node_modules` をたどって見つけたホストパッケージの package.json と照合し、次のそれぞれを規約 ID と import 元のパス・specifier を付けて報告する。(a) `packages/spirits/bin/` からのホストの import。(b) `exports` に載らない subpath(宣言が無い `main` / `types` からの解決は bare のみ)。(c) 型宣言の無い subpath の型位置の import (`./rpc-entry` を `import type` で読む経路)。(d) `packages/spirits/{src,bin}/` 配下で、ホストの specifier を名前に出す `declare module` と `.d.ts`。ホスト以外を対象とする ambient 宣言 (テキスト asset の import など) は鏡像ではない。走査対象は `.d.ts` を含まないため、(d) は src と bin のツリーを直接歩く。
 - **根拠**: 公開面以外のものは上流の内部構成であり、版本更新で黙って変わる。型を自分で再宣言すると実型とのずれが検査されない。design decision 4・8。
 

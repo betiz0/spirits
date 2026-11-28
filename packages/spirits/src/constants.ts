@@ -881,3 +881,120 @@ export const MANAGED_PI_ROLLBACK_HINT = `Rollback: move "$HOME/${SPIRITS_CONFIG_
  */
 export const CLEAR_COMPACTION_SUMMARY =
 	"Conversation cleared by /spirits-clear. Everything before that boundary is out of context and is not summarized here.";
+
+// ---------------------------------------------------------------------------
+// Verification report saving (`spirits_verify_report_save`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tool that receives the body of a finished verification report and saves it under the verified
+ * change's directory. The model passes only the body; the change, the directory, and the file name
+ * are spirits' to decide (`verify/report-name.ts`, `verify/change-root.ts`).
+ */
+export const TOOL_NAME_VERIFY_REPORT_SAVE = "spirits_verify_report_save";
+
+/**
+ * Report series prefix per verifying step. A step absent from this table reports nothing: the
+ * archive-time evidence of the other steps is out of scope for this change.
+ *
+ * `d-verify` is the historical deep-verify spelling already present in archived changes, so the new
+ * saves line up with it instead of inventing `deep-verify`.
+ */
+export const VERIFY_REPORT_PREFIXES: Readonly<Record<string, string>> = {
+	"opsx-verify": "verify",
+	"sprt-opsx-verify-deep": "d-verify",
+};
+
+/**
+ * Highest sequence number the report series reaches. Unit: files.
+ *
+ * A change is verified a handful of times over its life; the archived changes under
+ * `openspec/changes/archive/` top out at five. 999 keeps the name three digits wide forever and is
+ * a refusal, not a wrap, if anything ever reaches it.
+ */
+export const VERIFY_REPORT_NUMBER_MAX = 999;
+
+/**
+ * How many times a save re-numbers when the final name is taken between numbering and linking.
+ * Unit: attempts.
+ *
+ * The window is between the directory read and the exclusive `link`, and two sessions verifying the
+ * same change at the same second are already rare; five consecutive collisions is a pathological
+ * loop, and the save says so rather than spinning. The name names the operation: the final name is
+ * taken by `link`, never by `rename` (design Decision 5 of the report-saving change).
+ */
+export const VERIFY_REPORT_LINK_RETRY_MAX = 5;
+
+/**
+ * How long an `openspec` CLI call may run before spirits gives up on it. Unit: milliseconds.
+ *
+ * The CLI resolves a plan directory against the local filesystem; a run past this long is a hung
+ * process, not a slow disk, and the input handler and the tool call must not wait on it.
+ */
+export const OPENSPEC_CLI_TIMEOUT_MS = 15_000;
+
+/**
+ * Prefix of the same-directory temporary file a report is written into before it is linked to its
+ * final name. Must not match any report series (pinned by `test/constants-verify-report.test.ts`),
+ * or a half-written file would be counted by the numbering.
+ */
+export const VERIFY_REPORT_TEMP_PREFIX = ".spirits-verify-report-";
+
+/** customType of the `custom_message` the save nudge carries on the `agent_before_settle` boundary. */
+export const VERIFY_NUDGE_CUSTOM_TYPE = "spirits_verify_report_nudge";
+
+/**
+ * The one nudge a verify run gets when it settles without saving.
+ *
+ * It says the report must be saved, and it also says the model may answer "the verification did not
+ * finish" instead of inventing a report — the step can end while it is still waiting for the user
+ * (design Decision 8 of the report-saving change).
+ */
+export const VERIFY_REPORT_NUDGE_MESSAGE =
+	"spirits: the verification report for this step has not been saved. Call spirits_verify_report_save with the final report body now. If the verification did not actually finish, say that instead of writing a report; do not invent one.";
+
+/** The notice after the nudge also ended without a save (interactive modes). */
+export const VERIFY_REPORT_UNSAVED_NOTICE =
+	"spirits: the verification report was not saved; treat this verification as incomplete (nothing was written as evidence).";
+
+/**
+ * The same fact for `print` / `json`, where the host delivers no extension notice and the run is
+ * nobody's to answer. Written to stderr so stdout's text and the JSON event stream keep their shape.
+ */
+export const VERIFY_REPORT_UNSAVED_STDERR_NOTICE =
+	"spirits: verification report not saved; the verification is incomplete.";
+
+/** Why a save call with no content is refused. */
+export const VERIFY_REPORT_EMPTY_BODY_REASON =
+	"the report body is empty; a verification report is saved with its content, not as a placeholder.";
+
+/** Why a save call outside an open verification step is refused, even while the tool is active. */
+export const VERIFY_REPORT_NOT_VERIFYING_REASON =
+	"no verification step is open in this session; spirits_verify_report_save saves only the report of a running /opsx-verify or /skill:sprt-opsx-verify-deep.";
+
+/** Why a save call is refused while the verified change is not yet pinned from user input. */
+export const VERIFY_REPORT_UNPINNED_REASON =
+	"the verified change is not pinned yet. If this verification is still open and waiting for its target, ask which change and save again after the answer; if its step has already ended, do not retry - tell the user to reopen the verification with the change named (/opsx-verify <change> or /skill:sprt-opsx-verify-deep <change>).";
+
+/**
+ * The notice for a verification whose window closed with no target pinned and nothing saved.
+ *
+ * Two routes get here: the deep verification does not continue, so a run that settled while still
+ * asking which change closes its step, and a session on a physical model ends a verification step
+ * whose run never resolved as soon as the next input arrives (design Decision 14). Neither can be
+ * fixed by an answer any more, so the notice says the report is not on disk and how to reopen the
+ * verification with the change named.
+ */
+export const VERIFY_REPORT_UNPINNED_NOTICE =
+	"spirits: the verification ended with no change pinned; no report was saved. Reopen it with the change named: /opsx-verify <change> or /skill:sprt-opsx-verify-deep <change>.";
+
+/** The same fact for `print` / `json`, where stdout's shape must not change (stderr carries it). */
+export const VERIFY_REPORT_UNPINNED_STDERR_NOTICE =
+	"spirits: the verification ended with no change pinned; no report was saved (reopen it with the change named).";
+
+/** Why the openspec CLI could not be started at all. The tool name is named once here. */
+export const OPENSPEC_CLI_UNAVAILABLE_REASON =
+	"the openspec CLI could not be executed (is it installed and on PATH?).";
+
+/** Why the openspec CLI did not answer in time. Unit: the same as {@link OPENSPEC_CLI_TIMEOUT_MS}. */
+export const OPENSPEC_CLI_TIMEOUT_REASON = "the openspec CLI did not answer before the timeout.";

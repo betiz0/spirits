@@ -102,6 +102,17 @@ spirits ships with skills that are available right after install. They are writt
 - After a spirits update, start spirits again to get the new contents: the bundled contents are embedded in the running binary, so `/reload` only rewrites the tree of the version that is already running. A previous version directory is removed on write only after it has not been used for 7 days.
 - `bundled-skills/` is managed by spirits. Do not edit files there; keep your own skills in `<agentDir>/skills/`.
 
+## Verification reports
+
+`/opsx-verify` and `/skill:sprt-opsx-verify-deep` leave their final reports on disk as evidence for the archive decision. The model passes only the report body, through the `spirits_verify_report_save` tool, which the model sees only while one of those verification steps is open; spirits decides the destination and the file name. The layer is registered as `spirits:verify` in [`docs/architecture/convention-registry.md`](architecture/convention-registry.md).
+
+- The destination is the change the **verification pinned**: the name typed with `/opsx-verify <name>`, or answered exactly when the verification asks which change — an answer pins it only while the verification step is still open, which is `/opsx-verify` in a routed (`spirits/auto`) session. The deep verification (`continuing: false`) and any session on a physical model need the change name on the opening line. The name is resolved through the openspec CLI and the report is saved directly in that change's directory. A model cannot point a save at another change, and a save while no target is pinned is refused before anything is written.
+- File names are sequential per verification type — `verify1.md`, `verify2.md`, … and `d-verify1.md`, … (highest existing number plus one; a gap is not filled). An existing report is never overwritten, and a saved file is either complete or absent.
+- A verification run that ends without a save is not treated as complete: an interactive or RPC session is asked to save **once**, and if that ends unsaved too a warning says so and nothing is asked again. An aborted run is never asked, and a verification step restored by `/reload` is never asked.
+- A verification whose target was never pinned ends with no report to show for it. That is said **once** — the report is not on disk, and reopening with the change named (`/opsx-verify <change>`, `/skill:sprt-opsx-verify-deep <change>`) is how to get one — because no later answer can pin it: the deep verification closes its step at its own settle, and a session on a physical model closes it at the answer itself.
+- The same save applies in `print` / `json` modes — same tool, same rules — where the unsaved notice goes to stderr instead of an extra request, so stdout and the JSON event stream keep their shape.
+- The enforcement uses host extension API only, not the OpenSpec-generated prompt files, so regenerating `.pi/prompts/opsx-verify.md` does not lose it. On hosts without the tool (a skill copied to another pi), the skills fall back to plain output.
+
 ## Model routing
 
 Only two OpenSpec workflow steps ask for a stronger model: the change review skill `sprt-opsx-review-change` and the deep verification skill `sprt-opsx-verify-deep`. Instead of switching models by hand and forgetting to switch back, select one model and let spirits route each request.

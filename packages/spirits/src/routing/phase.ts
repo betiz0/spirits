@@ -209,24 +209,49 @@ function starterCommand(starter: string): string {
 }
 
 /**
- * The command name a line of input invokes, in pi's spelling, or undefined when the input is not a
- * slash command.
+ * How pi reads one command line: the command name it invokes, the first argument that follows the
+ * command word, and the remaining argument text.
  *
- * The name range follows pi's own expansion: a skill name runs from after `/skill:` to the first
- * space, anything else runs from after the slash to the first whitespace character. An input whose
- * name pi would read differently — a newline where a space belongs — is therefore not a command here
- * either, and does not open a step.
+ * This is the **only** split of a command line in the product. The name range follows pi's own
+ * expansion: a skill name runs from after `/skill:` to the first space, anything else runs from
+ * after the slash to the first whitespace character. An input whose name pi would read differently —
+ * a newline where a space belongs — is therefore not a command here either, and does not open a
+ * step. Routing reads the name to open steps; the verify layer reads `firstArgument` and `rest` to
+ * pin the verification target and its store. The two spellings of "where the command word ends" had
+ * drifted apart between the layers, which is how a line could open no step in one reader while the
+ * other still cut an argument out of it (d-verify1 W-5 of the report-saving change).
  */
-export function commandNameFromInput(text: string): string | undefined {
+export interface PiCommandLine {
+	/** The invoked command name in pi's spelling (`skill:<name>` for a skill). */
+	commandName: string;
+	/** The first argument after the command word; "" when the line carries no argument. */
+	firstArgument: string;
+	/** Everything after the command word, trimmed; where options such as `--store <id>` sit. */
+	rest: string;
+}
+
+export function parseCommandInput(text: string): PiCommandLine | undefined {
 	if (!text.startsWith("/")) return undefined;
 	if (text.startsWith(SKILL_COMMAND_PREFIX)) {
-		const rest = text.slice(SKILL_COMMAND_PREFIX.length);
-		const end = rest.indexOf(SKILL_NAME_DELIMITER);
-		return `skill:${end === -1 ? rest : rest.slice(0, end)}`;
+		const afterPrefix = text.slice(SKILL_COMMAND_PREFIX.length);
+		const end = afterPrefix.indexOf(SKILL_NAME_DELIMITER);
+		return commandLine(`skill:${end === -1 ? afterPrefix : afterPrefix.slice(0, end)}`, end === -1 ? "" : afterPrefix.slice(end + 1));
 	}
-	const rest = text.slice(1);
+	const afterSlash = text.slice(1);
+	const end = afterSlash.search(/\s/);
+	return commandLine(end === -1 ? afterSlash : afterSlash.slice(0, end), end === -1 ? "" : afterSlash.slice(end + 1));
+}
+
+/** Cut the first argument out of the text that follows the command word. */
+function commandLine(commandName: string, args: string): PiCommandLine {
+	const rest = args.trim();
 	const end = rest.search(/\s/);
-	return end === -1 ? rest : rest.slice(0, end);
+	return { commandName, firstArgument: end === -1 ? rest : rest.slice(0, end), rest };
+}
+
+/** The command name a line of input invokes: the name half of {@link parseCommandInput}. */
+export function commandNameFromInput(text: string): string | undefined {
+	return parseCommandInput(text)?.commandName;
 }
 
 /** Build the phase machine for the steps of {@link STEP_DEFINITIONS}. */

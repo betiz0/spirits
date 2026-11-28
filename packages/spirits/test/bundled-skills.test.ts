@@ -276,6 +276,28 @@ test("sprt-architecture-guards is hidden from the model-facing skill list", asyn
 	expect(formatSkillsForPrompt(result.skills)).not.toContain("sprt-architecture-guards");
 });
 
+// spec `sprt-opsx-verify-deep` / 検証レポートの出力, 検証レポートを証拠の読み取りに含めない.
+test("sprt-opsx-verify-deep body carries the save route and the report exclusion", () => {
+	const skill = createBundledSkills().find((candidate) => candidate.name === "sprt-opsx-verify-deep");
+	expect(skill).toBeDefined();
+	const body = skill!.files.find((file) => file.path === "SKILL.md")?.content ?? "";
+	// The save route, named.
+	expect(body).toContain("spirits_verify_report_save");
+	// The fallback for targets without the tool.
+	expect(body).toContain("保存手段が有効でない環境");
+	expect(body).toContain("従来どおり本文の出力で終わる");
+	// The read-only exception is the new report only, and the Phase A exclusion names both series.
+	expect(body).toContain("読み取り専用の例外は新規レポートの作成のみ");
+	expect(body).toContain("verify<N>.md");
+	expect(body).toContain("d-verify<N>.md");
+	// spec / 検証レポートの出力, シナリオ「対象未固定で拒否されたら開き直しを案内する」: the skill cannot
+	// pin its target from an answer, so a refusal ends by naming the reopening (d-verify3 W-2).
+	expect(body).toContain("開き直す");
+	expect(body).toContain("/skill:sprt-opsx-verify-deep <change>");
+	// The model-invocation gate is unchanged.
+	expect(body).toContain("disable-model-invocation: true");
+});
+
 test("sprt-opsx-verify-deep is hidden from the model-facing skill list", async () => {
 	const agentDir = await makeAgentDir();
 	await writeBundledSkills({ agentDir, version: "1.0.0", skills: createBundledSkills() });

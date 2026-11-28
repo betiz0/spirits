@@ -120,6 +120,22 @@ export class FakePi {
 		this.tools.push(tool as ToolDefinition);
 	}
 
+	/**
+	 * The set `getActiveTools()` reads and `setActiveTools()` writes — the tools pi declares to the
+	 * model. The fake starts from what the test seeds; unlike the host it does not auto-activate a
+	 * registration, which is exactly how a test tells a `defaultActive: false` tool's window from a
+	 * default one.
+	 */
+	activeTools: string[] = [];
+
+	getActiveTools(): string[] {
+		return [...this.activeTools];
+	}
+
+	setActiveTools(names: string[]): void {
+		this.activeTools = [...names];
+	}
+
 	appendEntry(customType: string, data?: unknown): void {
 		this.entries.push({ customType, data });
 	}

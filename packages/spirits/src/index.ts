@@ -26,6 +26,7 @@ import { MODEL_ROLE_NORMAL } from "./constants.ts";
 import { createRoleBadge } from "./commands/role.ts";
 import { registerManagedCommands } from "./commands/register.ts";
 import { registerBashGuard } from "./guard/register.ts";
+import { registerVerifyReportSaving } from "./verify/register.ts";
 import { registerBundledSkills } from "./harness/bundled-skills/index.ts";
 import { registerContinualHarness } from "./harness/install.ts";
 import { getAgentDir } from "./harness/paths.ts";
@@ -197,6 +198,10 @@ export default function spiritsExtension(pi: ExtensionAPI): void {
 	const todoPanel = createTodoPanelState(todo.startCollapsed);
 	registerManageTodos(pi, todo, todoPanel);
 	registerTodoPanel(pi, todo, todoPanel);
+	// Verification report saving reads the step the routing just updated, so it registers after the
+	// routing — the same ordering the fit gate writes down for its `input` handlers (the verify layer
+	// header names the dependency). Its failure costs the save tool and the nudge, nothing else.
+	optional("verification report saving", () => registerVerifyReportSaving(pi, { phase: routing.phase }), () => {});
 	// The bash guard is a sibling layer and the last registration. It runs on the way to every bash
 	// call, so a guard that cannot start is a degraded layer rather than a failed load, and a guard
 	// that cannot answer leaves the call alone (the handler swallows what it cannot decide).

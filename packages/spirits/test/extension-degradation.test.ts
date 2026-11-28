@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ExtensionContext, SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { PiModel } from "../src/types/host.ts";
-import { COMMAND_SPIRITS_CLEAR, COMMAND_SPIRITS_ROLE, DEFAULT_TODO_TOGGLE_KEY, ENV_ACTION_GUARD, ENV_AGENT_DIR, ROLE_MODEL_STATUS_KEY, ROLE_STATUS_KEY, SETTINGS_FILE_NAME, TOOL_NAME_SKILL_SAVE } from "../src/constants.ts";
+import { COMMAND_SPIRITS_CLEAR, COMMAND_SPIRITS_ROLE, DEFAULT_TODO_TOGGLE_KEY, ENV_ACTION_GUARD, ENV_AGENT_DIR, ROLE_MODEL_STATUS_KEY, ROLE_STATUS_KEY, SETTINGS_FILE_NAME, TOOL_NAME_SKILL_SAVE, TOOL_NAME_VERIFY_REPORT_SAVE } from "../src/constants.ts";
 import { TODO_ENTRY_TYPE } from "../src/todo/state.ts";
 import { MANAGE_TODOS_TOOL_NAME } from "../src/todo/tool.ts";
 import spiritsExtension, { fallbackRoutingPhase } from "../src/index.ts";
@@ -263,6 +263,26 @@ test("a physical parent model still hands its own model to the child", () => {
 	const { ctx } = fakeToolContext({ available: [SONNET] });
 
 	expect(resolve(SONNET, ctx)).toEqual({ model: SONNET });
+});
+
+// The verify layer's registration subscribes to `agent_before_settle`; a host without that event
+// loses the save tool and the nudge, and says so once — the same shape as the other optional layers.
+test("a host that refuses agent_before_settle keeps the core and loses only verification report saving", async () => {
+	class HostWithoutBeforeSettle extends FakePi {
+		override readonly on: ExtensionAPI["on"] = withoutEvent(this.handlers, "agent_before_settle", "agent_before_settle is gone");
+	}
+
+	const pi = new HostWithoutBeforeSettle();
+	expect(() => spiritsExtension(asExtensionApi(pi))).not.toThrow();
+	expectCoreRegistered(pi);
+	expect(toolNames(pi)).not.toContain(TOOL_NAME_VERIFY_REPORT_SAVE);
+
+	const first = fakeCatalog();
+	await pi.fire("session_start", { reason: "startup" }, first.ctx);
+	await pi.fire("session_start", { reason: "resume" }, first.ctx);
+
+	expect(first.notices.filter((notice) => notice.includes("verification report saving"))).toHaveLength(1);
+	expect(pi.errors).toEqual([]);
 });
 
 // The guard is the last registration and sits on the way to every bash call, so the two things worth
